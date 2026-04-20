@@ -7,3 +7,5 @@
 extensions/vscode/out/
 extensions/vscode/node_modules/
 appctl_spec.docx
+*.docx
+appctl_spec.docx
