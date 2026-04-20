@@ -1,0 +1,14 @@
+pub mod ai;
+pub mod auth;
+pub mod chat;
+pub mod cli;
+pub mod config;
+pub mod executor;
+pub mod history;
+pub mod plugins;
+pub mod run;
+pub mod safety;
+pub mod schema;
+pub mod serve;
+pub mod sync;
+pub mod tools;

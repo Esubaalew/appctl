@@ -1,0 +1,71 @@
+[package]
+name = "appctl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "One command. Any app. Full AI control. The universal AI CLI for any web app, database, or service."
+exclude = [
+    ".appctl/",
+    ".appctl.example/",
+    "tests/fixtures/**/target/",
+    "*.docx",
+]
+
+[lib]
+name = "appctl"
+path = "src/lib.rs"
+
+[[bin]]
+name = "appctl"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+appctl-plugin-sdk = { version = "0.1.0", path = "../appctl-plugin-sdk" }
+async-trait = { workspace = true }
+axum = { version = "0.8.9", features = ["ws"] }
+base64 = "0.22.1"
+chrono = { version = "0.4.44", features = ["serde"] }
+clap = { version = "4.6.1", features = ["derive"] }
+dialoguer = "0.12.0"
+dirs = "5.0.1"
+futures = "0.3.32"
+html5ever = "0.39.0"
+indicatif = "0.18.4"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+libloading = "0.8.5"
+oauth2 = "5.0.0"
+owo-colors = "4.3.0"
+regex = "1.12.2"
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "json", "stream", "multipart", "cookies", "http2", "charset", "query", "form"] }
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+rustyline = "18.0.0"
+schemars = { workspace = true }
+scraper = "0.26.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9.34"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql"] }
+tempfile = "3.27.0"
+thiserror = { workspace = true }
+tiny_http = "0.12.0"
+tokio = { workspace = true }
+tokio-tungstenite = "0.29.0"
+toml = "1.1.2"
+tower-http = { version = "0.6.8", features = ["cors", "trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = { version = "2.5.8", features = ["serde"] }
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
+walkdir = "2.5.0"
+
+[dev-dependencies]
+wiremock = "0.6.5"

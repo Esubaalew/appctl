@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/appctl",
+    "crates/appctl-plugin-sdk",
+    "examples/plugins/appctl-airtable",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Esubalew <https://esubalew.dev>"]
+license = "MIT"
+repository = "https://github.com/esubaalew/appctl"
+homepage = "https://esubaalew.github.io/appctl"
+documentation = "https://docs.rs/appctl"
+rust-version = "1.85"
+readme = "README.md"
+keywords = ["cli", "ai", "openapi", "automation", "agent"]
+categories = ["command-line-utilities", "development-tools"]
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+async-trait = "0.1.89"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+schemars = { version = "1.2.1", features = ["chrono04", "url2", "uuid1"] }
+thiserror = "2.0.18"
+tokio = { version = "1.52.1", features = ["full"] }
+tracing = "0.1.44"

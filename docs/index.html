@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>appctl — one command, any app, full AI control</title>
+    <meta
+      name="description"
+      content="appctl is a Rust CLI that introspects any web app, database, or service and turns it into a sandboxed tool layer for any LLM."
+    />
+    <meta property="og:title" content="appctl" />
+    <meta
+      property="og:description"
+      content="One command. Any app. Full AI control."
+    />
+    <meta property="og:url" content="https://esubaalew.github.io/appctl" />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <nav>
+        <span class="logo">appctl</span>
+        <a href="https://github.com/esubaalew/appctl">GitHub</a>
+        <a href="https://crates.io/crates/appctl">crates.io</a>
+        <a href="https://docs.rs/appctl">docs.rs</a>
+      </nav>
+      <h1>One command. Any app. Full&nbsp;AI&nbsp;control.</h1>
+      <p class="lede">
+        <code>appctl</code> introspects any web app, database, or service and
+        turns it into a sandboxed tool layer for any LLM.
+      </p>
+      <pre class="install"><code>cargo install appctl</code></pre>
+      <p class="badges">
+        <a href="https://crates.io/crates/appctl"
+          ><img
+            src="https://img.shields.io/crates/v/appctl.svg?style=flat-square"
+            alt="crates.io"
+        /></a>
+        <a href="https://github.com/esubaalew/appctl/actions"
+          ><img
+            src="https://img.shields.io/github/actions/workflow/status/esubaalew/appctl/ci.yml?branch=main&style=flat-square"
+            alt="CI"
+        /></a>
+        <a href="https://github.com/esubaalew/appctl/blob/main/LICENSE"
+          ><img
+            src="https://img.shields.io/crates/l/appctl.svg?style=flat-square"
+            alt="MIT"
+        /></a>
+      </p>
+    </header>
+
+    <main>
+      <section>
+        <h2>Sources</h2>
+        <ul class="grid">
+          <li><code>--openapi</code> OpenAPI / Swagger</li>
+          <li><code>--rails</code> Ruby on Rails</li>
+          <li><code>--laravel</code> Laravel</li>
+          <li><code>--aspnet</code> ASP.NET Core</li>
+          <li><code>--strapi</code> Strapi</li>
+          <li><code>--supabase</code> Supabase / PostgREST</li>
+          <li><code>--django</code> Django</li>
+          <li><code>--db</code> PostgreSQL / MySQL</li>
+          <li><code>--url</code> Live URL + login / CSRF</li>
+          <li><code>--mcp</code> MCP servers</li>
+          <li><code>--plugin</code> Dynamic plugins</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Use it</h2>
+        <pre><code>appctl sync --openapi https://api.example.com/openapi.json
+appctl chat
+appctl run "Add a user named John"
+appctl serve --port 7878</code></pre>
+      </section>
+
+      <section>
+        <h2>Providers</h2>
+        <p>
+          Any OpenAI-compatible endpoint plus Anthropic: OpenAI, OpenRouter,
+          NVIDIA NIM, Groq, Together, Fireworks, Ollama, LM Studio, vLLM,
+          LiteLLM, Anthropic. Secrets live in the OS keychain.
+        </p>
+      </section>
+
+      <section>
+        <h2>Plugins</h2>
+        <p>
+          Build a <code>cdylib</code> against
+          <a href="https://crates.io/crates/appctl-plugin-sdk"
+            ><code>appctl-plugin-sdk</code></a
+          >
+          and install it:
+        </p>
+        <pre><code>appctl plugin install &lt;path|crate|git-url&gt;
+appctl plugin list</code></pre>
+      </section>
+
+      <section>
+        <h2>Safety</h2>
+        <ul class="grid two">
+          <li><code>--read-only</code> blocks writes.</li>
+          <li><code>--dry-run</code> previews without executing.</li>
+          <li>Mutations prompt by default.</li>
+          <li>Every tool call is logged to a local SQLite audit DB.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        MIT © <a href="https://esubalew.dev">Esubalew</a> ·
+        <a href="https://github.com/esubaalew/appctl">source on GitHub</a>
+      </p>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,85 @@
+{
+  "name": "appctl-vscode",
+  "displayName": "appctl",
+  "description": "VS Code panel for the appctl AI CLI — chat, tool traces, and session history over `appctl serve`.",
+  "version": "0.1.0",
+  "publisher": "esubalew",
+  "author": {
+    "name": "Esubalew",
+    "url": "https://esubalew.dev"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/esubaalew/appctl.git",
+    "directory": "extensions/vscode"
+  },
+  "homepage": "https://appctl.dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "Machine Learning"],
+  "keywords": ["appctl", "ai", "cli", "agent", "openapi"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "appctl",
+          "title": "appctl",
+          "icon": "resources/appctl.svg"
+        }
+      ]
+    },
+    "views": {
+      "appctl": [
+        {
+          "type": "webview",
+          "id": "appctl.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "appctl.openChat",
+        "title": "appctl: Open Chat"
+      },
+      {
+        "command": "appctl.reload",
+        "title": "appctl: Reconnect"
+      }
+    ],
+    "configuration": {
+      "title": "appctl",
+      "properties": {
+        "appctl.serverUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:7878",
+          "description": "Base URL of the running `appctl serve` instance."
+        },
+        "appctl.token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional bearer token passed to appctl serve."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "package": "vsce package --no-yarn"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^3.6.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,9 @@
+/target
+**/target/
+/.appctl
+/.appctl.example
+.DS_Store
+*.vsix
+extensions/vscode/out/
+extensions/vscode/node_modules/
+appctl_spec.docx

@@ -1,0 +1,19 @@
+[workspace]
+# Both crates share a single version line at [workspace.package].
+dependencies_update = true
+changelog_update = true
+git_release_enable = true
+semver_check = true
+
+# Publish SDK before the CLI; release-plz already computes the dep graph,
+# but we keep the explicit order here for documentation and review clarity.
+publish_timeout = "30m"
+
+[[package]]
+name = "appctl-plugin-sdk"
+changelog_include = ["appctl-plugin-sdk"]
+
+[[package]]
+name = "appctl"
+changelog_include = ["appctl"]
+# The CLI depends on the SDK; release-plz will publish them in the right order.

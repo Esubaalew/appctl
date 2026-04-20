@@ -1,0 +1,22 @@
+[package]
+name = "appctl-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["appctl", "plugin", "sdk", "ai", "automation"]
+categories = ["api-bindings", "development-tools"]
+description = "Stable schema + dynamic plugin ABI for the appctl CLI agent"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }

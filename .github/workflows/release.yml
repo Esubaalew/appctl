@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  dist:
+    name: cargo-dist
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config gcc-aarch64-linux-gnu
+      - name: Build binary
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin appctl
+      - name: Stage artifact
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          name="appctl-${tag}-${{ matrix.target }}"
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp "target/${{ matrix.target }}/release/appctl.exe" "dist/${name}.exe"
+            (cd dist && 7z a "${name}.zip" "${name}.exe")
+          else
+            cp "target/${{ matrix.target }}/release/appctl" "dist/${name}"
+            chmod +x "dist/${name}"
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+
+  vscode:
+    name: VS Code .vsix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: extensions/vscode/package-lock.json
+      - working-directory: extensions/vscode
+        run: |
+          npm ci
+          npm run compile
+          npx vsce package --no-yarn --no-dependencies -o "appctl-vscode-${GITHUB_REF_NAME}.vsix"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: extensions/vscode/*.vsix
