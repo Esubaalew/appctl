@@ -94,9 +94,130 @@ section {
   margin-bottom: 44px;
 }
 section h2 {
-  font-size: 20px;
+  font-size: 22px;
   letter-spacing: -0.01em;
+  margin: 0 0 14px;
+}
+section h3 {
+  font-size: 15px;
+  letter-spacing: 0;
+  margin: 24px 0 10px;
+  color: var(--fg);
+}
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+.hero nav a {
+  color: var(--muted);
+}
+.hero nav a:hover {
+  color: var(--accent);
+}
+
+.steps {
+  padding-left: 22px;
   margin: 0 0 12px;
+}
+.steps li {
+  margin-bottom: 10px;
+  color: var(--muted);
+}
+.steps li strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.chat {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.msg {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.msg.user {
+  background: #16222e;
+  border: 1px solid #1f3244;
+  color: var(--fg);
+  align-self: flex-end;
+  max-width: 85%;
+}
+.msg.agent {
+  background: #152318;
+  border: 1px solid #1e3424;
+  color: var(--fg);
+  align-self: flex-start;
+  max-width: 85%;
+}
+.msg.tool {
+  background: var(--code-bg);
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 12.5px;
+  align-self: stretch;
+}
+.msg.tool code {
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.msg.tool .args {
+  color: var(--accent-2);
+}
+.msg.tool .mut {
+  color: #ffb86b;
+  font-style: italic;
+  margin-left: 6px;
+}
+
+details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: var(--panel);
+}
+details[open] {
+  background: var(--code-bg);
+}
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--fg);
+  list-style: none;
+}
+details summary::-webkit-details-marker {
+  display: none;
+}
+details summary::before {
+  content: "+ ";
+  color: var(--accent);
+  font-weight: 700;
+}
+details[open] summary::before {
+  content: "– ";
+}
+details p,
+details ol {
+  color: var(--muted);
+  margin: 8px 0 0;
+  font-size: 14.5px;
+}
+details ol {
+  padding-left: 20px;
 }
 
 .grid {

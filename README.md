@@ -7,6 +7,11 @@ it. Point it at an OpenAPI spec, a database, a Rails / Laravel / ASP.NET /
 Strapi / Supabase project, a Django codebase, an MCP server, or a live URL,
 and you get a sandboxed agent for that app.
 
+**Setup is CLI. Daily use is a conversation.** A dev runs `sync`, `auth login`,
+and `serve` once. After that, end users type plain English into `appctl chat`,
+the VS Code panel, or any UI that speaks to `appctl serve` &mdash; the LLM
+picks the right tool under the hood. Nobody memorises CRUD commands.
+
 - Site: <https://esubaalew.github.io/appctl>
 - Repo: <https://github.com/esubaalew/appctl>
 - Author: [Esubalew](https://esubalew.dev)
