@@ -12,6 +12,10 @@
 * {
   box-sizing: border-box;
 }
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
 html,
 body {
   margin: 0;
@@ -176,6 +180,8 @@ section h3 {
 }
 .msg.tool .args {
   color: var(--accent-2);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .msg.tool .mut {
   color: #ffb86b;
@@ -280,4 +286,94 @@ footer {
   font-size: 13px;
   border-top: 1px solid var(--border);
   text-align: center;
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding: 20px 16px 36px;
+  }
+  .hero nav {
+    gap: 8px 14px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+    font-size: 13px;
+  }
+  .hero .logo {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 4px;
+  }
+  .hero h1 {
+    font-size: 30px;
+    line-height: 1.1;
+  }
+  .hero .lede {
+    font-size: 15.5px;
+    margin-bottom: 20px;
+  }
+  .hero .install {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+  }
+  .badges {
+    margin-top: 14px;
+  }
+
+  main {
+    padding: 28px 16px;
+  }
+  section {
+    margin-bottom: 36px;
+  }
+  section h2 {
+    font-size: 19px;
+  }
+  section h3 {
+    font-size: 14.5px;
+    margin-top: 20px;
+  }
+
+  pre {
+    font-size: 12.5px;
+    padding: 12px;
+    border-radius: 6px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .chat {
+    padding: 8px;
+    gap: 6px;
+  }
+  .msg {
+    font-size: 13.5px;
+    padding: 9px 11px;
+  }
+  .msg.user,
+  .msg.agent {
+    max-width: 95%;
+  }
+  .msg.tool {
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  details {
+    padding: 10px 12px;
+  }
+  details summary {
+    font-size: 14.5px;
+  }
+
+  footer {
+    padding: 20px 16px;
+    line-height: 1.7;
+  }
 }
