@@ -355,12 +355,10 @@ fn detect_auth(document: &Value) -> AuthStrategy {
                     env_ref: name.clone(),
                 };
             }
-            "http" => {
-                if scheme.get("scheme").and_then(Value::as_str) == Some("bearer") {
-                    return AuthStrategy::Bearer {
-                        env_ref: name.clone(),
-                    };
-                }
+            "http" if scheme.get("scheme").and_then(Value::as_str) == Some("bearer") => {
+                return AuthStrategy::Bearer {
+                    env_ref: name.clone(),
+                };
             }
             "basic" => {
                 return AuthStrategy::Basic {
