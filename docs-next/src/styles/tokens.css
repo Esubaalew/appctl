@@ -1,0 +1,11 @@
+/* appctl palette tokens shared with the VS Code webview and web UI. */
+:root {
+  --appctl-bg: #0b0d10;
+  --appctl-fg: #e7ecf2;
+  --appctl-muted: #8a94a4;
+  --appctl-accent: #7cc4ff;
+  --appctl-accent-2: #a8ff9a;
+  --appctl-panel: #141820;
+  --appctl-border: #222833;
+  --appctl-code-bg: #0f1319;
+}

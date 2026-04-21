@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b0d10"/>
+      <stop offset="1" stop-color="#141920"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="600" y2="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a8ff9a" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#7cc4ff" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0 L0 0 0 48" fill="none" stroke="#1b2129" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="220" cy="180" r="420" fill="url(#glow)"/>
+
+  <g transform="translate(80, 80)">
+    <rect width="64" height="64" rx="14" fill="#0b0d10" stroke="#1f262f" stroke-width="1.5"/>
+    <path d="M18 46 L32 32 L18 18" stroke="#a8ff9a" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="36" y1="46" x2="50" y2="46" stroke="#7cc4ff" stroke-width="5" stroke-linecap="round"/>
+    <text x="84" y="46" font-family="Inter, system-ui, sans-serif" font-size="36" font-weight="600" fill="#e7ecf2">appctl</text>
+  </g>
+
+  <g transform="translate(80, 250)">
+    <text font-family="Inter, system-ui, sans-serif" font-size="76" font-weight="700" fill="#e7ecf2" letter-spacing="-2">
+      <tspan x="0" dy="0">Your app.</tspan>
+      <tspan x="0" dy="90">Any LLM.</tspan>
+      <tspan x="0" dy="90" fill="#a8ff9a">One sync.</tspan>
+    </text>
+  </g>
+
+  <g transform="translate(80, 560)">
+    <text font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="400" fill="#9aa3ad">
+      Open-source agent runtime for FastAPI, Django, Rails, Laravel, ASP.NET, SQL, and MCP.
+    </text>
+  </g>
+
+  <g transform="translate(720, 180)">
+    <rect width="400" height="300" rx="14" fill="#10151b" stroke="#1f262f" stroke-width="1.5"/>
+    <g transform="translate(16, 16)">
+      <circle cx="6" cy="6" r="6" fill="#ff5f56"/>
+      <circle cx="26" cy="6" r="6" fill="#ffbd2e"/>
+      <circle cx="46" cy="6" r="6" fill="#27c93f"/>
+    </g>
+    <g font-family="JetBrains Mono, monospace" font-size="15" fill="#cbd3dc">
+      <text x="24" y="68"><tspan fill="#7cc4ff">$</tspan> appctl chat</text>
+      <text x="24" y="104" fill="#9aa3ad">&gt; list all parcels in Addis Ababa</text>
+      <text x="24" y="144" fill="#a8ff9a">--&gt; tool: list_parcels</text>
+      <text x="24" y="172" fill="#cbd3dc">    city: "Addis Ababa"</text>
+      <text x="24" y="212" fill="#a8ff9a">&lt;-- 12 results</text>
+      <text x="24" y="252" fill="#e7ecf2">I found 12 parcels in Addis</text>
+      <text x="24" y="276" fill="#e7ecf2">Ababa. Want the full list?</text>
+    </g>
+  </g>
+</svg>

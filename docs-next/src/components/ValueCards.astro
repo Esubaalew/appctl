@@ -1,0 +1,57 @@
+---
+const cards = [
+  {
+    title: 'Your app stays yours',
+    body:
+      'appctl reads your routes or schema and calls your existing endpoints. No data export, no rewrite, no new database.',
+  },
+  {
+    title: 'Any LLM works',
+    body:
+      'Bring OpenAI, Anthropic, Google, xAI, Mistral, or a local model. Pick per project, switch any time.',
+  },
+  {
+    title: 'Every call is audited',
+    body:
+      'Each tool call is logged with provenance, arguments, and status. Replay runs, or export to your own sink.',
+  },
+];
+---
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .card {
+    padding: 22px;
+    border: 1px solid var(--appctl-border);
+    border-radius: 12px;
+    background: var(--appctl-panel);
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    letter-spacing: -0.005em;
+  }
+  .card p {
+    margin: 0;
+    color: var(--appctl-muted);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+</style>
+
+<div class="grid">
+  {cards.map((c) => (
+    <div class="card">
+      <h3>{c.title}</h3>
+      <p>{c.body}</p>
+    </div>
+  ))}
+</div>

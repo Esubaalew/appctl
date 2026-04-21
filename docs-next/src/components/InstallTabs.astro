@@ -1,0 +1,107 @@
+---
+const tabs = [
+  { id: 'cargo', label: 'Cargo', cmd: 'cargo install appctl' },
+  { id: 'source', label: 'From source', cmd: 'cargo install --path crates/appctl' },
+  { id: 'release', label: 'Prebuilt', cmd: 'gh release download -R Esubaalew/appctl' },
+];
+---
+<style>
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .tab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--appctl-border);
+    color: var(--appctl-muted);
+    font-family: inherit;
+    font-size: 13px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .tab[data-active='true'] {
+    color: var(--appctl-fg);
+    border-color: var(--appctl-accent);
+    background: rgba(124, 196, 255, 0.08);
+  }
+  .cmd {
+    position: relative;
+    background: var(--appctl-code-bg);
+    border: 1px solid var(--appctl-border);
+    border-radius: 8px;
+    padding: 12px 44px 12px 14px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13.5px;
+    color: var(--appctl-fg);
+    overflow-x: auto;
+  }
+  .cmd[data-visible='false'] {
+    display: none;
+  }
+  .copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: transparent;
+    border: 1px solid var(--appctl-border);
+    color: var(--appctl-muted);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .copy:hover {
+    color: var(--appctl-fg);
+    border-color: var(--appctl-accent);
+  }
+</style>
+
+<div class="install-widget">
+  <div class="tabs" role="tablist">
+    {tabs.map((t, i) => (
+      <button
+        class="tab"
+        role="tab"
+        data-tab={t.id}
+        data-active={i === 0 ? 'true' : 'false'}
+      >{t.label}</button>
+    ))}
+  </div>
+  {tabs.map((t, i) => (
+    <div class="cmd" data-panel={t.id} data-visible={i === 0 ? 'true' : 'false'}>
+      <span>$ {t.cmd}</span>
+      <button class="copy" data-copy={t.cmd}>Copy</button>
+    </div>
+  ))}
+</div>
+
+<script>
+  const root = document.querySelector('.install-widget');
+  if (root) {
+    const tabs = root.querySelectorAll<HTMLButtonElement>('[data-tab]');
+    const panels = root.querySelectorAll<HTMLElement>('[data-panel]');
+    tabs.forEach((t) => {
+      t.addEventListener('click', () => {
+        const id = t.dataset.tab;
+        tabs.forEach((x) => x.setAttribute('data-active', x.dataset.tab === id ? 'true' : 'false'));
+        panels.forEach((p) => p.setAttribute('data-visible', p.dataset.panel === id ? 'true' : 'false'));
+      });
+    });
+    root.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const text = b.dataset.copy ?? '';
+        try {
+          await navigator.clipboard.writeText(text);
+          const original = b.textContent;
+          b.textContent = 'Copied';
+          setTimeout(() => (b.textContent = original), 1200);
+        } catch {
+          /* clipboard unavailable */
+        }
+      });
+    });
+  }
+</script>

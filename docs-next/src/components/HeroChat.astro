@@ -1,0 +1,75 @@
+---
+---
+<style>
+  .terminal {
+    border-radius: 12px;
+    border: 1px solid var(--appctl-border);
+    background: linear-gradient(180deg, #10141b, #0c0f14);
+    overflow: hidden;
+    box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13.5px;
+    color: var(--appctl-fg);
+  }
+  .title-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--appctl-border);
+    background: #0a0d12;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .dot.r { background: #ff5f56; }
+  .dot.y { background: #ffbd2e; }
+  .dot.g { background: #27c93f; }
+  .title {
+    margin-left: 10px;
+    font-size: 12px;
+    color: var(--appctl-muted);
+  }
+  .body {
+    padding: 18px 18px 22px;
+    display: grid;
+    gap: 10px;
+    line-height: 1.5;
+  }
+  .prompt { color: var(--appctl-accent); }
+  .user { color: #d7e3f3; }
+  .out { color: var(--appctl-muted); }
+  .ok { color: var(--appctl-accent-2); }
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(124, 196, 255, 0.12);
+    color: var(--appctl-accent);
+    font-size: 11px;
+    border: 1px solid rgba(124, 196, 255, 0.25);
+    margin-right: 8px;
+  }
+  .line { display: block; }
+</style>
+
+<div class="terminal" role="img" aria-label="Terminal showing an appctl chat session refunding an order">
+  <div class="title-bar">
+    <span class="dot r"></span>
+    <span class="dot y"></span>
+    <span class="dot g"></span>
+    <span class="title">appctl chat · billing</span>
+  </div>
+  <div class="body">
+    <span class="line"><span class="prompt">&gt;</span> <span class="user">refund order 1042 as a one-time courtesy</span></span>
+    <span class="line"><span class="tag">plan</span> refunds.create · amount=49.00 · reason=&quot;courtesy&quot;</span>
+    <span class="line"><span class="tag">call</span> POST /api/refunds/ 201 Created</span>
+    <span class="line ok">refunded $49.00 for order #1042</span>
+    <span class="line"></span>
+    <span class="line"><span class="prompt">&gt;</span> <span class="user">did this ever happen before for this customer?</span></span>
+    <span class="line"><span class="tag">call</span> GET /api/refunds/?customer=14 200 OK</span>
+    <span class="line out">two prior refunds in the last 90 days</span>
+  </div>
+</div>

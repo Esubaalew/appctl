@@ -1,0 +1,275 @@
+---
+import HeroChat from './HeroChat.astro';
+import ValueCards from './ValueCards.astro';
+import InstallTabs from './InstallTabs.astro';
+
+const base = import.meta.env.BASE_URL;
+const docsHref = `${base}docs/quickstart/`;
+const githubHref = 'https://github.com/Esubaalew/appctl';
+---
+<style>
+  :global(body) {
+    margin: 0;
+    background: var(--appctl-bg);
+    color: var(--appctl-fg);
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  :global(a) {
+    color: inherit;
+  }
+  :global(*) {
+    box-sizing: border-box;
+  }
+
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: saturate(140%) blur(8px);
+    background: color-mix(in oklab, var(--appctl-bg) 85%, transparent);
+    border-bottom: 1px solid var(--appctl-border);
+  }
+  .nav-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    color: var(--appctl-fg);
+  }
+  .brand svg {
+    display: block;
+  }
+  .nav-links {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--appctl-muted);
+  }
+  .nav-links a {
+    text-decoration: none;
+  }
+  .nav-links a:hover {
+    color: var(--appctl-fg);
+  }
+
+  .hero {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 72px 24px 40px;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 56px;
+    align-items: center;
+  }
+  @media (max-width: 900px) {
+    .hero {
+      grid-template-columns: 1fr;
+      padding-top: 48px;
+      gap: 32px;
+    }
+  }
+  .eyebrow {
+    display: inline-block;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--appctl-accent);
+    background: color-mix(in oklab, var(--appctl-accent) 12%, transparent);
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--appctl-accent) 25%, transparent);
+  }
+  h1 {
+    font-size: clamp(36px, 5vw, 56px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 18px 0 16px;
+    font-weight: 700;
+  }
+  .lede {
+    color: var(--appctl-muted);
+    font-size: 18px;
+    max-width: 52ch;
+    margin: 0 0 24px;
+  }
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 500;
+    text-decoration: none;
+    font-size: 15px;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .btn-primary {
+    background: var(--appctl-accent);
+    color: #001423;
+    border: 1px solid var(--appctl-accent);
+  }
+  .btn-primary:hover {
+    background: #9ed5ff;
+    border-color: #9ed5ff;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--appctl-fg);
+    border: 1px solid var(--appctl-border);
+  }
+  .btn-ghost:hover {
+    border-color: var(--appctl-accent);
+    color: var(--appctl-accent);
+  }
+
+  .install {
+    margin-top: 12px;
+    max-width: 560px;
+  }
+
+  section.values {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 48px 24px 24px;
+  }
+  .section-title {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--appctl-muted);
+    margin: 0 0 20px;
+  }
+
+  .cta-strip {
+    max-width: 1120px;
+    margin: 40px auto 64px;
+    padding: 28px 24px;
+    border: 1px solid var(--appctl-border);
+    border-radius: 14px;
+    background:
+      radial-gradient(800px 200px at 20% 0%, color-mix(in oklab, var(--appctl-accent) 14%, transparent), transparent),
+      var(--appctl-panel);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .cta-strip h2 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .cta-strip p {
+    margin: 6px 0 0;
+    color: var(--appctl-muted);
+    font-size: 15px;
+  }
+
+  footer {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 20px 24px 48px;
+    border-top: 1px solid var(--appctl-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    color: var(--appctl-muted);
+    font-size: 14px;
+  }
+  footer a {
+    color: var(--appctl-muted);
+    text-decoration: none;
+  }
+  footer a:hover {
+    color: var(--appctl-fg);
+  }
+</style>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href={base}>
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
+        <rect width="32" height="32" rx="6" fill="#0b0d10"/>
+        <path d="M8 22 L14 16 L8 10" stroke="#a8ff9a" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="16" y1="22" x2="24" y2="22" stroke="#7cc4ff" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span>appctl</span>
+    </a>
+    <nav class="nav-links">
+      <a href={`${base}docs/introduction/`}>Docs</a>
+      <a href={`${base}docs/quickstart/`}>Quickstart</a>
+      <a href={`${base}docs/cli/sync/`}>CLI</a>
+      <a href={githubHref} target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div>
+    <span class="eyebrow">v0.2 · Rust · MIT</span>
+    <h1>Talk to your app. In plain English.</h1>
+    <p class="lede">
+      appctl points at your existing app, reads its routes or schema, and turns them into
+      typed tools an LLM can call. Every action is logged. Your data stays where it lives.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href={docsHref}>Get started</a>
+      <a class="btn btn-ghost" href={githubHref} target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+    <div class="install">
+      <InstallTabs />
+    </div>
+  </div>
+  <div>
+    <HeroChat />
+  </div>
+</section>
+
+<section class="values">
+  <h2 class="section-title">Why appctl</h2>
+  <ValueCards />
+</section>
+
+<section>
+  <div class="cta-strip">
+    <div>
+      <h2>Read the quickstart.</h2>
+      <p>Spin up a demo app, run appctl sync, and chat with it in under five minutes.</p>
+    </div>
+    <a class="btn btn-primary" href={docsHref}>Open quickstart</a>
+  </div>
+</section>
+
+<footer>
+  <div>© {new Date().getFullYear()} appctl contributors. MIT licensed.</div>
+  <div style="display:flex; gap:18px;">
+    <a href={githubHref} target="_blank" rel="noopener">GitHub</a>
+    <a href="https://crates.io/crates/appctl" target="_blank" rel="noopener">crates.io</a>
+    <a href={`${base}docs/changelog/`}>Changelog</a>
+  </div>
+</footer>
