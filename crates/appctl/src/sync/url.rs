@@ -9,8 +9,8 @@ use serde_json::Map;
 use crate::{
     config::ConfigPaths,
     schema::{
-        Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Provenance,
-        Resource, Safety, Schema, SyncSource, Transport, Verb,
+        Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
+        Schema, SyncSource, Transport, Verb,
     },
 };
 
@@ -226,7 +226,6 @@ impl SyncPlugin for UrlSync {
                         Safety::Mutating
                     },
                     resource: Some(resource_name),
-                    provenance: Provenance::Inferred,
                     metadata: Map::new(),
                 }],
             });

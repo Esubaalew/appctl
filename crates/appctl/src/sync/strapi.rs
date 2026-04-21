@@ -7,8 +7,8 @@ use serde_json::{Map, Value};
 use walkdir::WalkDir;
 
 use crate::schema::{
-    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Provenance, Resource,
-    Safety, Schema, SyncSource, Transport, Verb,
+    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
+    Schema, SyncSource, Transport, Verb,
 };
 
 use super::SyncPlugin;
@@ -150,7 +150,6 @@ fn crud_actions(name: &str, base: &str, fields: &[Field]) -> Vec<Action> {
             parameters: Vec::new(),
             safety: safety_read.clone(),
             resource: Some(name.to_string()),
-            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -165,7 +164,6 @@ fn crud_actions(name: &str, base: &str, fields: &[Field]) -> Vec<Action> {
             parameters: vec![id_param.clone()],
             safety: safety_read,
             resource: Some(name.to_string()),
-            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -180,7 +178,6 @@ fn crud_actions(name: &str, base: &str, fields: &[Field]) -> Vec<Action> {
             parameters: data_params.clone(),
             safety: safety_write.clone(),
             resource: Some(name.to_string()),
-            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -199,7 +196,6 @@ fn crud_actions(name: &str, base: &str, fields: &[Field]) -> Vec<Action> {
             },
             safety: safety_write,
             resource: Some(name.to_string()),
-            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -214,7 +210,6 @@ fn crud_actions(name: &str, base: &str, fields: &[Field]) -> Vec<Action> {
             parameters: vec![id_param],
             safety: safety_del,
             resource: Some(name.to_string()),
-            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
     ]

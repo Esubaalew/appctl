@@ -9,8 +9,8 @@ use serde_json::Map;
 use walkdir::WalkDir;
 
 use crate::schema::{
-    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Provenance, Resource,
-    Safety, Schema, SyncSource, Transport, Verb,
+    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
+    Schema, SyncSource, Transport, Verb,
 };
 
 use super::{SyncPlugin, openapi::OpenApiSync};
@@ -161,7 +161,6 @@ fn do_parse_controller(src: &str, path: &std::path::Path) -> Result<Resource> {
                 _ => Safety::Mutating,
             },
             resource: Some(resource_name.clone()),
-            provenance: Provenance::Inferred,
             metadata: Map::new(),
         });
     }

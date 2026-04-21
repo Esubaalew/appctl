@@ -1,8 +1,0 @@
-{
-  "name": "appctl-mcp-stdio-demo",
-  "private": true,
-  "version": "0.0.1",
-  "type": "module",
-  "bin": { "mcp-demo": "./server.mjs" },
-  "scripts": { "start": "node server.mjs" }
-}

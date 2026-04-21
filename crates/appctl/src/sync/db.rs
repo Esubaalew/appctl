@@ -3,8 +3,8 @@ use serde_json::Map;
 use sqlx::Row;
 
 use crate::schema::{
-    Action, AuthStrategy, DatabaseKind, Field, FieldType, ParameterLocation, Provenance, Resource,
-    Safety, Schema, SqlOperation, SyncSource, Transport, Verb,
+    Action, AuthStrategy, DatabaseKind, Field, FieldType, ParameterLocation, Resource, Safety,
+    Schema, SqlOperation, SyncSource, Transport, Verb,
 };
 
 use super::SyncPlugin;
@@ -218,7 +218,6 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
                 parameters: Vec::new(),
                 safety: Safety::ReadOnly,
                 resource: Some(resource_name.clone()),
-                provenance: Provenance::Declared,
                 metadata: Map::new(),
             },
             Action {
@@ -234,7 +233,6 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
                 parameters: vec![pk_field.clone()],
                 safety: Safety::ReadOnly,
                 resource: Some(resource_name.clone()),
-                provenance: Provenance::Declared,
                 metadata: Map::new(),
             },
             Action {
@@ -254,7 +252,6 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
                     .collect(),
                 safety: Safety::Mutating,
                 resource: Some(resource_name.clone()),
-                provenance: Provenance::Declared,
                 metadata: Map::new(),
             },
             Action {
@@ -274,7 +271,6 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
                 },
                 safety: Safety::Mutating,
                 resource: Some(resource_name.clone()),
-                provenance: Provenance::Declared,
                 metadata: Map::new(),
             },
             Action {
@@ -290,7 +286,6 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
                 parameters: vec![pk_field],
                 safety: Safety::Destructive,
                 resource: Some(resource_name),
-                provenance: Provenance::Declared,
                 metadata: Map::new(),
             },
         ],

@@ -6,7 +6,7 @@
   "publisher": "esubalew",
   "author": {
     "name": "Esubalew",
-    "url": "https://esubaalew.dev"
+    "url": "https://esubalew.dev"
   },
   "license": "MIT",
   "repository": {
@@ -38,14 +38,6 @@
           "type": "webview",
           "id": "appctl.chat",
           "name": "Chat"
-        },
-        {
-          "id": "appctl.tools",
-          "name": "Tools"
-        },
-        {
-          "id": "appctl.history",
-          "name": "History"
         }
       ]
     },
@@ -57,26 +49,6 @@
       {
         "command": "appctl.reload",
         "title": "appctl: Reconnect"
-      },
-      {
-        "command": "appctl.sync",
-        "title": "appctl: Sync (run in terminal)"
-      },
-      {
-        "command": "appctl.changeProvider",
-        "title": "appctl: Open provider settings"
-      },
-      {
-        "command": "appctl.openWebUi",
-        "title": "appctl: Open web UI in browser"
-      },
-      {
-        "command": "appctl.refreshTools",
-        "title": "appctl: Refresh Tools"
-      },
-      {
-        "command": "appctl.refreshHistory",
-        "title": "appctl: Refresh History"
       }
     ],
     "configuration": {
@@ -84,7 +56,7 @@
       "properties": {
         "appctl.serverUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:4242",
+          "default": "http://127.0.0.1:7878",
           "description": "Base URL of the running `appctl serve` instance."
         },
         "appctl.token": {

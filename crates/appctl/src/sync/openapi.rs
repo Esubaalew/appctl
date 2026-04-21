@@ -122,7 +122,6 @@ fn build_resources(document: &Value) -> Result<Vec<Resource>> {
                 parameters,
                 safety: safety_from_method_name(method_name),
                 resource: Some(resource.name.clone()),
-                provenance: crate::schema::Provenance::Declared,
                 metadata: Map::new(),
             };
 

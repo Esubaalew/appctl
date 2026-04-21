@@ -27,8 +27,6 @@
         <a href="#interfaces">Interfaces</a>
         <a href="#production">Production</a>
         <a href="#faq">FAQ</a>
-        <a href="#will-it-work">Will it work?</a>
-        <a href="deploy/">Deploy</a>
         <a href="https://github.com/esubaalew/appctl">GitHub</a>
         <a href="https://crates.io/crates/appctl">crates.io</a>
         <a href="https://docs.rs/appctl">docs.rs</a>
@@ -109,8 +107,8 @@ $ appctl auth login acme \
     --scopes "orders:write customers:read"
 Tokens stored in system keychain.
 
-$ appctl serve --port 4242
-Listening on 127.0.0.1:4242  (HTTP + WebSocket + web UI)</code></pre>
+$ appctl serve --port 7878
+Listening on 127.0.0.1:7878  (HTTP + WebSocket)</code></pre>
 
         <h3>2. A support agent talks to it &mdash; no CLI, no CRUD</h3>
         <p>
@@ -267,116 +265,8 @@ appctl sync --plugin airtable</code></pre>
         </p>
       </section>
 
-      <section id="will-it-work">
-        <h2>Will my app work?</h2>
-        <p class="muted">
-          <code>appctl</code> only exposes tools it can justify. Framework sync
-          checks for a real API surface (for example Django REST Framework).
-          When in doubt, run <code>appctl doctor</code> after
-          <code>sync</code> to probe routes, or use
-          <code>--strict</code> on <code>chat</code> / <code>run</code> /
-          <code>serve</code> to block unverified HTTP tools until you verify
-          them.
-        </p>
-        <div class="table-wrap">
-          <table class="matrix">
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Needs</th>
-                <th>If it won&rsquo;t sync</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><code>--openapi</code></td>
-                <td>Valid OpenAPI 2/3 (URL or file)</td>
-                <td>Fix the spec or point at <code>/openapi.json</code>.</td>
-              </tr>
-              <tr>
-                <td><code>--django</code></td>
-                <td>
-                  <strong>Django REST Framework</strong> in
-                  <code>INSTALLED_APPS</code>
-                </td>
-                <td>
-                  Plain Django templates/session apps: use
-                  <code>--url</code> for browser login flows, or add DRF and
-                  re-run <code>sync</code>.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--rails</code></td>
-                <td>
-                  <code>routes.rb</code> with API routes (or similar) we can
-                  parse
-                </td>
-                <td>
-                  If no API routes are found, sync warns and skips phantom HTTP
-                  tools; use <code>--openapi</code> or <code>--url</code>.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--laravel</code></td>
-                <td><code>routes/api.php</code> (or parsed API routes)</td>
-                <td>
-                  No routes parsed &rarr; warnings only; prefer
-                  <code>--openapi</code> if you publish a spec.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--aspnet</code></td>
-                <td>Swagger/OpenAPI artifact or <code>[ApiController]</code></td>
-                <td>
-                  Publish <code>swagger.json</code> or fall back to
-                  <code>--openapi</code> / <code>--url</code>.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--strapi</code> / <code>--supabase</code></td>
-                <td>Project layout + REST/OpenAPI we can reach</td>
-                <td>
-                  Check base URL and anon keys; see
-                  <a href="sources/strapi/">Strapi</a> /
-                  <a href="sources/supabase/">Supabase</a> docs.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--db</code></td>
-                <td>Postgres or MySQL connection string</td>
-                <td>SQL tools are introspected from the live schema.</td>
-              </tr>
-              <tr>
-                <td><code>--url</code></td>
-                <td>Login page + forms we can automate</td>
-                <td>
-                  Use for session/HTML apps when there is no machine-readable
-                  API.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--mcp</code></td>
-                <td>MCP server URL</td>
-                <td>See <a href="sources/mcp/">MCP</a> limits.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section id="faq">
         <h2>FAQ</h2>
-
-        <details>
-          <summary>Will my Django / Rails app get fake /api tools?</summary>
-          <p>
-            Not silently. Django sync requires DRF in settings; otherwise HTTP
-            tools are omitted and a warning is stored in schema metadata.
-            Rails/Laravel/ASP.NET sync warns when no API routes are detected.
-            Run <code>appctl doctor --write</code> to probe and mark routes as
-            verified where possible.
-          </p>
-        </details>
 
         <details>
           <summary>Do end users need to know any CLI commands?</summary>
@@ -410,9 +300,7 @@ appctl sync --plugin airtable</code></pre>
             (<code>POST /run</code>) or WebSocket (<code>/chat</code>),
             streams back tool events, and renders them however you like. The
             VS Code extension is a worked example; copy its WebSocket client
-            into your own app and you're done. See also
-            <a href="deploy/">Deploy &amp; embed</a> for LAN/Tailscale and a
-            short threat model.
+            into your own app and you're done.
           </p>
         </details>
 
