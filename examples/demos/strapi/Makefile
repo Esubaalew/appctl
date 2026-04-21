@@ -1,5 +1,10 @@
-STRAPI_ROOT ?= .
+PORT ?= 1337
+BASE ?= http://localhost:$(PORT)
 
 .PHONY: sync
+
 sync:
-	appctl sync --strapi $(STRAPI_ROOT) --force
+	appctl sync --strapi . --base-url $(BASE) --force
+
+chat:
+	appctl chat "$(MSG)"

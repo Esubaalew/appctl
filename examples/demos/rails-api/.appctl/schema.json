@@ -1,0 +1,546 @@
+{
+  "source": "rails",
+  "base_url": "http://127.0.0.1:3001",
+  "auth": {
+    "kind": "bearer",
+    "env_ref": "RAILS_API_TOKEN"
+  },
+  "resources": [
+    {
+      "name": "post",
+      "description": null,
+      "fields": [
+        {
+          "name": "title",
+          "description": null,
+          "field_type": "string",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "body",
+          "description": null,
+          "field_type": "string",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "author_id",
+          "description": null,
+          "field_type": "integer",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "published_at",
+          "description": null,
+          "field_type": "date_time",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "featured",
+          "description": null,
+          "field_type": "boolean",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "created_at",
+          "description": null,
+          "field_type": "date_time",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "updated_at",
+          "description": null,
+          "field_type": "date_time",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        }
+      ],
+      "actions": [
+        {
+          "name": "posts_list",
+          "description": null,
+          "verb": "list",
+          "transport": {
+            "kind": "http",
+            "method": "GET",
+            "path": "/api/v1/posts",
+            "query": []
+          },
+          "parameters": [],
+          "safety": "read_only",
+          "resource": "post",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "post_get",
+          "description": null,
+          "verb": "get",
+          "transport": {
+            "kind": "http",
+            "method": "GET",
+            "path": "/api/v1/posts/{id}",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "id",
+              "description": null,
+              "field_type": "string",
+              "required": true,
+              "location": "path",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "read_only",
+          "resource": "post",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "post_create",
+          "description": null,
+          "verb": "create",
+          "transport": {
+            "kind": "http",
+            "method": "POST",
+            "path": "/api/v1/posts",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "title",
+              "description": null,
+              "field_type": "string",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "body",
+              "description": null,
+              "field_type": "string",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "author_id",
+              "description": null,
+              "field_type": "integer",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "published_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "featured",
+              "description": null,
+              "field_type": "boolean",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "created_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "updated_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "mutating",
+          "resource": "post",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "post_update",
+          "description": null,
+          "verb": "update",
+          "transport": {
+            "kind": "http",
+            "method": "PATCH",
+            "path": "/api/v1/posts/{id}",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "id",
+              "description": null,
+              "field_type": "string",
+              "required": true,
+              "location": "path",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "title",
+              "description": null,
+              "field_type": "string",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "body",
+              "description": null,
+              "field_type": "string",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "author_id",
+              "description": null,
+              "field_type": "integer",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "published_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "featured",
+              "description": null,
+              "field_type": "boolean",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "created_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "updated_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "mutating",
+          "resource": "post",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "post_delete",
+          "description": null,
+          "verb": "delete",
+          "transport": {
+            "kind": "http",
+            "method": "DELETE",
+            "path": "/api/v1/posts/{id}",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "id",
+              "description": null,
+              "field_type": "string",
+              "required": true,
+              "location": "path",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "destructive",
+          "resource": "post",
+          "provenance": "inferred",
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "name": "comment",
+      "description": null,
+      "fields": [
+        {
+          "name": "body",
+          "description": null,
+          "field_type": "string",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "post_id",
+          "description": null,
+          "field_type": "integer",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "created_at",
+          "description": null,
+          "field_type": "date_time",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        },
+        {
+          "name": "updated_at",
+          "description": null,
+          "field_type": "date_time",
+          "required": false,
+          "location": "body",
+          "default": null,
+          "enum_values": []
+        }
+      ],
+      "actions": [
+        {
+          "name": "comments_list",
+          "description": null,
+          "verb": "list",
+          "transport": {
+            "kind": "http",
+            "method": "GET",
+            "path": "/api/v1/comments",
+            "query": []
+          },
+          "parameters": [],
+          "safety": "read_only",
+          "resource": "comment",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "comment_get",
+          "description": null,
+          "verb": "get",
+          "transport": {
+            "kind": "http",
+            "method": "GET",
+            "path": "/api/v1/comments/{id}",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "id",
+              "description": null,
+              "field_type": "string",
+              "required": true,
+              "location": "path",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "read_only",
+          "resource": "comment",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "comment_create",
+          "description": null,
+          "verb": "create",
+          "transport": {
+            "kind": "http",
+            "method": "POST",
+            "path": "/api/v1/comments",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "body",
+              "description": null,
+              "field_type": "string",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "post_id",
+              "description": null,
+              "field_type": "integer",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "created_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "updated_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "mutating",
+          "resource": "comment",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "comment_update",
+          "description": null,
+          "verb": "update",
+          "transport": {
+            "kind": "http",
+            "method": "PATCH",
+            "path": "/api/v1/comments/{id}",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "id",
+              "description": null,
+              "field_type": "string",
+              "required": true,
+              "location": "path",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "body",
+              "description": null,
+              "field_type": "string",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "post_id",
+              "description": null,
+              "field_type": "integer",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "created_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            },
+            {
+              "name": "updated_at",
+              "description": null,
+              "field_type": "date_time",
+              "required": false,
+              "location": "body",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "mutating",
+          "resource": "comment",
+          "provenance": "inferred",
+          "metadata": {}
+        },
+        {
+          "name": "comment_delete",
+          "description": null,
+          "verb": "delete",
+          "transport": {
+            "kind": "http",
+            "method": "DELETE",
+            "path": "/api/v1/comments/{id}",
+            "query": []
+          },
+          "parameters": [
+            {
+              "name": "id",
+              "description": null,
+              "field_type": "string",
+              "required": true,
+              "location": "path",
+              "default": null,
+              "enum_values": []
+            }
+          ],
+          "safety": "destructive",
+          "resource": "comment",
+          "provenance": "inferred",
+          "metadata": {}
+        }
+      ]
+    }
+  ],
+  "metadata": {}
+}

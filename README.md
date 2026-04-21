@@ -84,7 +84,7 @@ a reference.
 
 ## VS Code
 
-Chat panel + tool traces over WebSocket — see
+Chat panel + tool traces over WebSocket. See
 [`extensions/vscode`](extensions/vscode). Build with
 `npm ci && npm run compile && npx vsce package`.
 

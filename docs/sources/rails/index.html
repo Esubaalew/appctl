@@ -3,25 +3,89 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>appctl — Rails source</title>
+    <title>appctl: Rails sync, step by step</title>
     <link rel="stylesheet" href="../../design-tokens.css" />
     <link rel="stylesheet" href="../../style.css" />
   </head>
   <body>
     <header class="hero">
-      <nav><span class="logo">appctl</span><a href="../../index.html">Home</a></nav>
-      <h1>Source: Rails</h1>
-      <p class="lede"><code>schema.rb</code> + <code>routes.rb</code> heuristics.</p>
+      <nav>
+        <span class="logo">appctl</span>
+        <a href="../../index.html">Home</a>
+        <a href="../../index.html#will-it-work">Will it work?</a>
+      </nav>
+      <h1>Rails sync</h1>
+      <p class="lede">
+        Reads <code>config/routes.rb</code> and
+        <code>db/schema.rb</code> to generate tools for a Rails API only app.
+      </p>
     </header>
     <main>
       <section>
-        <h2>Known limits</h2>
+        <h2>What you need</h2>
         <ul>
-          <li>If no API routes are parsed, sync warns and may emit fewer HTTP tools — prefer OpenAPI if you publish a spec.</li>
-          <li>Demo: <a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/rails-api">examples/demos/rails-api</a></li>
+          <li>A Rails 7 project folder (<code>config/application.rb</code>, <code>config/routes.rb</code>, <code>db/schema.rb</code> present).</li>
+          <li>To run the demo server: Ruby 3.1 or newer and Bundler 2.</li>
+          <li><code>appctl</code> installed.</li>
         </ul>
       </section>
-      <section><h2>Screenshots</h2><p class="muted">Placeholder</p></section>
+
+      <section>
+        <h2>The demo in this repo</h2>
+        <p>
+          <a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/rails-api">examples/demos/rails-api/</a>
+          is an API only Rails 7.1 app with <code>Post</code> and
+          <code>Comment</code> resources mounted under <code>/api/v1/</code>.
+          The static files (<code>routes.rb</code> and <code>schema.rb</code>)
+          are what <code>appctl</code> reads. They are committed, so you can
+          run the sync without installing Ruby at all.
+        </p>
+
+        <h3>Sync without running Ruby</h3>
+        <pre><code>cd examples/demos/rails-api
+appctl sync --rails . --base-url http://127.0.0.1:3001 --force</code></pre>
+        <p>Real output:</p>
+        <pre><code>Synced Rails: 2 resources, 10 tools written to .appctl</code></pre>
+
+        <h3>Set up Rails and run the server (optional)</h3>
+        <p>
+          Ruby 3.1 or newer is required. If your system Ruby is older, install
+          a newer one with <code>rbenv</code>, <code>asdf</code>, or <code>rvm</code>
+          before continuing.
+        </p>
+        <pre><code>ruby -v          # should print 3.1 or higher
+bundle install
+bundle exec rake db:create db:migrate
+bundle exec rails server -p 3001</code></pre>
+        <p>Then verify:</p>
+        <pre><code>curl -s -X POST http://127.0.0.1:3001/api/v1/posts \
+  -H "Content-Type: application/json" \
+  -d '{"post":{"title":"hi","body":"hello"}}'</code></pre>
+      </section>
+
+      <section>
+        <h2>Expected real output</h2>
+        <pre><code>post:    posts_list GET /api/v1/posts, post_get GET /api/v1/posts/{id},
+         post_create POST /api/v1/posts, post_update PATCH /api/v1/posts/{id},
+         post_delete DELETE /api/v1/posts/{id}
+comment: same five tools under /api/v1/comments</code></pre>
+        <p>
+          If you see singular paths (<code>/api/v1/post</code>) you are on an
+          older <code>appctl</code>; upgrade past 0.2.0.
+        </p>
+      </section>
+
+      <section>
+        <h2>What appctl reads</h2>
+        <ul>
+          <li><code>config/routes.rb</code>: only <code>resources :foo</code> lines inside <code>namespace</code> blocks are parsed.</li>
+          <li><code>db/schema.rb</code>: <code>create_table "foos"</code> blocks, for field names and types.</li>
+        </ul>
+        <p>
+          Controllers are not read. Strong parameters are not inspected.
+          Custom routes (<code>get "/foo/bar"</code>) are ignored.
+        </p>
+      </section>
     </main>
     <footer><p><a href="../../index.html">&larr; Home</a></p></footer>
   </body>

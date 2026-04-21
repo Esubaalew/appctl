@@ -1,4 +1,4 @@
-"""Minimal FastAPI app — OpenAPI is generated automatically."""
+"""Minimal FastAPI app. OpenAPI is generated automatically."""
 from fastapi import FastAPI
 from pydantic import BaseModel
 

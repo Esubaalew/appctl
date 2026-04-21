@@ -42,9 +42,10 @@ impl SyncPlugin for RailsSync {
         }
 
         // For every `resources :foo` route, ensure the resource exists and has
-        // the standard 5 REST actions.
+        // the standard 5 REST actions. Rails routes are plural; the internal
+        // resource name we track is singular to match schema.rb table naming.
         for resource_name in routed {
-            let base_path = format!("/api/v1/{resource_name}");
+            let base_path = format!("/api/v1/{}", pluralize(&resource_name));
             let resource = match resources.iter_mut().find(|r| r.name == resource_name) {
                 Some(existing) => existing,
                 None => {

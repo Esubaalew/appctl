@@ -54,7 +54,7 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
             any_http = true;
             let path_resolved = resolve_path_placeholders(path);
             let url = format!(
-                "{}{}",
+                "{}/{}",
                 base.trim_end_matches('/'),
                 path_resolved.trim_start_matches('/')
             );

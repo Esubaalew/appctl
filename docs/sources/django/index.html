@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>appctl — Django source</title>
+    <title>appctl: Django sync, step by step</title>
     <link rel="stylesheet" href="../../design-tokens.css" />
     <link rel="stylesheet" href="../../style.css" />
   </head>
@@ -14,33 +14,127 @@
         <a href="../../index.html">Home</a>
         <a href="../../index.html#will-it-work">Will it work?</a>
       </nav>
-      <h1>Source: Django</h1>
-      <p class="lede">Requires Django REST Framework for HTTP tools.</p>
+      <h1>Django sync</h1>
+      <p class="lede">
+        Point <code>appctl</code> at a Django project that uses Django REST
+        Framework. It reads your models and generates five tools per model.
+      </p>
     </header>
     <main>
       <section>
-        <h2>What works</h2>
-        <div class="table-wrap">
-          <table class="matrix">
-            <tbody>
-              <tr><td>Detection</td><td>Scans settings for <code>rest_framework</code></td></tr>
-              <tr><td>Without DRF</td><td>No phantom <code>/api/...</code> tools; warning in metadata</td></tr>
-              <tr><td>Provenance</td><td>HTTP tools are <code>Inferred</code> until <code>appctl doctor --write</code></td></tr>
-              <tr><td>Demo</td><td><a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/django-drf">examples/demos/django-drf</a></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section>
-        <h2>Known limits</h2>
+        <h2>What you need</h2>
         <ul>
-          <li>Session-only HTML apps: use <code>--url</code> instead.</li>
-          <li>Default schema auth expects <code>django_api_token</code> unless you pass <code>--auth-header</code> at sync.</li>
+          <li>A Django project folder. The parser looks for <code>manage.py</code> at the top and <code>models.py</code> inside each app.</li>
+          <li><code>rest_framework</code> in your <code>INSTALLED_APPS</code>. Without it the parser still runs but the generated routes will not match anything real.</li>
+          <li>Python 3.11 or newer to run the demo.</li>
         </ul>
       </section>
+
       <section>
-        <h2>Screenshots</h2>
-        <p class="muted">Placeholder — add terminal + web UI captures after syncing a real DRF project.</p>
+        <h2>The demo in this repo</h2>
+        <p>
+          <a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/django-drf">examples/demos/django-drf/</a>
+          is a Django 4.2 project with a <code>billing</code> app that has two
+          models: <code>Parcel</code> and <code>Customer</code>. A
+          <code>DefaultRouter</code> serves them at <code>/api/parcels/</code>
+          and <code>/api/customers/</code>.
+        </p>
+
+        <h3>Set up Python</h3>
+        <pre><code>cd examples/demos/django-drf
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt</code></pre>
+
+        <h3>Create the database</h3>
+        <p>
+          The demo uses SQLite, stored in <code>db.sqlite3</code>. The first
+          run needs <code>makemigrations</code> because the initial migration
+          for the <code>billing</code> app is generated from your models, not
+          committed:
+        </p>
+        <pre><code>python manage.py makemigrations billing
+python manage.py migrate</code></pre>
+        <p>Expected output ends with:</p>
+        <pre><code>Applying billing.0001_initial... OK</code></pre>
+
+        <h3>Start the server</h3>
+        <pre><code>python manage.py runserver 127.0.0.1:8001</code></pre>
+        <p>Sanity check:</p>
+        <pre><code>$ curl -s -X POST http://127.0.0.1:8001/api/parcels/ \
+    -H "Content-Type: application/json" \
+    -d '{"tracking_number":"PK-001","weight_kg":"1.5","delivered":false}'
+{"id":1,"tracking_number":"PK-001","weight_kg":"1.50","delivered":false}</code></pre>
+
+        <h3>Sync appctl</h3>
+        <p>
+          Pass the path to the Django project folder, and a
+          <code>--base-url</code> that includes your API mount prefix
+          (<code>/api</code> in this demo):
+        </p>
+        <pre><code>appctl sync --django . --base-url http://127.0.0.1:8001/api --force</code></pre>
+        <p>Real output on this machine with <code>appctl 0.2.0</code>:</p>
+        <pre><code>Synced Django: 2 resources, 10 tools written to .appctl</code></pre>
+
+        <p>Generated tools:</p>
+        <pre><code>parcel:   list_parcels, get_parcel, create_parcel, update_parcel, delete_parcel
+customer: list_customers, get_customer, create_customer, update_customer, delete_customer</code></pre>
+
+        <h3>Talk to it</h3>
+        <pre><code>appctl chat "how many parcels have been delivered"
+appctl chat "create a parcel with tracking PK-002 weighing 2kg"</code></pre>
+      </section>
+
+      <section>
+        <h2>What appctl reads</h2>
+        <ul>
+          <li><code>manage.py</code> to confirm this is a Django project.</li>
+          <li><code>settings.py</code> (any file ending in <code>settings.py</code>) to pick up <code>INSTALLED_APPS</code> and the root URL conf.</li>
+          <li><code>*/models.py</code> for each installed app, to extract model names and field types.</li>
+        </ul>
+        <p>
+          It does not run your Python code. If the model definitions use
+          dynamic class creation or a ModelMeta base, the parser will miss
+          them.
+        </p>
+      </section>
+
+      <section>
+        <h2>Gotchas I ran into</h2>
+        <ul>
+          <li>
+            <strong>Pass <code>/api</code> in <code>--base-url</code>.</strong>
+            The sync writes tool paths as <code>/parcels/</code>, not
+            <code>/api/parcels/</code>. If you pass the raw
+            <code>http://127.0.0.1:8001</code> the tools will hit the wrong
+            URL. Include the prefix.
+          </li>
+          <li>
+            <strong>
+              <code>appctl doctor</code> needs
+              <code>django_api_token</code> set.
+            </strong>
+            Even though this demo has
+            <code>AllowAny</code> permissions, the default Django auth strategy
+            is a Bearer token. Export
+            <code>django_api_token=unused</code> before running doctor; real
+            production apps use a real token.
+          </li>
+          <li>
+            <strong>Model migrations.</strong> The first sync after cloning
+            needs <code>makemigrations billing &amp;&amp; migrate</code> before
+            the API returns anything.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>When Django sync is not a good fit</h2>
+        <ul>
+          <li>Function based DRF views are not parsed. Only <code>ModelViewSet</code> registered on a <code>DefaultRouter</code>.</li>
+          <li>Custom <code>@action</code> methods on a ViewSet are not extracted.</li>
+          <li>If your project publishes a Swagger document via <code>drf-spectacular</code>, use <code>--openapi</code> instead; the output is better.</li>
+        </ul>
       </section>
     </main>
     <footer><p><a href="../../index.html">&larr; Home</a></p></footer>

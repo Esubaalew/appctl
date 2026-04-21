@@ -3,22 +3,115 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>appctl — Laravel source</title>
+    <title>appctl: Laravel sync, step by step</title>
     <link rel="stylesheet" href="../../design-tokens.css" />
     <link rel="stylesheet" href="../../style.css" />
   </head>
   <body>
     <header class="hero">
-      <nav><span class="logo">appctl</span><a href="../../index.html">Home</a></nav>
-      <h1>Source: Laravel</h1>
-      <p class="lede">Migrations + <code>routes/api.php</code>.</p>
+      <nav>
+        <span class="logo">appctl</span>
+        <a href="../../index.html">Home</a>
+        <a href="../../index.html#will-it-work">Will it work?</a>
+      </nav>
+      <h1>Laravel sync</h1>
+      <p class="lede">
+        Reads <code>routes/api.php</code> and files in
+        <code>database/migrations/</code> to generate REST tools for a Laravel
+        API.
+      </p>
     </header>
     <main>
-      <ul>
-        <li>Warnings when no API routes found.</li>
-        <li>Demo: <a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/laravel-api">examples/demos/laravel-api</a></li>
-      </ul>
-      <p class="muted">Screenshots: placeholder</p>
+      <section>
+        <h2>What you need</h2>
+        <ul>
+          <li>A Laravel 10 or 11 project folder.</li>
+          <li>To run the demo server: PHP 8.2 or newer and Composer.</li>
+          <li><code>appctl</code> installed.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>The demo in this repo</h2>
+        <p>
+          <a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/laravel-api">examples/demos/laravel-api/</a>
+          is a minimal Laravel 11 app with <code>Post</code> and
+          <code>Comment</code> resources registered through
+          <code>Route::apiResource</code>. The routes file and the migration
+          files are committed, so the sync runs without PHP installed.
+        </p>
+
+        <h3>Sync without running PHP</h3>
+        <pre><code>cd examples/demos/laravel-api
+appctl sync --laravel . --base-url http://127.0.0.1:8002 --force</code></pre>
+        <p>Real output:</p>
+        <pre><code>Synced Laravel: 2 resources, 10 tools written to .appctl</code></pre>
+        <p>Generated tools:</p>
+        <pre><code>post:    posts_list GET /api/posts, post_get GET /api/posts/{id},
+         post_create POST /api/posts, post_update PATCH /api/posts/{id},
+         post_delete DELETE /api/posts/{id}
+comment: same five tools under /api/comments</code></pre>
+
+        <h3>Set up Laravel and run the server (optional)</h3>
+        <p>
+          PHP 8.2 or newer and Composer are required. If your system does not
+          have Composer, install it from
+          <a href="https://getcomposer.org/">getcomposer.org</a>.
+        </p>
+        <pre><code>php -v           # 8.2 or higher
+composer -V      # should exist
+
+cd examples/demos/laravel-api
+composer install
+cp .env.example .env  # if present, or create .env
+php artisan key:generate
+touch database/database.sqlite
+php artisan migrate
+php artisan serve --host=127.0.0.1 --port=8002</code></pre>
+        <p>Then check:</p>
+        <pre><code>curl -s -X POST http://127.0.0.1:8002/api/posts \
+  -H "Content-Type: application/json" \
+  -d '{"title":"hi","body":"hello"}'</code></pre>
+        <p>
+          I verified the sync output on a clean machine. I did not run the PHP
+          server because Composer was not installed on the box. If you hit a
+          Laravel boot issue, open an issue; the static sync is independent of
+          it.
+        </p>
+      </section>
+
+      <section>
+        <h2>What appctl reads</h2>
+        <ul>
+          <li>
+            <code>routes/api.php</code>: only
+            <code>Route::apiResource('foos', FooController::class)</code> lines
+            are parsed. Manually defined routes are ignored.
+          </li>
+          <li>
+            <code>database/migrations/*.php</code>: <code>Schema::create</code>
+            blocks for column names and types.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Known limits</h2>
+        <ul>
+          <li>
+            Middleware on routes (<code>-&gt;middleware('auth:sanctum')</code>)
+            is not represented in the generated tools.
+          </li>
+          <li>
+            Form Requests and custom validation are not extracted; the tool
+            parameter schema comes from the migration columns only.
+          </li>
+          <li>
+            If you already publish a Swagger doc with
+            <code>l5-swagger</code>, use <code>--openapi</code>.
+          </li>
+        </ul>
+      </section>
     </main>
     <footer><p><a href="../../index.html">&larr; Home</a></p></footer>
   </body>

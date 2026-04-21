@@ -1,8 +1,12 @@
 {
-  "name": "appctl-mcp-stdio-demo",
-  "private": true,
-  "version": "0.0.1",
+  "name": "appctl-mcp-demo",
+  "version": "1.0.0",
+  "description": "Minimal MCP stdio server demo for appctl",
   "type": "module",
-  "bin": { "mcp-demo": "./server.mjs" },
-  "scripts": { "start": "node server.mjs" }
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }

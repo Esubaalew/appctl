@@ -1,6 +1,6 @@
 # Demo: OpenAPI (FastAPI)
 
-One-file API with auto-generated OpenAPI — the canonical `appctl sync --openapi` path.
+One-file API with auto-generated OpenAPI. The canonical `appctl sync --openapi` path.
 
 ## Prerequisites
 
@@ -34,5 +34,5 @@ appctl chat "create a widget named Demo"
 
 ## Files
 
-- `openapi.json` — static spec used by CI e2e tests (matches `main.py` routes).
-- `main.py` — runnable reference server.
+- `openapi.json`: static spec used by CI e2e tests (matches `main.py` routes).
+- `main.py`: runnable reference server.

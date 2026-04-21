@@ -16,3 +16,23 @@ samples/
 
 # Frontend (built in CI; dist is committed for rust-embed / offline cargo)
 web/node_modules/
+
+# .NET build artifacts
+**/obj/
+**/bin/
+
+# Python virtualenvs and cache
+**/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# PHP vendor dirs
+examples/demos/laravel-api/vendor/
+
+# Ruby bundler
+examples/demos/rails-api/.bundle/
+examples/demos/rails-api/vendor/bundle/
+
+# SQLite databases created by demos
+examples/demos/*/db.sqlite3

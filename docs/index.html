@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>appctl — one command, any app, full AI control</title>
+    <title>appctl: talk to your app in plain English</title>
     <meta
       name="description"
-      content="appctl turns any web app, database, or service into a sandboxed tool layer so humans can drive it in plain English through any LLM — in production."
+      content="appctl connects an AI chat to your existing API, database, or website. You keep typing in English; it does the clicks, the SQL, and the API calls for you."
     />
     <meta property="og:title" content="appctl" />
     <meta
       property="og:description"
-      content="Sync any app. Chat in plain English. Production-ready tool layer for any LLM."
+      content="Connect an AI chat to your existing app. Ask in English, get real results."
     />
     <meta property="og:url" content="https://esubaalew.github.io/appctl" />
     <meta property="og:type" content="website" />
@@ -22,23 +22,21 @@
     <header class="hero">
       <nav>
         <span class="logo">appctl</span>
-        <a href="#how">How</a>
-        <a href="#example">Example</a>
-        <a href="#interfaces">Interfaces</a>
-        <a href="#production">Production</a>
-        <a href="#faq">FAQ</a>
+        <a href="#what">What it is</a>
+        <a href="#how">How it works</a>
+        <a href="#install">Install</a>
+        <a href="#examples">Examples</a>
         <a href="#will-it-work">Will it work?</a>
+        <a href="#faq">FAQ</a>
         <a href="deploy/">Deploy</a>
         <a href="https://github.com/esubaalew/appctl">GitHub</a>
-        <a href="https://crates.io/crates/appctl">crates.io</a>
-        <a href="https://docs.rs/appctl">docs.rs</a>
       </nav>
-      <h1>One command. Any app. Full&nbsp;AI&nbsp;control.</h1>
+      <h1>Talk to your app. In plain English.</h1>
       <p class="lede">
-        <code>appctl</code> introspects any web app, database, or service and
-        turns it into a sandboxed tool layer that any LLM &mdash; and any human
-        typing plain English &mdash; can safely drive. The CLI is for setup.
-        Daily use is a conversation.
+        You already have an app. Maybe a Django site. Maybe a Postgres database.
+        Maybe a Laravel API. <code>appctl</code> puts a chat box on top of it so
+        you can say things like <em>"show me the last five orders over $500"</em>
+        and get a real answer from your real data, not a made up one.
       </p>
       <pre class="install"><code>cargo install appctl</code></pre>
       <p class="badges">
@@ -61,61 +59,172 @@
     </header>
 
     <main>
+      <section id="what">
+        <h2>What is appctl?</h2>
+        <p>
+          A command line tool that you run once to connect your app to a
+          language model. After that, anyone on your team can open a chat window
+          and ask questions or trigger actions. The chat window talks to the
+          model. The model decides which of your real API endpoints (or SQL
+          queries) to call. <code>appctl</code> actually calls them, with your
+          real credentials, and shows you what happened.
+        </p>
+        <p>
+          You do not need to expose every button of your app. The model only
+          sees the tools <code>appctl</code> discovered from your code. If your
+          app never had a "delete user" endpoint, the chat cannot invent one.
+        </p>
+        <p>
+          Three things to picture:
+        </p>
+        <ul class="grid two">
+          <li>
+            <strong>Your app stays your app.</strong> No rewrite, no SaaS in
+            between. <code>appctl</code> runs on your laptop or your own server.
+          </li>
+          <li>
+            <strong>Any LLM works.</strong> OpenAI, Anthropic, a local model
+            through Ollama, NVIDIA NIM, Groq. Change one line in a config file
+            to switch.
+          </li>
+          <li>
+            <strong>Every call is logged.</strong> There is a local SQLite file
+            that records every tool the AI ran. You can replay it later.
+          </li>
+        </ul>
+      </section>
+
       <section id="how">
-        <h2>The 30-second mental model</h2>
+        <h2>How it works in three steps</h2>
         <ol class="steps">
           <li>
-            <strong>Sync once.</strong> Point <code>appctl</code> at an
-            OpenAPI spec, a Rails / Laravel / ASP.NET / Strapi / Supabase /
-            Django project, a Postgres / MySQL database, or a live URL with a
-            login form. It extracts every resource and action into a
-            normalized schema.
+            <strong>1. Sync.</strong> Point <code>appctl</code> at your app.
+            It reads your OpenAPI spec, or your Django models, or your
+            Postgres tables, and writes a file that lists every action your app
+            can do.
           </li>
           <li>
-            <strong>Get a tool layer for free.</strong> The schema becomes a
-            set of JSON-schema tools that any LLM can call &mdash; OpenAI,
-            Anthropic, OpenRouter, NVIDIA NIM, Groq, Ollama, vLLM, anything.
+            <strong>2. Serve (or chat).</strong> Run
+            <code>appctl chat</code> in a terminal, or <code>appctl serve</code>
+            to get an HTTP endpoint and a built in web chat at
+            <code>http://localhost:4242</code>.
           </li>
           <li>
-            <strong>Humans talk, agent executes.</strong> End users type
-            English. The LLM picks the right tool, the executor makes the
-            real HTTPS / SQL call with your real credentials, and every action
-            is logged. Nobody memorises CRUD commands.
+            <strong>3. Ask.</strong> Type what you want in English. The AI picks
+            the right action. <code>appctl</code> runs it, shows the result, and
+            writes a row to the audit log.
           </li>
         </ol>
-        <p class="muted">
-          Think of it as: <em>OpenAPI / your framework &rarr; tools &rarr;
-          chat</em>. The CLI is only used by the person doing the one-time
-          integration.
+      </section>
+
+      <section id="install">
+        <h2>Install</h2>
+        <p>The easiest way, if you have Rust:</p>
+        <pre><code>cargo install appctl</code></pre>
+        <p>From source:</p>
+        <pre><code>git clone https://github.com/esubaalew/appctl
+cd appctl
+cargo install --path crates/appctl --locked</code></pre>
+        <p>Check it:</p>
+        <pre><code>$ appctl --version
+appctl 0.2.0</code></pre>
+      </section>
+
+      <section id="examples">
+        <h2>Try it in five minutes</h2>
+        <p>
+          The repo ships with demo apps you can clone and run. Pick one that
+          matches your stack. Every command below is copy and paste real. The
+          output shown is the real output from this machine.
+        </p>
+
+        <h3>FastAPI (Python): the fastest path</h3>
+        <p>
+          You get a tiny Python server with one endpoint. <code>appctl</code>
+          reads its OpenAPI document and gives the chat one tool.
+        </p>
+        <pre><code>git clone https://github.com/esubaalew/appctl
+cd appctl/examples/demos/openapi-fastapi
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --host 127.0.0.1 --port 8000 &amp;
+
+appctl sync --openapi http://127.0.0.1:8000/openapi.json \
+  --base-url http://127.0.0.1:8000 --force</code></pre>
+        <p>Real output:</p>
+        <pre><code>Synced Openapi: 1 resources, 1 tools written to .appctl</code></pre>
+        <p>
+          Full instructions including
+          <code>appctl chat</code> usage are on the
+          <a href="sources/openapi/">OpenAPI page</a>.
+        </p>
+
+        <h3>Django REST Framework</h3>
+        <p>
+          Works out of the box with a Django project that has
+          <code>rest_framework</code> in <code>INSTALLED_APPS</code>.
+          <code>appctl</code> reads your models and generates five tools per
+          model (list, get, create, update, delete).
+        </p>
+        <pre><code>cd appctl/examples/demos/django-drf
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver 127.0.0.1:8001 &amp;
+
+appctl sync --django . --base-url http://127.0.0.1:8001/api --force</code></pre>
+        <p>Real output:</p>
+        <pre><code>Synced Django: 2 resources, 10 tools written to .appctl</code></pre>
+        <p>
+          Two things matter in the <code>--base-url</code>: you have to include
+          the <code>/api</code> prefix (the sync does not guess it), and the
+          demo has <code>rest_framework.permissions.AllowAny</code>, so you do
+          not need a token. Real Django apps do.
+        </p>
+
+        <h3>Postgres or MySQL directly</h3>
+        <p>
+          No API needed. <code>appctl</code> connects to the database, reads
+          the tables, and gives the chat SQL tools.
+        </p>
+        <pre><code>appctl sync --db "postgres://user:pass@host:5432/dbname" --force
+appctl chat "how many orders do we have this month"</code></pre>
+        <p>
+          Use a read only database user for this. Or run
+          <code>appctl chat --read-only</code>, which blocks every mutating
+          tool at the <code>appctl</code> level.
         </p>
       </section>
 
-      <section id="example">
-        <h2>An end-to-end example</h2>
+      <section id="sources">
+        <h2>Apps appctl understands</h2>
         <p>
-          Acme runs a Rails storefront in production at
-          <code>https://api.acme.com</code>. Support wants to handle refunds
-          in chat instead of clicking through the admin panel.
+          Each link below goes to a page with the real setup commands and the
+          real output you should see.
         </p>
+        <ul class="grid">
+          <li><a href="sources/openapi/"><code>--openapi</code></a> OpenAPI or Swagger spec</li>
+          <li><a href="sources/django/"><code>--django</code></a> Django with DRF</li>
+          <li><a href="sources/rails/"><code>--rails</code></a> Rails API</li>
+          <li><a href="sources/laravel/"><code>--laravel</code></a> Laravel</li>
+          <li><a href="sources/aspnet/"><code>--aspnet</code></a> ASP.NET Core</li>
+          <li><a href="sources/strapi/"><code>--strapi</code></a> Strapi v4</li>
+          <li><a href="sources/supabase/"><code>--supabase</code></a> Supabase or PostgREST</li>
+          <li><a href="sources/db/"><code>--db</code></a> Postgres or MySQL</li>
+          <li><a href="sources/url/"><code>--url</code></a> Web app with a login form</li>
+          <li><a href="sources/mcp/"><code>--mcp</code></a> MCP servers</li>
+          <li><code>--plugin</code> Custom plugins</li>
+        </ul>
+      </section>
 
-        <h3>1. The dev wires it up (one time)</h3>
-        <pre><code>$ appctl sync --openapi https://api.acme.com/openapi.json
-Synced: 42 resources, 187 tools.
-
-$ appctl auth login acme \
-    --client-id $CLIENT_ID \
-    --auth-url https://acme.com/oauth/authorize \
-    --token-url https://acme.com/oauth/token \
-    --scopes "orders:write customers:read"
-Tokens stored in system keychain.
-
-$ appctl serve --port 4242
-Listening on 127.0.0.1:4242  (HTTP + WebSocket + web UI)</code></pre>
-
-        <h3>2. A support agent talks to it &mdash; no CLI, no CRUD</h3>
+      <section id="what-chat-looks-like">
+        <h2>What the chat actually looks like</h2>
         <p>
-          From the VS Code chat panel, a Slack bot, or an internal web UI
-          &mdash; anything that speaks to <code>appctl serve</code>:
+          This is a fake conversation, but it is the shape of a real one. The
+          lines with the arrow and the code font are tool calls the AI picked.
+          You can hide them in your UI if you want.
         </p>
         <div class="chat">
           <div class="msg user">
@@ -129,235 +238,166 @@ Listening on 127.0.0.1:4242  (HTTP + WebSocket + web UI)</code></pre>
           <div class="msg tool">
             &rarr; <code>list_orders</code>
             <span class="args"
-              >{"customer_id":7421,"created_after":"2026-04-14","created_before":"2026-04-15"}</span
+              >{"customer_id":7421,"created_after":"2026-04-14"}</span
             ><br />
             &larr; 1 match, id=98812, total=$129.00
           </div>
           <div class="msg tool">
             &rarr; <code>create_refund</code>
             <span class="args">{"order_id":98812,"amount_cents":2000}</span>
-            <span class="mut">mutation &mdash; confirm?</span><br />
+            <span class="mut">mutation, confirm?</span><br />
             &larr; refund_id=rfd_88af
           </div>
           <div class="msg agent">
-            Issued a $20 refund on order #98812. Jane will see it in 3&ndash;5
+            Issued a $20 refund on order #98812. Jane will see it in 3 to 5
             business days.
           </div>
         </div>
-        <p class="muted">
-          The support agent never saw JSON. The tool trace above is optional
-          &mdash; you can hide it, show it, or stream it for debugging.
-        </p>
       </section>
 
-      <section id="interfaces">
-        <h2>Four ways people actually talk to it</h2>
-        <p>
-          Setup is CLI. After that, pick whichever surface fits the user:
-        </p>
-
-        <h3>Terminal REPL</h3>
-        <p>For devs, ops, and anyone who already lives in a shell.</p>
-        <pre><code>$ appctl chat
-you> list the last 5 orders over $500 and export them as CSV
-agent> ...</code></pre>
-
-        <h3>VS Code extension</h3>
-        <p>
-          Chat panel inside the editor with live tool-call traces. Connects to
-          <code>appctl serve</code> over WebSocket. Ships with the repo under
-          <a
-            href="https://github.com/esubaalew/appctl/tree/main/extensions/vscode"
-            ><code>extensions/vscode</code></a
-          >.
-        </p>
-
-        <h3>HTTP + WebSocket daemon &mdash; embed it in anything</h3>
-        <p>
-          Run <code>appctl serve</code> on a trusted box. Your frontend
-          &mdash; a Slack bot, an internal admin page, a mobile app,
-          LangChain, Home Assistant, whatever &mdash; sends prompts and
-          streams back tool events + the final answer.
-        </p>
-        <pre><code># one-shot
-POST /run            { "prompt": "Create a coupon SUMMER 15% off, expires Aug 31" }
-GET  /tools          list the registered tools (JSON schema)
-GET  /history        recent executions
-# streaming
-WS   /chat           prompt in, tool events + final answer out</code></pre>
-        <p class="muted">
-          That's the full public surface. Any chat UI you already have can
-          wire into it in a few hours.
-        </p>
-
-        <h3>One-shot / cron</h3>
-        <pre><code>appctl run "Archive every order older than 180 days"
-# exits 0 on success, prints the tool trace + answer</code></pre>
-      </section>
-
-      <section id="sources">
-        <h2>Sources it understands out of the box</h2>
-        <ul class="grid">
-          <li><code>--openapi</code> OpenAPI / Swagger</li>
-          <li><code>--rails</code> Ruby on Rails</li>
-          <li><code>--laravel</code> Laravel</li>
-          <li><code>--aspnet</code> ASP.NET Core</li>
-          <li><code>--strapi</code> Strapi</li>
-          <li><code>--supabase</code> Supabase / PostgREST</li>
-          <li><code>--django</code> Django</li>
-          <li><code>--db</code> PostgreSQL / MySQL</li>
-          <li><code>--url</code> Live URL + login / CSRF</li>
-          <li><code>--mcp</code> MCP servers</li>
-          <li><code>--plugin</code> Dynamic plugins</li>
-        </ul>
-        <p class="muted">
-          Anything not on this list? Write a 100-line
-          <a href="#plugins">dynamic plugin</a>.
-        </p>
-      </section>
-
-      <section id="providers">
-        <h2>LLM providers</h2>
-        <p>
-          Provider-agnostic. Anything with an OpenAI-compatible API plus
-          native Anthropic: OpenAI, OpenRouter, NVIDIA NIM, Groq, Together,
-          Fireworks, Ollama, LM Studio, vLLM, LiteLLM, Anthropic. Swap the
-          provider in <code>.appctl/config.toml</code>; no code changes.
-          Secrets live in the OS keychain, with env-var fallback for
-          CI/headless.
-        </p>
-      </section>
-
-      <section id="production">
-        <h2>Production &amp; safety</h2>
-        <p>
-          This is built for real production apps, not toy localhost. Your
-          upstream app's own auth and RBAC still apply &mdash;
-          <code>appctl</code> uses your real credentials via API key, Basic,
-          Bearer, or OAuth2 PKCE with refresh. On top of that:
-        </p>
+      <section id="safety">
+        <h2>What stops the AI from doing something bad</h2>
+        <p>Four things:</p>
         <ul class="grid two">
-          <li><code>--read-only</code> blocks every write tool.</li>
-          <li><code>--dry-run</code> shows what would happen, no side effects.</li>
-          <li>Mutations prompt by default; <code>--confirm</code> auto-approves.</li>
-          <li>OAuth tokens live in the OS keychain, never on disk.</li>
-          <li>Every tool call logged to a local SQLite audit DB.</li>
-          <li><code>appctl history</code> replays what happened and when.</li>
+          <li>
+            <strong>Your app's own permissions.</strong>
+            <code>appctl</code> uses the API key or login you gave it. If that
+            key cannot delete users, neither can the agent.
+          </li>
+          <li>
+            <strong>Flags you control.</strong>
+            <code>--read-only</code> blocks writes. <code>--dry-run</code> plans
+            actions without calling. <code>--strict</code> refuses any
+            unverified route.
+          </li>
+          <li>
+            <strong>Prompting on mutations.</strong>
+            By default, anything that changes data asks you first. Turn it off
+            with <code>--confirm</code> for scripts.
+          </li>
+          <li>
+            <strong>A local audit log.</strong>
+            Every tool call goes into a SQLite file. Replay with
+            <code>appctl history</code>.
+          </li>
         </ul>
-      </section>
-
-      <section id="plugins">
-        <h2>Plugins</h2>
-        <p>
-          Anything <code>appctl</code> doesn't cover natively you add as a
-          Rust <code>cdylib</code> against
-          <a href="https://crates.io/crates/appctl-plugin-sdk"
-            ><code>appctl-plugin-sdk</code></a
-          >:
-        </p>
-        <pre><code>appctl plugin install &lt;path|crate|git-url&gt;
-appctl plugin list
-appctl sync --plugin airtable</code></pre>
-        <p>
-          Reference implementation:
-          <a
-            href="https://github.com/esubaalew/appctl/tree/main/examples/plugins/appctl-airtable"
-            ><code>examples/plugins/appctl-airtable</code></a
-          >.
-        </p>
       </section>
 
       <section id="will-it-work">
-        <h2>Will my app work?</h2>
-        <p class="muted">
-          <code>appctl</code> only exposes tools it can justify. Framework sync
-          checks for a real API surface (for example Django REST Framework).
-          When in doubt, run <code>appctl doctor</code> after
-          <code>sync</code> to probe routes, or use
-          <code>--strict</code> on <code>chat</code> / <code>run</code> /
-          <code>serve</code> to block unverified HTTP tools until you verify
-          them.
+        <h2>Will my app work with appctl?</h2>
+        <p>
+          The table shows what each source needs to be useful, and what to try
+          if the first attempt does not give you the tools you wanted.
         </p>
         <div class="table-wrap">
           <table class="matrix">
             <thead>
               <tr>
                 <th>Source</th>
-                <th>Needs</th>
-                <th>If it won&rsquo;t sync</th>
+                <th>What it reads</th>
+                <th>If the tools look wrong</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td><code>--openapi</code></td>
-                <td>Valid OpenAPI 2/3 (URL or file)</td>
-                <td>Fix the spec or point at <code>/openapi.json</code>.</td>
+                <td><a href="sources/openapi/"><code>--openapi</code></a></td>
+                <td>A URL or file with an OpenAPI 2 or 3 spec</td>
+                <td>Fix the spec; this is the most reliable source.</td>
               </tr>
               <tr>
-                <td><code>--django</code></td>
+                <td><a href="sources/django/"><code>--django</code></a></td>
                 <td>
-                  <strong>Django REST Framework</strong> in
-                  <code>INSTALLED_APPS</code>
+                  Your project folder. Needs Django REST Framework in
+                  <code>INSTALLED_APPS</code>.
                 </td>
                 <td>
-                  Plain Django templates/session apps: use
-                  <code>--url</code> for browser login flows, or add DRF and
-                  re-run <code>sync</code>.
-                </td>
-              </tr>
-              <tr>
-                <td><code>--rails</code></td>
-                <td>
-                  <code>routes.rb</code> with API routes (or similar) we can
-                  parse
-                </td>
-                <td>
-                  If no API routes are found, sync warns and skips phantom HTTP
-                  tools; use <code>--openapi</code> or <code>--url</code>.
+                  Make sure <code>--base-url</code> includes the API mount,
+                  for example <code>http://host:8001/api</code>.
                 </td>
               </tr>
               <tr>
-                <td><code>--laravel</code></td>
-                <td><code>routes/api.php</code> (or parsed API routes)</td>
+                <td><a href="sources/rails/"><code>--rails</code></a></td>
                 <td>
-                  No routes parsed &rarr; warnings only; prefer
-                  <code>--openapi</code> if you publish a spec.
+                  <code>config/routes.rb</code> for resources and
+                  <code>db/schema.rb</code> for fields.
+                </td>
+                <td>
+                  Only <code>resources :foo</code> inside a <code>namespace</code>
+                  block is parsed. If you publish a Swagger doc via
+                  <code>rswag</code>, use <code>--openapi</code> for richer
+                  types.
                 </td>
               </tr>
               <tr>
-                <td><code>--aspnet</code></td>
-                <td>Swagger/OpenAPI artifact or <code>[ApiController]</code></td>
+                <td><a href="sources/laravel/"><code>--laravel</code></a></td>
                 <td>
-                  Publish <code>swagger.json</code> or fall back to
-                  <code>--openapi</code> / <code>--url</code>.
+                  <code>routes/api.php</code> and files under
+                  <code>database/migrations/</code>.
+                </td>
+                <td>
+                  Only <code>Route::apiResource</code> entries are parsed.
+                  Manually defined routes are not.
                 </td>
               </tr>
               <tr>
-                <td><code>--strapi</code> / <code>--supabase</code></td>
-                <td>Project layout + REST/OpenAPI we can reach</td>
+                <td><a href="sources/aspnet/"><code>--aspnet</code></a></td>
                 <td>
-                  Check base URL and anon keys; see
-                  <a href="sources/strapi/">Strapi</a> /
-                  <a href="sources/supabase/">Supabase</a> docs.
+                  A <code>swagger.json</code> anywhere in the project (best), or
+                  a scan of <code>[ApiController]</code> files.
+                </td>
+                <td>
+                  Export <code>swagger.json</code> with
+                  <code>curl .../swagger/v1/swagger.json -o swagger.json</code>
+                  and re run sync for cleaner tool names.
                 </td>
               </tr>
               <tr>
-                <td><code>--db</code></td>
-                <td>Postgres or MySQL connection string</td>
-                <td>SQL tools are introspected from the live schema.</td>
-              </tr>
-              <tr>
-                <td><code>--url</code></td>
-                <td>Login page + forms we can automate</td>
+                <td><a href="sources/strapi/"><code>--strapi</code></a></td>
                 <td>
-                  Use for session/HTML apps when there is no machine-readable
-                  API.
+                  <code>src/api/*/content-types/*/schema.json</code> files.
+                </td>
+                <td>
+                  Nested components are not expanded. Add them manually if you
+                  need them.
                 </td>
               </tr>
               <tr>
-                <td><code>--mcp</code></td>
-                <td>MCP server URL</td>
-                <td>See <a href="sources/mcp/">MCP</a> limits.</td>
+                <td><a href="sources/supabase/"><code>--supabase</code></a></td>
+                <td>
+                  A URL that serves the PostgREST OpenAPI at
+                  <code>/rest/v1</code>.
+                </td>
+                <td>
+                  Row level security is not visible at sync time. Tools may
+                  fail at runtime if RLS blocks the anon key.
+                </td>
+              </tr>
+              <tr>
+                <td><a href="sources/db/"><code>--db</code></a></td>
+                <td>A Postgres or MySQL connection string.</td>
+                <td>
+                  The agent can write SQL. Use a read only database user, or
+                  run with <code>--read-only</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><a href="sources/url/"><code>--url</code></a></td>
+                <td>
+                  A login URL plus credentials. Only useful for session based
+                  HTML apps.
+                </td>
+                <td>
+                  If the site is a single page JavaScript app, this source
+                  cannot see the routes. Use its API directly.
+                </td>
+              </tr>
+              <tr>
+                <td><a href="sources/mcp/"><code>--mcp</code></a></td>
+                <td>An MCP server URL.</td>
+                <td>
+                  Registers one passthrough tool. See the
+                  <a href="sources/mcp/">MCP page</a> for details.
+                </td>
               </tr>
             </tbody>
           </table>
@@ -368,106 +408,77 @@ appctl sync --plugin airtable</code></pre>
         <h2>FAQ</h2>
 
         <details>
-          <summary>Will my Django / Rails app get fake /api tools?</summary>
+          <summary>Who is this for?</summary>
           <p>
-            Not silently. Django sync requires DRF in settings; otherwise HTTP
-            tools are omitted and a warning is stored in schema metadata.
-            Rails/Laravel/ASP.NET sync warns when no API routes are detected.
-            Run <code>appctl doctor --write</code> to probe and mark routes as
-            verified where possible.
+            Two groups. First: developers who have an app in production and
+            want to let their teammates ask questions of it without learning
+            the API. Second: solo builders who want to chat with their own side
+            project instead of clicking through it.
           </p>
         </details>
 
         <details>
-          <summary>Do end users need to know any CLI commands?</summary>
+          <summary>Do I need to learn any commands?</summary>
           <p>
-            No. The CLI is for the person doing the one-time integration
-            (<code>sync</code>, <code>auth login</code>, <code>serve</code>).
-            After that, end users type English into
-            <code>appctl chat</code>, the VS Code panel, or any UI you point
-            at <code>appctl serve</code>. They never say
-            <em>POST /customers</em> &mdash; they say
-            <em>"add a customer named Jane"</em>.
+            Only the person doing the one time setup runs
+            <code>appctl sync</code> and <code>appctl serve</code>. After that,
+            the chat window is plain English. Your teammates never see the CLI.
           </p>
         </details>
 
         <details>
-          <summary>Does this work against production or only local?</summary>
+          <summary>Does it work against my production app?</summary>
           <p>
-            Production. Give it an OpenAPI URL, a Supabase URL, a production
-            PostgreSQL connection string, or a live domain with a login form.
-            Auth is real: API keys, Basic, Bearer, OAuth2 PKCE with refresh.
-            Running it against a localhost toy is just a special case.
+            Yes. Give it a production OpenAPI URL, a production database
+            connection string, or a live website URL. It uses the same API key
+            or login you would use yourself, so it cannot do anything you could
+            not do.
           </p>
         </details>
 
         <details>
-          <summary>How do I embed this in my own product or SaaS?</summary>
+          <summary>How do I pick an LLM?</summary>
           <p>
-            Run <code>appctl serve</code> next to your backend (a server, a
-            container, a VPC jumpbox). Your frontend &mdash; web, mobile,
-            Slack bot, whatever &mdash; sends prompts over HTTP
-            (<code>POST /run</code>) or WebSocket (<code>/chat</code>),
-            streams back tool events, and renders them however you like. The
-            VS Code extension is a worked example; copy its WebSocket client
-            into your own app and you're done. See also
-            <a href="deploy/">Deploy &amp; embed</a> for LAN/Tailscale and a
-            short threat model.
+            For private data, run a local model with Ollama or vLLM. For
+            quality, use OpenAI, Anthropic, or NVIDIA NIM. You change one line
+            in <code>.appctl/config.toml</code>.
+          </p>
+        </details>
+
+        <details>
+          <summary>Where are my API keys stored?</summary>
+          <p>
+            In your operating system's keychain. On macOS that is Keychain. On
+            Windows it is Credential Manager. On Linux it is the Secret Service
+            daemon. Environment variables also work, for servers without a
+            keychain.
           </p>
         </details>
 
         <details>
           <summary>
-            What stops the LLM from doing something destructive?
+            My app is not in the sources list. What do I do?
           </summary>
-          <p>Three layers:</p>
-          <ol>
-            <li>
-              Your upstream app's existing auth and RBAC still apply &mdash;
-              <code>appctl</code> uses <em>your</em> credentials, so anything
-              the key can't do, the agent can't do.
-            </li>
-            <li>
-              <code>appctl</code> flags: <code>--read-only</code>,
-              <code>--dry-run</code>, mutation prompts.
-            </li>
-            <li>
-              Every call hits a local SQLite audit DB you can replay with
-              <code>appctl history</code>.
-            </li>
-          </ol>
-        </details>
-
-        <details>
-          <summary>Where are my secrets stored?</summary>
           <p>
-            The OS keychain: macOS Keychain, Windows Credential Manager,
-            Secret Service / gnome-keyring on Linux. Env-var fallback is
-            supported for CI and headless boxes. Nothing secret hits disk
-            by default.
+            If it has an OpenAPI spec, use <code>--openapi</code>. If it has a
+            Postgres or MySQL database, use <code>--db</code>. If none of the
+            above fit, you can write a plugin in Rust against
+            <a href="https://crates.io/crates/appctl-plugin-sdk"
+              ><code>appctl-plugin-sdk</code></a
+            >. The <code>appctl-airtable</code> plugin in the repo is around
+            100 lines of code.
           </p>
         </details>
 
         <details>
-          <summary>Which LLM should I pick?</summary>
+          <summary>What is the HTTP API?</summary>
           <p>
-            Whichever you want &mdash; it's provider-agnostic. For private
-            data, point it at a local model via Ollama or vLLM. For quality,
-            OpenAI / Anthropic / NVIDIA NIM all work. Swap by editing one
-            line in <code>.appctl/config.toml</code>.
-          </p>
-        </details>
-
-        <details>
-          <summary>How does it handle apps without an OpenAPI spec?</summary>
-          <p>
-            Several fallbacks. <code>--rails</code> reads
-            <code>schema.rb</code> + <code>routes.rb</code>.
-            <code>--laravel</code> reads migrations + <code>api.php</code>.
-            <code>--aspnet</code> reads <code>swagger.json</code> or scans
-            <code>[ApiController]</code> attributes. <code>--db</code> reads
-            straight from the database. <code>--url</code> logs in to a live
-            site, walks forms, and extracts CSRF tokens.
+            <code>appctl serve</code> exposes a small set of endpoints.
+            <code>POST /run</code> takes JSON like
+            <code>{"message": "..."}</code> and returns the answer plus a list
+            of tool events. <code>WS /chat</code> streams the same events as
+            they happen. The <a href="deploy/">deploy page</a> has the full
+            list.
           </p>
         </details>
       </section>
@@ -475,12 +486,11 @@ appctl sync --plugin airtable</code></pre>
 
     <footer>
       <p>
-        MIT &copy; <a href="https://esubalew.dev">Esubalew</a> &middot;
-        <a href="https://github.com/esubaalew/appctl">source on GitHub</a>
-        &middot;
+        MIT. Built by <a href="https://esubalew.dev">Esubalew</a>.
+        <a href="https://github.com/esubaalew/appctl">Source on GitHub</a>.
         <a href="https://github.com/esubaalew/appctl/blob/main/CHANGELOG.md"
-          >changelog</a
-        >
+          >Changelog</a
+        >.
       </p>
     </footer>
   </body>

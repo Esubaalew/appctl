@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>appctl — OpenAPI source</title>
+    <title>appctl: OpenAPI sync, step by step</title>
     <link rel="stylesheet" href="../../design-tokens.css" />
     <link rel="stylesheet" href="../../style.css" />
   </head>
@@ -14,31 +14,91 @@
         <a href="../../index.html">Home</a>
         <a href="../../index.html#will-it-work">Will it work?</a>
       </nav>
-      <h1>Source: OpenAPI</h1>
-      <p class="lede">Best fidelity — tools come directly from your published spec.</p>
+      <h1>OpenAPI sync</h1>
+      <p class="lede">
+        If your app serves an OpenAPI document, this is the source to use. It
+        gives the cleanest tool names and the most accurate types.
+      </p>
     </header>
     <main>
       <section>
-        <h2>What works</h2>
-        <div class="table-wrap">
-          <table class="matrix">
-            <tbody>
-              <tr><td>Honesty</td><td><code>Provenance::Declared</code> on HTTP actions</td></tr>
-              <tr><td>Auth</td><td>OpenAPI security schemes → schema auth</td></tr>
-              <tr><td>Demo</td><td><a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/openapi-fastapi">examples/demos/openapi-fastapi</a></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section>
-        <h2>Known limits</h2>
+        <h2>What you need</h2>
         <ul>
-          <li>Broken or incomplete specs produce incomplete tools — validate with Spectral or your gateway.</li>
+          <li>A running HTTP server that serves an OpenAPI 2 or 3 document, either at a URL like <code>/openapi.json</code> or as a file on disk.</li>
+          <li><code>appctl</code> installed (<code>cargo install appctl</code>).</li>
         </ul>
       </section>
+
       <section>
-        <h2>Screenshots</h2>
-        <p class="muted">Placeholder — run <code>appctl serve</code> and capture the bundled web UI after sync.</p>
+        <h2>The demo in this repo</h2>
+        <p>
+          <a href="https://github.com/esubaalew/appctl/tree/main/examples/demos/openapi-fastapi">examples/demos/openapi-fastapi/</a>
+          is a FastAPI app with one endpoint. FastAPI generates the OpenAPI document automatically at <code>/openapi.json</code>.
+        </p>
+
+        <h3>Set up Python</h3>
+        <p>You need Python 3.11 or newer.</p>
+        <pre><code>cd examples/demos/openapi-fastapi
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt</code></pre>
+
+        <h3>Start the server</h3>
+        <pre><code>uvicorn main:app --host 127.0.0.1 --port 8000</code></pre>
+        <p>Confirm it is up:</p>
+        <pre><code>$ curl -s http://127.0.0.1:8000/openapi.json | head -c 80
+{"openapi":"3.1.0","info":{"title":"appctl demo API","version":"1.0.0"},"paths"</code></pre>
+
+        <h3>Sync appctl</h3>
+        <p>In another terminal:</p>
+        <pre><code>appctl sync --openapi http://127.0.0.1:8000/openapi.json \
+  --base-url http://127.0.0.1:8000 --force</code></pre>
+
+        <p>Real output on this machine with <code>appctl 0.2.0</code>:</p>
+        <pre><code>Synced Openapi: 1 resources, 1 tools written to .appctl</code></pre>
+
+        <p>Look at what was generated:</p>
+        <pre><code>$ cat .appctl/schema.json | python3 -c "import json,sys; s=json.load(sys.stdin); [print(r['name'], [a['name'] for a in r['actions']]) for r in s['resources']]"
+widgets ['create_widget_widgets_post']</code></pre>
+
+        <h3>Call it through chat</h3>
+        <p>
+          This step needs a language model configured. See
+          <a href="../../index.html#install">install</a> for how to set a
+          provider in <code>.appctl/config.toml</code>.
+        </p>
+        <pre><code>appctl chat "create a widget named Demo"</code></pre>
+      </section>
+
+      <section>
+        <h2>What appctl does in this mode</h2>
+        <ul>
+          <li>Fetches the OpenAPI document (or reads it from disk).</li>
+          <li>For each path and operation, creates one tool with JSON Schema parameters.</li>
+          <li>Marks the tools as <code>provenance=declared</code>. This is the highest trust level because the server itself said these routes exist.</li>
+          <li>Reads <code>securitySchemes</code> from the spec and picks the matching <code>AuthStrategy</code>.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Verify the tools are reachable</h2>
+        <pre><code>$ appctl doctor
+tool                             method path         HTTP  verdict
+create_widget_widgets_post       POST   /widgets      200  reachable</code></pre>
+        <p>
+          Pass <code>--write</code> to mark reachable routes as
+          <code>provenance=verified</code> in the schema, so the agent knows
+          they have been exercised against the live server.
+        </p>
+      </section>
+
+      <section>
+        <h2>When OpenAPI is not a good fit</h2>
+        <ul>
+          <li>Incomplete specs produce incomplete tools. Lint your spec with Spectral before syncing.</li>
+          <li>If the spec is served behind login, save it to a file and pass the file path instead of the URL.</li>
+          <li>Webhook and callback operations are ignored.</li>
+        </ul>
       </section>
     </main>
     <footer><p><a href="../../index.html">&larr; Home</a></p></footer>
