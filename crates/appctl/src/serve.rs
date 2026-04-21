@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[derive(rust_embed::RustEmbed)]
-#[folder = "../../web/dist"]
+#[folder = "embedded-web/dist"]
 struct WebAssets;
 
 #[derive(Debug, Clone)]

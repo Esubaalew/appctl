@@ -12,11 +12,16 @@ readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 description = "One command. Any app. Full AI control. The universal AI CLI for any web app, database, or service."
-exclude = [
-    ".appctl/",
-    ".appctl.example/",
-    "tests/fixtures/**/target/",
-    "*.docx",
+# `cargo publish` only ships paths under this crate; `rust-embed` reads `embedded-web/dist`.
+include = [
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "src/**/*",
+    "tests/**/*.rs",
+    "embedded-web/dist/**/*",
 ]
 
 [lib]
