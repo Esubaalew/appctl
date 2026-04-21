@@ -325,7 +325,29 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
                 break;
             }
         }
-        let _ = agent.await;
+        match agent.await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                let line = serde_json::to_string(&AgentEvent::Error {
+                    message: error.to_string(),
+                });
+                if let Ok(line) = line {
+                    let _ = sink
+                        .send(axum::extract::ws::Message::Text(line.into()))
+                        .await;
+                }
+            }
+            Err(error) => {
+                let line = serde_json::to_string(&AgentEvent::Error {
+                    message: error.to_string(),
+                });
+                if let Ok(line) = line {
+                    let _ = sink
+                        .send(axum::extract::ws::Message::Text(line.into()))
+                        .await;
+                }
+            }
+        }
     }
 }
 

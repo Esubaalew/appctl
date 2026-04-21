@@ -77,5 +77,5 @@ appctl sync --plugin airtable --force
 
 ## See also
 
-- [`appctl plugin`](/docs/cli/config/) (plugin management lives under `appctl plugin`)
+- [`appctl plugin`](/docs/cli/plugin/) (plugin management lives under `appctl plugin`)
 - [Sync and schema](/docs/concepts/sync-and-schema/)

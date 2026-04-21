@@ -15,7 +15,7 @@ Verify:
 
 ```bash
 appctl --version
-# appctl 0.2.0
+# appctl 0.2.1
 ```
 
 ## From source

@@ -1,12 +1,12 @@
 # appctl for VS Code
 
-A chat & tool-trace panel for [`appctl`](https://github.com/esubaalew/appctl), the universal AI CLI for any web app, database, or service.
+A chat & tool-trace panel for [`appctl`](https://github.com/Esubaalew/appctl), the universal AI CLI for any web app, database, or service.
 
 ## Features
 
 - Chat with the `appctl` agent directly from VS Code.
 - Live tool-call traces (HTTP / SQL / plugin calls) streamed over WebSocket.
-- View recent sessions stored in your local `~/.appctl/history.db`.
+- View recent sessions from the active project's `.appctl/history.db` through the running daemon.
 
 ## Requirements
 

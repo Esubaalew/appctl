@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::{
@@ -49,14 +49,29 @@ impl LlmProvider for OpenAiCompatProvider {
             "tool_choice": "auto"
         });
 
-        let response: Value = request
+        let response = request
             .json(&payload)
             .send()
             .await
-            .context("failed to call OpenAI-compatible API")?
-            .json()
+            .context("failed to call OpenAI-compatible API")?;
+        let status = response.status();
+        let body = response
+            .text()
             .await
-            .context("failed to parse OpenAI-compatible response")?;
+            .context("failed to read OpenAI-compatible response body")?;
+        if !status.is_success() {
+            bail!(
+                "OpenAI-compatible API returned {}: {}",
+                status,
+                summarize_body(&body)
+            );
+        }
+        let response: Value = serde_json::from_str(&body).with_context(|| {
+            format!(
+                "failed to parse OpenAI-compatible response as JSON: {}",
+                summarize_body(&body)
+            )
+        })?;
 
         let message = response
             .pointer("/choices/0/message")
@@ -101,6 +116,17 @@ impl LlmProvider for OpenAiCompatProvider {
             Ok(AgentStep::Message { content })
         }
     }
+}
+
+fn summarize_body(body: &str) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return "<empty body>".to_string();
+    }
+
+    let mut compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+    compact.truncate(280);
+    compact
 }
 
 fn serialize_message(message: &Message) -> Value {

@@ -7,7 +7,7 @@ import starlight from '@astrojs/starlight';
 const base = process.env.APPCTL_DOCS_BASE ?? '/appctl/';
 const site = process.env.APPCTL_DOCS_SITE ?? 'https://esubaalew.github.io';
 
-const ogUrl = `${base.replace(/\/$/, '')}/og.png`;
+const ogUrl = new URL(`${base.replace(/\/$/, '')}/og.png`, site).toString();
 
 export default defineConfig({
   site,
@@ -114,6 +114,7 @@ export default defineConfig({
             { label: 'serve', slug: 'docs/cli/serve' },
             { label: 'history', slug: 'docs/cli/history' },
             { label: 'config', slug: 'docs/cli/config' },
+            { label: 'plugin', slug: 'docs/cli/plugin' },
             { label: 'auth', slug: 'docs/cli/auth' },
           ],
         },

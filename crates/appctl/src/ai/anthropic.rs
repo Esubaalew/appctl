@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 use crate::{
@@ -61,14 +61,29 @@ impl LlmProvider for AnthropicProvider {
             })).collect::<Vec<_>>()
         });
 
-        let response: Value = request
+        let response = request
             .json(&payload)
             .send()
             .await
-            .context("failed to call Anthropic API")?
-            .json()
+            .context("failed to call Anthropic API")?;
+        let status = response.status();
+        let body = response
+            .text()
             .await
-            .context("failed to parse Anthropic response")?;
+            .context("failed to read Anthropic response body")?;
+        if !status.is_success() {
+            bail!(
+                "Anthropic API returned {}: {}",
+                status,
+                summarize_body(&body)
+            );
+        }
+        let response: Value = serde_json::from_str(&body).with_context(|| {
+            format!(
+                "failed to parse Anthropic response as JSON: {}",
+                summarize_body(&body)
+            )
+        })?;
 
         let Some(content) = response.get("content").and_then(Value::as_array) else {
             return Ok(AgentStep::Stop);
@@ -117,4 +132,15 @@ impl LlmProvider for AnthropicProvider {
             Ok(AgentStep::Message { content: text })
         }
     }
+}
+
+fn summarize_body(body: &str) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return "<empty body>".to_string();
+    }
+
+    let mut compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+    compact.truncate(280);
+    compact
 }

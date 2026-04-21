@@ -13,7 +13,7 @@ the VS Code panel, or any UI that speaks to `appctl serve` &mdash; the LLM
 picks the right tool under the hood. Nobody memorises CRUD commands.
 
 - Site: <https://esubaalew.github.io/appctl>
-- Repo: <https://github.com/esubaalew/appctl>
+- Repo: <https://github.com/Esubaalew/appctl>
 - Author: [Esubalew](https://esubalew.dev)
 
 ## Install
@@ -27,7 +27,7 @@ cargo install appctl
 From this repository (exact version, no crates.io wait):
 
 ```bash
-cargo install --locked --git https://github.com/esubaalew/appctl.git --tag v0.2.0
+cargo install --locked --git https://github.com/Esubaalew/appctl.git --tag v0.2.1
 ```
 
 To build the embedded web UI the same way CI does (needed for a clean `cargo install` from a working tree):

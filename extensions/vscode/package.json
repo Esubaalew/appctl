@@ -11,10 +11,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/esubaalew/appctl.git",
+    "url": "https://github.com/Esubaalew/appctl.git",
     "directory": "extensions/vscode"
   },
-  "homepage": "https://appctl.dev",
+  "homepage": "https://esubaalew.github.io/appctl/",
   "engines": {
     "vscode": "^1.85.0"
   },

@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 
@@ -182,6 +182,17 @@ impl AppConfig {
             .as_deref()
             .and_then(|name| load_secret(name).ok().or_else(|| std::env::var(name).ok()))
             .filter(|value| !value.is_empty());
+
+        if let Some(secret_name) = provider.api_key_ref.as_deref() {
+            if api_key.is_none() {
+                bail!(
+                    "provider '{}' requires secret '{}'; set the env var or run `appctl config set-secret {} --value ...`",
+                    provider.name,
+                    secret_name,
+                    secret_name
+                );
+            }
+        }
 
         Ok(ResolvedProvider {
             name: provider.name.clone(),

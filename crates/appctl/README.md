@@ -14,7 +14,7 @@ appctl sync --openapi https://api.example.com/openapi.json
 appctl chat
 ```
 
-See the [project README](https://github.com/esubaalew/appctl) for full
+See the [project README](https://github.com/Esubaalew/appctl) for full
 documentation, architecture notes, and the list of supported sync sources.
 
 ## Features
@@ -30,4 +30,4 @@ documentation, architecture notes, and the list of supported sync sources.
 
 ## License
 
-MIT — see [`LICENSE`](https://github.com/esubaalew/appctl/blob/main/LICENSE).
+MIT — see [`LICENSE`](https://github.com/Esubaalew/appctl/blob/main/LICENSE).

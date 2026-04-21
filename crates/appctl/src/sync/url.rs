@@ -45,7 +45,10 @@ impl UrlSync {
         load_jar(&jar, &session_path);
         let client = Client::builder()
             .cookie_provider(jar.clone())
-            .user_agent("appctl/0.1 (+https://github.com/esubaalew/appctl)")
+            .user_agent(format!(
+                "appctl/{} (+https://github.com/Esubaalew/appctl)",
+                env!("CARGO_PKG_VERSION")
+            ))
             .build()
             .context("failed to build cookie-enabled reqwest client")?;
         Ok(Self {

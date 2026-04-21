@@ -34,4 +34,4 @@ appctl plugin install ./target/release/libappctl_airtable.dylib
 
 ## License
 
-MIT — see [`LICENSE`](https://github.com/esubaalew/appctl/blob/main/LICENSE).
+MIT — see [`LICENSE`](https://github.com/Esubaalew/appctl/blob/main/LICENSE).
