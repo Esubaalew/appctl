@@ -297,10 +297,9 @@ pub fn resolve_provider_auth(
                 },
             })
         }
-        None if cloud_auth.is_some() => resolve_cloud_auth(
-            provider_name,
-            cloud_auth.expect("checked above"),
-        ),
+        None if cloud_auth.is_some() => {
+            resolve_cloud_auth(provider_name, cloud_auth.expect("checked above"))
+        }
         None => match provider.api_key_ref.as_deref() {
             Some(secret_ref) => {
                 let value = load_secret_value(secret_ref).with_context(|| {
@@ -412,7 +411,10 @@ fn inspect_auth_spec(
     }
 }
 
-fn resolve_cloud_auth(provider_name: &str, auth: &ProviderAuthConfig) -> Result<ResolvedProviderAuth> {
+fn resolve_cloud_auth(
+    provider_name: &str,
+    auth: &ProviderAuthConfig,
+) -> Result<ResolvedProviderAuth> {
     match auth {
         ProviderAuthConfig::None => Ok(ResolvedProviderAuth::None {
             status: inspect_auth_spec(provider_name, auth, ProviderAuthOrigin::Cloud),

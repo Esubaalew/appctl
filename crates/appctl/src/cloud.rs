@@ -24,12 +24,8 @@ pub fn load_synced_connections(paths: &ConfigPaths) -> Result<CloudProviderConne
     if !paths.provider_connections.exists() {
         return Ok(CloudProviderConnections::default());
     }
-    read_json(&paths.provider_connections).with_context(|| {
-        format!(
-            "failed to read {}",
-            paths.provider_connections.display()
-        )
-    })
+    read_json(&paths.provider_connections)
+        .with_context(|| format!("failed to read {}", paths.provider_connections.display()))
 }
 
 pub fn save_synced_connections(

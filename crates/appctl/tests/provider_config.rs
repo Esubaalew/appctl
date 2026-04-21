@@ -1,7 +1,10 @@
 use appctl::{
     auth::provider::ProviderAuthConfig,
     cloud::{CloudProviderConnections, SyncedProviderConnection, save_synced_connections},
-    config::{AppConfig, BehaviorConfig, CloudConfig, ConfigPaths, ProviderConfig, ProviderKind, TargetConfig},
+    config::{
+        AppConfig, BehaviorConfig, CloudConfig, ConfigPaths, ProviderConfig, ProviderKind,
+        TargetConfig,
+    },
 };
 use tempfile::tempdir;
 

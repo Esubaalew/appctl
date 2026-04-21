@@ -6,7 +6,9 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::{
     auth::{
-        oauth::{OAuthLoginConfig, OAuthTokenNamespace, delete_provider_tokens, login as oauth_login},
+        oauth::{
+            OAuthLoginConfig, OAuthTokenNamespace, delete_provider_tokens, login as oauth_login,
+        },
         provider::ProviderAuthConfig,
     },
     chat::{ChatOptions, run_chat},
@@ -67,6 +69,18 @@ pub struct AuthArgs {
     pub command: AuthSubcommand,
 }
 
+#[derive(Debug)]
+struct ProviderLoginRequest {
+    profile: Option<String>,
+    value: Option<String>,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    auth_url: Option<String>,
+    token_url: Option<String>,
+    scope: Vec<String>,
+    redirect_port: u16,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum AuthSubcommand {
     /// Deprecated alias for `appctl auth target login`.
@@ -86,9 +100,7 @@ pub enum AuthSubcommand {
         redirect_port: u16,
     },
     /// Deprecated alias for `appctl auth target status`.
-    Status {
-        provider: String,
-    },
+    Status { provider: String },
     Target {
         #[command(subcommand)]
         command: TargetAuthSubcommand,
@@ -538,14 +550,16 @@ impl Cli {
                         login_provider_auth(
                             &config,
                             &provider,
-                            profile,
-                            value,
-                            client_id,
-                            client_secret,
-                            auth_url,
-                            token_url,
-                            scope,
-                            redirect_port,
+                            ProviderLoginRequest {
+                                profile,
+                                value,
+                                client_id,
+                                client_secret,
+                                auth_url,
+                                token_url,
+                                scope,
+                                redirect_port,
+                            },
                         )
                         .await?;
                     }
@@ -711,15 +725,16 @@ async fn login_target_auth(
     let client_id = client_id
         .or_else(|| std::env::var(format!("{provider}_CLIENT_ID")).ok())
         .context("--client-id is required (or set <provider>_CLIENT_ID)")?;
-    let auth_url = auth_url.context("--auth-url is required (the provider's authorization endpoint)")?;
-    let token_url =
-        token_url.context("--token-url is required (the provider's token endpoint)")?;
+    let auth_url =
+        auth_url.context("--auth-url is required (the provider's authorization endpoint)")?;
+    let token_url = token_url.context("--token-url is required (the provider's token endpoint)")?;
     let config = OAuthLoginConfig {
         provider: provider.to_string(),
         storage_key: provider.to_string(),
         namespace: OAuthTokenNamespace::Target,
         client_id,
-        client_secret: client_secret.or_else(|| std::env::var(format!("{provider}_CLIENT_SECRET")).ok()),
+        client_secret: client_secret
+            .or_else(|| std::env::var(format!("{provider}_CLIENT_SECRET")).ok()),
         auth_url,
         token_url,
         scopes: scope,
@@ -737,15 +752,18 @@ async fn login_target_auth(
 async fn login_provider_auth(
     config: &AppConfig,
     provider_name: &str,
-    profile: Option<String>,
-    value: Option<String>,
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    auth_url: Option<String>,
-    token_url: Option<String>,
-    scope: Vec<String>,
-    redirect_port: u16,
+    request: ProviderLoginRequest,
 ) -> Result<()> {
+    let ProviderLoginRequest {
+        profile,
+        value,
+        client_id,
+        client_secret,
+        auth_url,
+        token_url,
+        scope,
+        redirect_port,
+    } = request;
     let provider = config
         .providers
         .iter()
@@ -820,12 +838,12 @@ async fn login_provider_auth(
                         None
                     }
                 });
-            let auth_url = auth_url
-                .or(configured_auth_url)
-                .context("provider auth is missing auth_url; set it in the auth block or pass --auth-url")?;
-            let token_url = token_url
-                .or(configured_token_url)
-                .context("provider auth is missing token_url; set it in the auth block or pass --token-url")?;
+            let auth_url = auth_url.or(configured_auth_url).context(
+                "provider auth is missing auth_url; set it in the auth block or pass --auth-url",
+            )?;
+            let token_url = token_url.or(configured_token_url).context(
+                "provider auth is missing token_url; set it in the auth block or pass --token-url",
+            )?;
 
             let login = OAuthLoginConfig {
                 provider: provider_name.to_string(),
@@ -848,7 +866,7 @@ async fn login_provider_auth(
             Ok(())
         }
         Some(ProviderAuthConfig::GoogleAdc { .. }) => {
-                let status = config
+            let status = config
                 .provider_statuses()
                 .into_iter()
                 .find(|provider| provider.name == provider_name)

@@ -1,8 +1,8 @@
 pub mod ai;
 pub mod auth;
 pub mod chat;
-pub mod cloud;
 pub mod cli;
+pub mod cloud;
 pub mod config;
 pub mod doctor;
 pub mod events;

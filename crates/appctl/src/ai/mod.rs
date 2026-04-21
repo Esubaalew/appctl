@@ -86,8 +86,11 @@ pub async fn run_agent(
     )
     .await;
 
-    let provider =
-        provider_from_config(config.resolve_provider_with_paths(Some(paths), provider_name, model_override)?);
+    let provider = provider_from_config(config.resolve_provider_with_paths(
+        Some(paths),
+        provider_name,
+        model_override,
+    )?);
     let executor = Executor::new(paths)?;
     let history = HistoryStore::open(paths)?;
     let mut messages = vec![

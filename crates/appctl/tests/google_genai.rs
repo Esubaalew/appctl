@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use appctl::{
     ai::{LlmProvider, Message, google_genai::GoogleGenaiProvider},
-    auth::provider::{ProviderAuthStatus, ProviderAuthKind, ProviderAuthOrigin, ResolvedProviderAuth},
+    auth::provider::{
+        ProviderAuthKind, ProviderAuthOrigin, ProviderAuthStatus, ResolvedProviderAuth,
+    },
     config::{ProviderKind, ResolvedProvider},
     tools::ToolDef,
 };
@@ -90,7 +92,10 @@ async fn google_genai_provider_sends_api_key_and_parses_function_call() {
         tool_name: None,
     }];
 
-    let step = provider.chat(&messages, &tools).await.expect("gemini request");
+    let step = provider
+        .chat(&messages, &tools)
+        .await
+        .expect("gemini request");
     match step {
         appctl::ai::AgentStep::ToolCalls { calls } => {
             assert_eq!(calls.len(), 1);

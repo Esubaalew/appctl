@@ -96,7 +96,10 @@ impl LlmProvider for GoogleGenaiProvider {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
-                    arguments: call.get("args").cloned().unwrap_or(Value::Object(Map::new())),
+                    arguments: call
+                        .get("args")
+                        .cloned()
+                        .unwrap_or(Value::Object(Map::new())),
                 });
             }
         }

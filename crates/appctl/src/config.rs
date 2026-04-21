@@ -207,7 +207,10 @@ impl AppConfig {
             .collect()
     }
 
-    pub fn provider_statuses_with_paths(&self, paths: &ConfigPaths) -> Vec<ResolvedProviderSummary> {
+    pub fn provider_statuses_with_paths(
+        &self,
+        paths: &ConfigPaths,
+    ) -> Vec<ResolvedProviderSummary> {
         self.providers
             .iter()
             .map(|provider| {
