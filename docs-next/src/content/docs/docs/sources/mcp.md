@@ -1,22 +1,49 @@
 ---
 title: MCP servers
-description: Connect appctl to any MCP server URL and expose its tools.
+description: Use appctl as an MCP client or expose synced tools through appctl mcp serve.
 ---
 
-Connect `appctl` to an MCP server that exposes tools. Any MCP tool becomes a tool the agent can call.
+`appctl` now has two MCP roles:
+
+- `appctl sync --mcp <url>` registers a passthrough action that forwards `tools/call` to a remote MCP server at runtime.
+- `appctl mcp serve` exposes your synced `appctl` tools over stdio so Gemini CLI, Qwen Code, Claude Code, Codex, and other MCP clients can use them.
 
 ## Prerequisites
 
-- An MCP server URL. `appctl sync --mcp` expects an HTTP URL that speaks MCP over WebSocket or SSE. Pure stdio MCP servers need a small URL wrapper.
+- For `sync --mcp`: an MCP server URL that accepts JSON-RPC `tools/call` requests over HTTP.
+- For `mcp serve`: a synced `.appctl/schema.json` and `.appctl/tools.json`.
 - `appctl` installed.
 
-## Using a URL-based MCP server
+## Using a remote MCP server
 
 ```bash
-appctl sync --mcp ws://localhost:5555/mcp --force
+appctl sync --mcp http://localhost:5555/mcp --force
 ```
 
-The sync calls `tools/list`, creates one `appctl` tool per MCP tool, and stores the URL so the agent can later send `tools/call`.
+Current behavior is intentionally small: the sync writes one `call_remote_mcp_tool` action and stores the server URL. At runtime, `appctl` forwards `tools/call` to that server.
+
+## Expose synced tools as an MCP server
+
+```bash
+appctl sync --openapi http://127.0.0.1:8000/openapi.json \
+  --base-url http://127.0.0.1:8000 --force
+
+appctl mcp serve --read-only
+```
+
+The stdio server implements:
+
+- `initialize`
+- `tools/list`
+- `tools/call`
+
+It returns each synced `appctl` tool as an MCP tool, using the same safety checks as the normal executor.
+
+## Connect external clients
+
+- Gemini CLI: point its MCP config at `appctl mcp serve`.
+- Qwen Code: point its MCP config at `appctl mcp serve`.
+- Claude Code, Codex, and other MCP-capable clients: use the same stdio command.
 
 ## The demo in this repo
 
@@ -42,9 +69,12 @@ Real output:
 
 ## Known limits
 
-- Pure stdio MCP servers (the most common kind) are not supported directly. Wrap them with a small HTTP or WebSocket shim.
-- Only the `tools` portion of the MCP spec is imported. Resources and prompts are not.
+- `sync --mcp` is still passthrough-only. It does not expand remote `tools/list` into separate `appctl` tools yet.
+- `appctl mcp serve` is stdio-first in this release. HTTP and SSE transports can be added later.
+- Only the `tools` portion of the MCP spec is handled. Resources and prompts are not.
 
 ## See also
 
 - [`appctl sync`](/docs/cli/sync/)
+- [`appctl serve`](/docs/cli/serve/)
+- [Provider matrix](/docs/provider-matrix/)

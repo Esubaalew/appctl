@@ -1,9 +1,12 @@
 ---
 title: appctl auth
-description: Run OAuth device or authorization-code flows for an app you are syncing.
+description: Manage target-app auth and LLM provider auth from explicit CLI subcommands.
 ---
 
-Run OAuth flows for apps that require a user token at call time (GitHub API, Slack, custom internal services).
+`appctl auth` is now split into two surfaces:
+
+- `appctl auth target ...` for the synced app you call through tools
+- `appctl auth provider ...` for the LLM provider that powers `chat`, `run`, and `serve`
 
 ## Usage
 
@@ -13,13 +16,19 @@ appctl auth <COMMAND>
 
 Commands:
 
-- `login <provider>` — run an OAuth authorization-code flow with a local redirect.
-- `status` — show stored tokens and their expiry.
+- `target login <provider>`
+- `target status <provider>`
+- `provider login <name>`
+- `provider status [name]`
+- `provider logout <name>`
+- `provider list`
 
-## `appctl auth login`
+The older `appctl auth login ...` and `appctl auth status ...` commands remain as deprecated aliases for `target`.
+
+## `appctl auth target login`
 
 ```
-appctl auth login [OPTIONS] <PROVIDER>
+appctl auth target login [OPTIONS] <PROVIDER>
 ```
 
 ### Options
@@ -31,10 +40,10 @@ appctl auth login [OPTIONS] <PROVIDER>
 - `--scope <SCOPE>` — OAuth scope (provider-specific).
 - `--redirect-port <PORT>` — local port for the redirect listener (default `8421`).
 
-### Example (GitHub)
+### Example
 
 ```bash
-appctl auth login github \
+appctl auth target login github \
   --client-id "$GH_CLIENT_ID" \
   --client-secret "$GH_CLIENT_SECRET" \
   --auth-url https://github.com/login/oauth/authorize \
@@ -42,24 +51,53 @@ appctl auth login github \
   --scope "repo read:user"
 ```
 
-`appctl` opens the browser, waits for the callback on `localhost:<redirect-port>`, exchanges the code for a token, and stores it in the keychain as `oauth:<provider>`.
+`appctl` opens the browser, waits for the callback on `localhost:<redirect-port>`, exchanges the code for a token, and stores it in the target-auth namespace in the keychain.
 
-## `appctl auth status`
+## `appctl auth provider login`
+
+Use this when the model provider itself needs OAuth or local ADC discovery.
+
+### Gemini OAuth
 
 ```bash
-appctl auth status
+appctl auth provider login gemini
 ```
 
-Output:
+If the provider config already declares OAuth2, `appctl` reuses that profile and scope list. For Gemini, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are used automatically when present.
 
+### Qwen / DashScope
+
+```bash
+appctl auth provider login qwen
 ```
-provider  stored  expires_in
-github    yes     6d 22h
+
+For API-key providers, the login command stores the configured secret in the keychain instead of opening a browser flow.
+
+## `appctl auth provider status`
+
+```bash
+appctl auth provider status
 ```
 
-Tokens refresh automatically when a refresh token is present.
+This prints the auth kind, whether credentials are configured, expiry when known, and recovery hints.
 
-## Using the token in sync
+## `appctl auth provider list`
+
+```bash
+appctl auth provider list
+```
+
+List every configured provider and its redacted auth status.
+
+## `appctl auth provider logout`
+
+```bash
+appctl auth provider logout gemini
+```
+
+Deletes the stored provider OAuth token for that provider's configured profile.
+
+## Using target OAuth in sync
 
 Reference the provider in your schema's `auth` block:
 
@@ -67,9 +105,11 @@ Reference the provider in your schema's `auth` block:
 "auth": { "kind": "oauth_flow", "provider": "github" }
 ```
 
-`appctl` fetches the token at call time and sets `Authorization: Bearer <token>` on every HTTP tool.
+`appctl` fetches the target token at call time and sets `Authorization: Bearer <token>` on every HTTP tool.
 
 ## Related
 
+- [Provider matrix](/docs/provider-matrix/)
+- [`appctl config`](/docs/cli/config/)
 - [Secrets and keys](/docs/deploy/secrets-and-keys/)
 - [Security](/docs/security/)

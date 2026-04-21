@@ -1,8 +1,8 @@
 //! OAuth2 PKCE login flow backed by the system keychain.
 //!
 //! Tokens are stored as a JSON blob in the OS keychain keyed by
-//! `appctl_oauth::<provider>` for access tokens and
-//! `appctl_oauth_refresh::<provider>` for refresh tokens.
+//! `appctl_oauth::<provider>` for target-app auth and
+//! `appctl_llm_oauth::<profile>` for provider auth.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -17,7 +17,7 @@ use oauth2::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::config::{load_secret, save_secret};
+use crate::config::{delete_secret, load_secret, save_secret};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredTokens {
@@ -32,30 +32,69 @@ pub struct StoredTokens {
     pub scopes: Vec<String>,
 }
 
-fn secret_key(provider: &str) -> String {
-    format!("appctl_oauth::{provider}")
+#[derive(Debug, Clone, Copy)]
+pub enum OAuthTokenNamespace {
+    Target,
+    Provider,
 }
 
-pub fn load_tokens(provider: &str) -> Option<StoredTokens> {
-    let raw = load_secret(&secret_key(provider)).ok()?;
+fn secret_key(namespace: OAuthTokenNamespace, key: &str) -> String {
+    match namespace {
+        OAuthTokenNamespace::Target => format!("appctl_oauth::{key}"),
+        OAuthTokenNamespace::Provider => format!("appctl_llm_oauth::{key}"),
+    }
+}
+
+fn load_tokens_for(namespace: OAuthTokenNamespace, key: &str) -> Option<StoredTokens> {
+    let raw = load_secret(&secret_key(namespace, key)).ok()?;
     if raw.is_empty() {
         return None;
     }
     serde_json::from_str(&raw).ok()
 }
 
-pub fn save_tokens(provider: &str, tokens: &StoredTokens) -> Result<()> {
+fn save_tokens_for(namespace: OAuthTokenNamespace, key: &str, tokens: &StoredTokens) -> Result<()> {
     let encoded = serde_json::to_string(tokens)?;
-    save_secret(&secret_key(provider), &encoded)
+    save_secret(&secret_key(namespace, key), &encoded)
+}
+
+fn delete_tokens_for(namespace: OAuthTokenNamespace, key: &str) -> Result<()> {
+    delete_secret(&secret_key(namespace, key))
+}
+
+pub fn load_tokens(provider: &str) -> Option<StoredTokens> {
+    load_tokens_for(OAuthTokenNamespace::Target, provider)
+}
+
+pub fn save_tokens(provider: &str, tokens: &StoredTokens) -> Result<()> {
+    save_tokens_for(OAuthTokenNamespace::Target, provider, tokens)
+}
+
+pub fn load_provider_tokens(profile: &str) -> Option<StoredTokens> {
+    load_tokens_for(OAuthTokenNamespace::Provider, profile)
+}
+
+pub fn save_provider_tokens(profile: &str, tokens: &StoredTokens) -> Result<()> {
+    save_tokens_for(OAuthTokenNamespace::Provider, profile, tokens)
 }
 
 pub fn load_access_token(provider: &str) -> Option<String> {
     load_tokens(provider).map(|t| t.access_token)
 }
 
+pub fn load_provider_access_token(profile: &str) -> Option<String> {
+    load_provider_tokens(profile).map(|t| t.access_token)
+}
+
+pub fn delete_provider_tokens(profile: &str) -> Result<()> {
+    delete_tokens_for(OAuthTokenNamespace::Provider, profile)
+}
+
 #[derive(Debug, Clone)]
 pub struct OAuthLoginConfig {
     pub provider: String,
+    pub storage_key: String,
+    pub namespace: OAuthTokenNamespace,
     pub client_id: String,
     pub client_secret: Option<String>,
     pub auth_url: String,
@@ -115,12 +154,13 @@ pub async fn login(config: OAuthLoginConfig) -> Result<StoredTokens> {
         token_type: Some(format!("{:?}", token_resp.token_type()).to_lowercase()),
         scopes: config.scopes.clone(),
     };
-    save_tokens(&config.provider, &stored)?;
+    save_tokens_for(config.namespace, &config.storage_key, &stored)?;
     Ok(stored)
 }
 
 pub async fn refresh(config: &OAuthLoginConfig) -> Result<StoredTokens> {
-    let current = load_tokens(&config.provider).context("no stored tokens to refresh")?;
+    let current = load_tokens_for(config.namespace, &config.storage_key)
+        .context("no stored tokens to refresh")?;
     let refresh_token = current
         .refresh_token
         .clone()
@@ -159,7 +199,7 @@ pub async fn refresh(config: &OAuthLoginConfig) -> Result<StoredTokens> {
         token_type: current.token_type,
         scopes: current.scopes,
     };
-    save_tokens(&config.provider, &stored)?;
+    save_tokens_for(config.namespace, &config.storage_key, &stored)?;
     Ok(stored)
 }
 

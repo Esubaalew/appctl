@@ -31,8 +31,11 @@ impl LlmProvider for AnthropicProvider {
                 self.config.base_url.trim_end_matches('/')
             ))
             .header("anthropic-version", "2023-06-01");
-        if let Some(api_key) = &self.config.api_key {
+        if let Some(api_key) = self.config.auth.api_key() {
             request = request.header("x-api-key", api_key);
+        }
+        if let Some(token) = self.config.auth.bearer_token() {
+            request = request.bearer_auth(token);
         }
         for (name, value) in &self.config.extra_headers {
             request = request.header(name, value);

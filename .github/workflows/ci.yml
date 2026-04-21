@@ -11,6 +11,21 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  docs:
+    name: docs-next build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: docs-next/package-lock.json
+      - working-directory: docs-next
+        run: |
+          npm ci
+          npm run build
+
   web:
     name: web (build, lint, typecheck)
     runs-on: ubuntu-latest

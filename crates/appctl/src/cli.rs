@@ -5,11 +5,15 @@ use clap::{Args, Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::{
-    auth::oauth::{OAuthLoginConfig, login as oauth_login},
+    auth::{
+        oauth::{OAuthLoginConfig, OAuthTokenNamespace, delete_provider_tokens, login as oauth_login},
+        provider::ProviderAuthConfig,
+    },
     chat::{ChatOptions, run_chat},
     config::{AppConfig, ConfigPaths, load_secret},
     doctor::{DoctorRunArgs, run_doctor},
     history::{HistoryCommand, run_history_command},
+    mcp_server::{McpServeOptions, run_mcp_server},
     plugins,
     run::{RunOptions, run_once},
     serve::{ServeOptions, run_server},
@@ -45,6 +49,7 @@ pub enum Command {
     Config(ConfigArgs),
     Plugin(PluginArgs),
     Auth(AuthArgs),
+    Mcp(McpArgs),
 }
 
 #[derive(Debug, Args)]
@@ -64,6 +69,38 @@ pub struct AuthArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthSubcommand {
+    /// Deprecated alias for `appctl auth target login`.
+    Login {
+        provider: String,
+        #[arg(long)]
+        client_id: Option<String>,
+        #[arg(long)]
+        client_secret: Option<String>,
+        #[arg(long)]
+        auth_url: Option<String>,
+        #[arg(long)]
+        token_url: Option<String>,
+        #[arg(long)]
+        scope: Vec<String>,
+        #[arg(long, default_value_t = 8421)]
+        redirect_port: u16,
+    },
+    /// Deprecated alias for `appctl auth target status`.
+    Status {
+        provider: String,
+    },
+    Target {
+        #[command(subcommand)]
+        command: TargetAuthSubcommand,
+    },
+    Provider {
+        #[command(subcommand)]
+        command: ProviderAuthSubcommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TargetAuthSubcommand {
     Login {
         provider: String,
         #[arg(long)]
@@ -82,6 +119,36 @@ pub enum AuthSubcommand {
     Status {
         provider: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProviderAuthSubcommand {
+    Login {
+        provider: String,
+        #[arg(long)]
+        profile: Option<String>,
+        #[arg(long)]
+        value: Option<String>,
+        #[arg(long)]
+        client_id: Option<String>,
+        #[arg(long)]
+        client_secret: Option<String>,
+        #[arg(long)]
+        auth_url: Option<String>,
+        #[arg(long)]
+        token_url: Option<String>,
+        #[arg(long)]
+        scope: Vec<String>,
+        #[arg(long, default_value_t = 8421)]
+        redirect_port: u16,
+    },
+    Status {
+        provider: Option<String>,
+    },
+    Logout {
+        provider: String,
+    },
+    List,
 }
 
 #[derive(Debug, Args)]
@@ -202,7 +269,10 @@ pub struct ConfigArgs {
 pub enum ConfigSubcommand {
     Init,
     Show,
-    ProviderSample,
+    ProviderSample {
+        #[arg(long)]
+        preset: Option<String>,
+    },
     /// Store a secret in the OS keychain (service `appctl`). Env vars still override at runtime.
     SetSecret {
         name: String,
@@ -216,6 +286,26 @@ pub enum ConfigSubcommand {
 pub struct PluginArgs {
     #[command(subcommand)]
     pub command: PluginSubcommand,
+}
+
+#[derive(Debug, Args)]
+pub struct McpArgs {
+    #[command(subcommand)]
+    pub command: McpSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum McpSubcommand {
+    Serve {
+        #[arg(long)]
+        read_only: bool,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        strict: bool,
+        #[arg(long, default_value_t = true)]
+        confirm: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -340,8 +430,8 @@ impl Cli {
                     let config = AppConfig::load_or_init(&paths)?;
                     println!("{}", toml::to_string_pretty(&config)?);
                 }
-                ConfigSubcommand::ProviderSample => {
-                    println!("{}", AppConfig::sample_toml()?);
+                ConfigSubcommand::ProviderSample { preset } => {
+                    println!("{}", provider_sample_toml(preset.as_deref())?);
                 }
                 ConfigSubcommand::SetSecret { name, value } => {
                     let v = match value {
@@ -393,42 +483,103 @@ impl Cli {
                     scope,
                     redirect_port,
                 } => {
-                    let client_id = client_id
-                        .or_else(|| std::env::var(format!("{provider}_CLIENT_ID")).ok())
-                        .context("--client-id is required (or set <provider>_CLIENT_ID)")?;
-                    let auth_url = auth_url.context(
-                        "--auth-url is required (the provider's authorization endpoint)",
-                    )?;
-                    let token_url = token_url
-                        .context("--token-url is required (the provider's token endpoint)")?;
-                    let config = OAuthLoginConfig {
-                        provider: provider.clone(),
+                    login_target_auth(
+                        &provider,
                         client_id,
-                        client_secret: client_secret
-                            .or_else(|| std::env::var(format!("{provider}_CLIENT_SECRET")).ok()),
+                        client_secret,
                         auth_url,
                         token_url,
-                        scopes: scope,
+                        scope,
                         redirect_port,
-                    };
-                    let tokens = oauth_login(config).await?;
-                    println!(
-                        "Logged in as '{}'. Access token stored in keychain ({} scopes).",
-                        provider,
-                        tokens.scopes.len()
-                    );
+                    )
+                    .await?;
                 }
                 AuthSubcommand::Status { provider } => {
-                    match load_secret(&format!("appctl_oauth::{provider}")) {
-                        Ok(raw) if !raw.is_empty() => {
-                            println!(
-                                "provider '{}' has stored tokens ({} bytes)",
-                                provider,
-                                raw.len()
-                            );
-                        }
-                        _ => println!("no tokens stored for '{}'", provider),
+                    print_target_auth_status(&provider);
+                }
+                AuthSubcommand::Target { command } => match command {
+                    TargetAuthSubcommand::Login {
+                        provider,
+                        client_id,
+                        client_secret,
+                        auth_url,
+                        token_url,
+                        scope,
+                        redirect_port,
+                    } => {
+                        login_target_auth(
+                            &provider,
+                            client_id,
+                            client_secret,
+                            auth_url,
+                            token_url,
+                            scope,
+                            redirect_port,
+                        )
+                        .await?;
                     }
+                    TargetAuthSubcommand::Status { provider } => {
+                        print_target_auth_status(&provider);
+                    }
+                },
+                AuthSubcommand::Provider { command } => match command {
+                    ProviderAuthSubcommand::Login {
+                        provider,
+                        profile,
+                        value,
+                        client_id,
+                        client_secret,
+                        auth_url,
+                        token_url,
+                        scope,
+                        redirect_port,
+                    } => {
+                        let config = AppConfig::load_or_init(&paths)?;
+                        login_provider_auth(
+                            &config,
+                            &provider,
+                            profile,
+                            value,
+                            client_id,
+                            client_secret,
+                            auth_url,
+                            token_url,
+                            scope,
+                            redirect_port,
+                        )
+                        .await?;
+                    }
+                    ProviderAuthSubcommand::Status { provider } => {
+                        let config = AppConfig::load_or_init(&paths)?;
+                        print_provider_auth_status(&paths, &config, provider.as_deref())?;
+                    }
+                    ProviderAuthSubcommand::Logout { provider } => {
+                        let config = AppConfig::load_or_init(&paths)?;
+                        logout_provider_auth(&config, &provider)?;
+                    }
+                    ProviderAuthSubcommand::List => {
+                        let config = AppConfig::load_or_init(&paths)?;
+                        print_provider_auth_status(&paths, &config, None)?;
+                    }
+                },
+            },
+            Command::Mcp(args) => match args.command {
+                McpSubcommand::Serve {
+                    read_only,
+                    dry_run,
+                    strict,
+                    confirm,
+                } => {
+                    run_mcp_server(
+                        paths,
+                        McpServeOptions {
+                            read_only,
+                            dry_run,
+                            strict,
+                            confirm,
+                        },
+                    )
+                    .await?;
                 }
             },
         }
@@ -546,6 +697,374 @@ fn install_plugin(source: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+async fn login_target_auth(
+    provider: &str,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    auth_url: Option<String>,
+    token_url: Option<String>,
+    scope: Vec<String>,
+    redirect_port: u16,
+) -> Result<()> {
+    let client_id = client_id
+        .or_else(|| std::env::var(format!("{provider}_CLIENT_ID")).ok())
+        .context("--client-id is required (or set <provider>_CLIENT_ID)")?;
+    let auth_url = auth_url.context("--auth-url is required (the provider's authorization endpoint)")?;
+    let token_url =
+        token_url.context("--token-url is required (the provider's token endpoint)")?;
+    let config = OAuthLoginConfig {
+        provider: provider.to_string(),
+        storage_key: provider.to_string(),
+        namespace: OAuthTokenNamespace::Target,
+        client_id,
+        client_secret: client_secret.or_else(|| std::env::var(format!("{provider}_CLIENT_SECRET")).ok()),
+        auth_url,
+        token_url,
+        scopes: scope,
+        redirect_port,
+    };
+    let tokens = oauth_login(config).await?;
+    println!(
+        "Logged in for target provider '{}'. Access token stored in keychain ({} scopes).",
+        provider,
+        tokens.scopes.len()
+    );
+    Ok(())
+}
+
+async fn login_provider_auth(
+    config: &AppConfig,
+    provider_name: &str,
+    profile: Option<String>,
+    value: Option<String>,
+    client_id: Option<String>,
+    client_secret: Option<String>,
+    auth_url: Option<String>,
+    token_url: Option<String>,
+    scope: Vec<String>,
+    redirect_port: u16,
+) -> Result<()> {
+    let provider = config
+        .providers
+        .iter()
+        .find(|provider| provider.name == provider_name);
+
+    let auth = provider
+        .and_then(|provider| provider.auth.clone())
+        .or_else(|| provider_auth_preset(provider_name));
+
+    match auth {
+        Some(ProviderAuthConfig::None) => {
+            println!(
+                "provider '{}' does not require credentials; nothing to log in",
+                provider_name
+            );
+            Ok(())
+        }
+        Some(ProviderAuthConfig::ApiKey { secret_ref }) => {
+            let secret = match value {
+                Some(value) => value,
+                None => dialoguer::Password::new()
+                    .with_prompt(format!("Enter API key for `{provider_name}`"))
+                    .interact()?,
+            };
+            crate::config::save_secret(&secret_ref, &secret)?;
+            println!(
+                "stored provider secret for '{}' in keychain under '{}'",
+                provider_name, secret_ref
+            );
+            Ok(())
+        }
+        Some(ProviderAuthConfig::OAuth2 {
+            profile: configured_profile,
+            scopes,
+            client_id_ref,
+            client_secret_ref,
+            auth_url: configured_auth_url,
+            token_url: configured_token_url,
+        }) => {
+            let storage_key = profile.unwrap_or(configured_profile);
+            let requested_scopes = if scope.is_empty() { scopes } else { scope };
+            let client_id = client_id
+                .or_else(|| client_id_ref.as_deref().and_then(|name| std::env::var(name).ok()))
+                .or_else(|| client_id_ref.as_deref().and_then(|name| load_secret(name).ok()))
+                .or_else(|| {
+                    if provider_name == "gemini" {
+                        std::env::var("GOOGLE_CLIENT_ID")
+                            .ok()
+                            .or_else(|| load_secret("GOOGLE_CLIENT_ID").ok())
+                    } else {
+                        None
+                    }
+                })
+                .context("provider auth is missing a client id; set it in the auth block, set GOOGLE_CLIENT_ID, or pass --client-id")?;
+            let client_secret = client_secret
+                .or_else(|| {
+                    client_secret_ref
+                        .as_deref()
+                        .and_then(|name| std::env::var(name).ok())
+                })
+                .or_else(|| {
+                    client_secret_ref
+                        .as_deref()
+                        .and_then(|name| load_secret(name).ok())
+                })
+                .or_else(|| {
+                    if provider_name == "gemini" {
+                        std::env::var("GOOGLE_CLIENT_SECRET")
+                            .ok()
+                            .or_else(|| load_secret("GOOGLE_CLIENT_SECRET").ok())
+                    } else {
+                        None
+                    }
+                });
+            let auth_url = auth_url
+                .or(configured_auth_url)
+                .context("provider auth is missing auth_url; set it in the auth block or pass --auth-url")?;
+            let token_url = token_url
+                .or(configured_token_url)
+                .context("provider auth is missing token_url; set it in the auth block or pass --token-url")?;
+
+            let login = OAuthLoginConfig {
+                provider: provider_name.to_string(),
+                storage_key: storage_key.clone(),
+                namespace: OAuthTokenNamespace::Provider,
+                client_id,
+                client_secret,
+                auth_url,
+                token_url,
+                scopes: requested_scopes,
+                redirect_port,
+            };
+            let tokens = oauth_login(login).await?;
+            println!(
+                "Logged in provider '{}' using profile '{}'. Stored {} scope entries.",
+                provider_name,
+                storage_key,
+                tokens.scopes.len()
+            );
+            Ok(())
+        }
+        Some(ProviderAuthConfig::GoogleAdc { .. }) => {
+                let status = config
+                .provider_statuses()
+                .into_iter()
+                .find(|provider| provider.name == provider_name)
+                .map(|provider| provider.auth_status)
+                .context("provider not found while checking ADC status")?;
+            if status.configured {
+                println!(
+                    "provider '{}' can use Google ADC{}",
+                    provider_name,
+                    status
+                        .project_id
+                        .as_deref()
+                        .map(|project| format!(" (project {project})"))
+                        .unwrap_or_default()
+                );
+                Ok(())
+            } else {
+                bail!(
+                    "{}",
+                    status.recovery_hint.unwrap_or_else(|| {
+                        "Google ADC is not configured for this provider.".to_string()
+                    })
+                )
+            }
+        }
+        None => bail!(
+            "provider '{}' is not configured and has no built-in auth preset",
+            provider_name
+        ),
+    }
+}
+
+fn print_target_auth_status(provider: &str) {
+    match load_secret(&format!("appctl_oauth::{provider}")) {
+        Ok(raw) if !raw.is_empty() => {
+            println!(
+                "target auth '{}' has stored OAuth tokens ({} bytes)",
+                provider,
+                raw.len()
+            );
+        }
+        _ => println!("no target OAuth tokens stored for '{}'", provider),
+    }
+}
+
+fn print_provider_auth_status(
+    paths: &ConfigPaths,
+    config: &AppConfig,
+    provider_name: Option<&str>,
+) -> Result<()> {
+    let statuses = config.provider_statuses_with_paths(paths);
+    if let Some(provider_name) = provider_name {
+        let provider = statuses
+            .into_iter()
+            .find(|provider| provider.name == provider_name)
+            .with_context(|| format!("provider '{}' not found in config", provider_name))?;
+        print_single_provider_status(&provider);
+        return Ok(());
+    }
+
+    for provider in statuses {
+        print_single_provider_status(&provider);
+    }
+    Ok(())
+}
+
+fn print_single_provider_status(provider: &crate::config::ResolvedProviderSummary) {
+    println!(
+        "{} ({:?}) model={} auth={:?} configured={}",
+        provider.name,
+        provider.kind,
+        provider.model,
+        provider.auth_status.kind,
+        provider.auth_status.configured
+    );
+    if let Some(profile) = &provider.auth_status.profile {
+        println!("  profile: {profile}");
+    }
+    if let Some(secret_ref) = &provider.auth_status.secret_ref {
+        println!("  secret_ref: {secret_ref}");
+    }
+    if let Some(expires_at) = provider.auth_status.expires_at {
+        println!("  expires_at: {expires_at}");
+    }
+    if let Some(project_id) = &provider.auth_status.project_id {
+        println!("  project_id: {project_id}");
+    }
+    if let Some(recovery_hint) = &provider.auth_status.recovery_hint {
+        println!("  hint: {recovery_hint}");
+    }
+}
+
+fn logout_provider_auth(config: &AppConfig, provider_name: &str) -> Result<()> {
+    let provider = config
+        .providers
+        .iter()
+        .find(|provider| provider.name == provider_name)
+        .with_context(|| format!("provider '{}' not found in config", provider_name))?;
+    let ProviderAuthConfig::OAuth2 { profile, .. } = provider
+        .auth
+        .as_ref()
+        .with_context(|| format!("provider '{}' has no oauth2 auth profile", provider_name))?
+    else {
+        bail!(
+            "provider '{}' is not configured for oauth2 provider auth",
+            provider_name
+        );
+    };
+    delete_provider_tokens(profile)?;
+    println!(
+        "deleted provider auth tokens for '{}' (profile '{}')",
+        provider_name, profile
+    );
+    Ok(())
+}
+
+fn provider_sample_toml(preset: Option<&str>) -> Result<String> {
+    let preset = preset.unwrap_or("default");
+    let sample = match preset {
+        "gemini" => {
+            r#"default = "gemini"
+
+[[provider]]
+name = "gemini"
+kind = "google_genai"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.5-pro"
+auth = { kind = "oauth2", profile = "gemini-default", scopes = ["https://www.googleapis.com/auth/generative-language"] }
+"#
+        }
+        "vertex" => {
+            r#"default = "vertex"
+
+[[provider]]
+name = "vertex"
+kind = "google_genai"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.5-pro"
+auth = { kind = "google_adc", profile = "vertex-default" }
+"#
+        }
+        "qwen" => {
+            r#"default = "qwen"
+
+[[provider]]
+name = "qwen"
+kind = "open_ai_compatible"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen3-coder-plus"
+auth = { kind = "api_key", secret_ref = "DASHSCOPE_API_KEY" }
+"#
+        }
+        "claude" => {
+            r#"default = "claude"
+
+[[provider]]
+name = "claude"
+kind = "anthropic"
+base_url = "https://api.anthropic.com"
+model = "claude-sonnet-4"
+auth = { kind = "api_key", secret_ref = "anthropic" }
+"#
+        }
+        "openai" => {
+            r#"default = "openai"
+
+[[provider]]
+name = "openai"
+kind = "open_ai_compatible"
+base_url = "https://api.openai.com/v1"
+model = "gpt-5"
+auth = { kind = "api_key", secret_ref = "OPENAI_API_KEY" }
+"#
+        }
+        "ollama" => {
+            r#"default = "ollama"
+
+[[provider]]
+name = "ollama"
+kind = "open_ai_compatible"
+base_url = "http://localhost:11434/v1"
+model = "llama3.1"
+auth = { kind = "none" }
+"#
+        }
+        "default" => return AppConfig::sample_toml(),
+        other => bail!("unknown preset '{}'", other),
+    };
+    Ok(sample.to_string())
+}
+
+fn provider_auth_preset(provider_name: &str) -> Option<ProviderAuthConfig> {
+    match provider_name {
+        "gemini" => Some(ProviderAuthConfig::OAuth2 {
+            profile: "gemini-default".to_string(),
+            scopes: vec!["https://www.googleapis.com/auth/generative-language".to_string()],
+            client_id_ref: Some("GOOGLE_CLIENT_ID".to_string()),
+            client_secret_ref: Some("GOOGLE_CLIENT_SECRET".to_string()),
+            auth_url: Some("https://accounts.google.com/o/oauth2/v2/auth".to_string()),
+            token_url: Some("https://oauth2.googleapis.com/token".to_string()),
+        }),
+        "qwen" => Some(ProviderAuthConfig::ApiKey {
+            secret_ref: "DASHSCOPE_API_KEY".to_string(),
+        }),
+        "claude" => Some(ProviderAuthConfig::ApiKey {
+            secret_ref: "anthropic".to_string(),
+        }),
+        "openai" => Some(ProviderAuthConfig::ApiKey {
+            secret_ref: "OPENAI_API_KEY".to_string(),
+        }),
+        "vertex" => Some(ProviderAuthConfig::GoogleAdc {
+            profile: Some("vertex-default".to_string()),
+        }),
+        "ollama" => Some(ProviderAuthConfig::None),
+        _ => None,
+    }
 }
 
 fn init_tracing(log_level: &str) -> Result<()> {

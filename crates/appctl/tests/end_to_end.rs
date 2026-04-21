@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use appctl::{
     ai::run_agent,
+    auth::provider::ProviderAuthConfig,
     config::{AppConfig, BehaviorConfig, ConfigPaths, ProviderConfig, ProviderKind, TargetConfig},
     executor::ExecutionContext,
     safety::SafetyMode,
@@ -78,10 +79,12 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
             kind: ProviderKind::OpenAiCompatible,
             base_url: format!("{}/", llm.uri()),
             model: "mock-model".to_string(),
+            auth: Some(ProviderAuthConfig::None),
             api_key_ref: None,
             extra_headers: BTreeMap::new(),
         }],
         target: TargetConfig::default(),
+        cloud: Default::default(),
         behavior: BehaviorConfig {
             max_iterations: 4,
             history_limit: 50,

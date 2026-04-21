@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub mod anthropic;
+pub mod google_genai;
 pub mod openai_compat;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +26,8 @@ pub struct Message {
     pub tool_calls: Vec<ToolCall>,
     #[serde(default)]
     pub tool_call_id: Option<String>,
+    #[serde(default)]
+    pub tool_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +56,7 @@ pub fn provider_from_config(resolved: ResolvedProvider) -> Box<dyn LlmProvider> 
         ProviderKind::OpenAiCompatible => {
             Box::new(openai_compat::OpenAiCompatProvider::new(resolved))
         }
+        ProviderKind::GoogleGenai => Box::new(google_genai::GoogleGenaiProvider::new(resolved)),
     }
 }
 
@@ -82,7 +86,8 @@ pub async fn run_agent(
     )
     .await;
 
-    let provider = provider_from_config(config.resolve_provider(provider_name, model_override)?);
+    let provider =
+        provider_from_config(config.resolve_provider_with_paths(Some(paths), provider_name, model_override)?);
     let executor = Executor::new(paths)?;
     let history = HistoryStore::open(paths)?;
     let mut messages = vec![
@@ -91,12 +96,14 @@ pub async fn run_agent(
             content: system_prompt(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            tool_name: None,
         },
         Message {
             role: "user".to_string(),
             content: prompt.to_string(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            tool_name: None,
         },
     ];
 
@@ -119,6 +126,7 @@ pub async fn run_agent(
                         content,
                         tool_calls: Vec::new(),
                         tool_call_id: None,
+                        tool_name: None,
                     });
                 }
                 AgentStep::ToolCalls { calls } => {
@@ -127,6 +135,7 @@ pub async fn run_agent(
                         content: String::new(),
                         tool_calls: calls.clone(),
                         tool_call_id: None,
+                        tool_name: None,
                     });
 
                     for call in calls {
@@ -166,6 +175,7 @@ pub async fn run_agent(
                                         .map_err(|e| anyhow::anyhow!(e))?,
                                     tool_calls: Vec::new(),
                                     tool_call_id: Some(call.id),
+                                    tool_name: Some(call.name),
                                 });
                                 final_response = result.output;
                             }

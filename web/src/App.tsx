@@ -28,12 +28,32 @@ type ChatEntry = {
 
 type PublicConfig = {
   default_provider?: string;
+  active_provider?: string;
+  provider_statuses?: ProviderRuntimeStatus[];
   sync_source?: string;
   base_url?: string | null;
   read_only?: boolean;
   dry_run?: boolean;
   strict?: boolean;
   confirm_default?: boolean;
+};
+
+type ProviderRuntimeStatus = {
+  name: string;
+  kind: string;
+  base_url: string;
+  model: string;
+  auth_status: {
+    kind: "none" | "api_key" | "oauth2" | "google_adc";
+    origin: "explicit" | "cloud" | "legacy_api_key_ref";
+    configured: boolean;
+    secret_ref?: string | null;
+    profile?: string | null;
+    expires_at?: number | null;
+    scopes?: string[];
+    project_id?: string | null;
+    recovery_hint?: string | null;
+  };
 };
 
 type ToolDef = {
@@ -134,6 +154,27 @@ function formatTs(ts: string): string {
 function sourceLabel(source?: string | null): string {
   if (!source) return "Not synced";
   return source.replace(/_/g, " ");
+}
+
+function authKindLabel(kind?: ProviderRuntimeStatus["auth_status"]["kind"]): string {
+  switch (kind) {
+    case "api_key":
+      return "API key";
+    case "oauth2":
+      return "OAuth2";
+    case "google_adc":
+      return "Google ADC";
+    case "none":
+    default:
+      return "None";
+  }
+}
+
+function formatExpiry(expiresAt?: number | null): string {
+  if (!expiresAt) return "No expiry reported";
+  const date = new Date(expiresAt * 1000);
+  if (Number.isNaN(date.getTime())) return "No expiry reported";
+  return date.toLocaleString();
 }
 
 function transportLabel(transport: Transport): string {
@@ -657,8 +698,8 @@ export default function App() {
                 <StatusChip label="WS" value={wsStatus} on={wsStatus === "open"} />
                 <StatusChip
                   label="Provider"
-                  value={publicCfg?.default_provider ?? "not configured"}
-                  on={Boolean(publicCfg?.default_provider)}
+                  value={publicCfg?.active_provider ?? publicCfg?.default_provider ?? "not configured"}
+                  on={Boolean(publicCfg?.active_provider ?? publicCfg?.default_provider)}
                 />
                 <StatusChip
                   label="Source"
@@ -1125,33 +1166,108 @@ export default function App() {
                 </div>
               </SectionShell>
 
-              <SectionShell
-                eyebrow="Project"
-                title="What this daemon knows"
-                description="Helpful when you’re debugging sync output or handing the project off to someone else."
-              >
-                <div className="space-y-3 text-sm text-muted">
-                  <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted">Schema source</p>
-                    <p className="mt-2 text-fg">{sourceLabel(schema?.source ?? publicCfg?.sync_source)}</p>
+              <div className="space-y-4">
+                <SectionShell
+                  eyebrow="Providers"
+                  title="Provider onboarding"
+                  description="Provider auth is local-first. Configure the provider in .appctl/config.toml, then use the matching auth command or secret reference on the host running appctl."
+                >
+                  <div className="space-y-3">
+                    {(publicCfg?.provider_statuses?.length ?? 0) === 0 ? (
+                      <div className="rounded-2xl border border-border bg-panel/50 p-4 text-sm text-muted">
+                        No providers are configured yet. Add one to <code className="text-fg">.appctl/config.toml</code> or run{" "}
+                        <code className="text-fg">appctl config provider-sample --preset gemini</code>.
+                      </div>
+                    ) : (
+                      publicCfg?.provider_statuses?.map((provider) => (
+                        <article
+                          key={provider.name}
+                          className="rounded-2xl border border-border bg-panel/50 p-4"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-fg">{provider.name}</p>
+                              <p className="mt-1 text-xs text-muted">
+                                {provider.model} · {provider.kind} · {authKindLabel(provider.auth_status.kind)}
+                              </p>
+                            </div>
+                            <StatusChip
+                              label="Status"
+                              value={provider.auth_status.configured ? "ready" : "action needed"}
+                              on={provider.auth_status.configured}
+                            />
+                          </div>
+                          <div className="mt-4 grid gap-3 text-sm text-muted">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-muted">Base URL</p>
+                              <p className="mt-1 break-all font-mono text-xs text-fg">{provider.base_url}</p>
+                            </div>
+                            {provider.auth_status.secret_ref && (
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.18em] text-muted">Secret ref</p>
+                                <p className="mt-1 font-mono text-xs text-fg">{provider.auth_status.secret_ref}</p>
+                              </div>
+                            )}
+                            {provider.auth_status.profile && (
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.18em] text-muted">Profile</p>
+                                <p className="mt-1 font-mono text-xs text-fg">{provider.auth_status.profile}</p>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-muted">Origin</p>
+                              <p className="mt-1 text-fg">{provider.auth_status.origin.replace(/_/g, " ")}</p>
+                            </div>
+                            {provider.auth_status.project_id && (
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.18em] text-muted">Project</p>
+                                <p className="mt-1 font-mono text-xs text-fg">{provider.auth_status.project_id}</p>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.18em] text-muted">Expiry</p>
+                              <p className="mt-1 text-fg">{formatExpiry(provider.auth_status.expires_at)}</p>
+                            </div>
+                            {!provider.auth_status.configured && provider.auth_status.recovery_hint && (
+                              <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-amber-100">
+                                {provider.auth_status.recovery_hint}
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      ))
+                    )}
                   </div>
-                  <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted">Target URL</p>
-                    <p className="mt-2 break-all font-mono text-xs text-fg">
-                      {schema?.base_url ?? publicCfg?.base_url ?? "Not set"}
-                    </p>
+                </SectionShell>
+
+                <SectionShell
+                  eyebrow="Project"
+                  title="What this daemon knows"
+                  description="Helpful when you’re debugging sync output or handing the project off to someone else."
+                >
+                  <div className="space-y-3 text-sm text-muted">
+                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-muted">Schema source</p>
+                      <p className="mt-2 text-fg">{sourceLabel(schema?.source ?? publicCfg?.sync_source)}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-muted">Target URL</p>
+                      <p className="mt-2 break-all font-mono text-xs text-fg">
+                        {schema?.base_url ?? publicCfg?.base_url ?? "Not set"}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
+                      <p className="text-xs uppercase tracking-[0.18em] text-muted">Local files</p>
+                      <p className="mt-2">
+                        <code className="text-fg">.appctl/config.toml</code>,{" "}
+                        <code className="text-fg">.appctl/schema.json</code>,{" "}
+                        <code className="text-fg">.appctl/tools.json</code>, and{" "}
+                        <code className="text-fg">.appctl/history.db</code>
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted">Local files</p>
-                    <p className="mt-2">
-                      <code className="text-fg">.appctl/config.toml</code>,{" "}
-                      <code className="text-fg">.appctl/schema.json</code>,{" "}
-                      <code className="text-fg">.appctl/tools.json</code>, and{" "}
-                      <code className="text-fg">.appctl/history.db</code>
-                    </p>
-                  </div>
-                </div>
-              </SectionShell>
+                </SectionShell>
+              </div>
             </div>
           )}
         </main>

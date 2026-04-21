@@ -24,7 +24,7 @@ appctl serve [OPTIONS]
 - `GET /` — the bundled web UI (React, works offline).
 - `GET /schema` — the current schema as JSON.
 - `GET /tools` — derived tools list the agent sees.
-- `GET /config/public` — non-secret config snapshot.
+- `GET /config/public` — non-secret config snapshot, including redacted provider auth state for the UI.
 - `GET /history` — list history entries.
 - `POST /run` — submit a prompt, get a response with the full event trail.
 - `WS /chat` — bidirectional chat with streaming `AgentEvent`s.
@@ -38,6 +38,13 @@ appctl serve --port 4242 --token $(openssl rand -hex 32)
 ```
 
 Open `http://127.0.0.1:4242/` in a browser. Paste the token when prompted, or set it in the client as `Authorization: Bearer <TOKEN>`.
+
+The bundled web UI shows:
+
+- active provider
+- redacted provider auth state
+- expiry and recovery hints when known
+- target URL, schema source, and daemon safety flags
 
 ## LAN / shared deployments
 
@@ -53,4 +60,5 @@ Run behind your own TLS terminator. `appctl serve` does not terminate TLS; use C
 
 - [HTTP endpoints](/docs/api/http/)
 - [WebSocket](/docs/api/websocket/)
+- [Provider matrix](/docs/provider-matrix/)
 - [Deploy → Server](/docs/deploy/server/)

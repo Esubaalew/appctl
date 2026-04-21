@@ -178,8 +178,15 @@ async fn get_config_public(
         return Err(auth_err());
     }
     let schema = load_schema(&state.paths).map_err(internal_error)?;
+    let active_provider = state
+        .options
+        .provider
+        .clone()
+        .unwrap_or_else(|| state.config.default.clone());
     Ok(Json(json!({
         "default_provider": state.config.default,
+        "active_provider": active_provider,
+        "provider_statuses": state.config.provider_statuses_with_paths(&state.paths),
         "sync_source": schema.source,
         "base_url": schema.base_url,
         "read_only": state.options.read_only,

@@ -4,9 +4,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
+
+use crate::auth::provider::{
+    ProviderAuthConfig, ProviderAuthStatus, ResolvedProviderAuth, inspect_provider_auth,
+    resolve_provider_auth,
+};
+use crate::cloud::load_synced_provider_connection;
 
 #[derive(Debug, Clone)]
 pub struct ConfigPaths {
@@ -15,6 +21,7 @@ pub struct ConfigPaths {
     pub schema: PathBuf,
     pub tools: PathBuf,
     pub history: PathBuf,
+    pub provider_connections: PathBuf,
 }
 
 impl ConfigPaths {
@@ -24,6 +31,7 @@ impl ConfigPaths {
             schema: root.join("schema.json"),
             tools: root.join("tools.json"),
             history: root.join("history.db"),
+            provider_connections: root.join("provider-connections.json"),
             root,
         }
     }
@@ -42,6 +50,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub target: TargetConfig,
     #[serde(default)]
+    pub cloud: CloudConfig,
+    #[serde(default)]
     pub behavior: BehaviorConfig,
 }
 
@@ -51,6 +61,8 @@ pub struct ProviderConfig {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
+    #[serde(default)]
+    pub auth: Option<ProviderAuthConfig>,
     #[serde(default)]
     pub api_key_ref: Option<String>,
     #[serde(default)]
@@ -62,6 +74,7 @@ pub struct ProviderConfig {
 pub enum ProviderKind {
     Anthropic,
     OpenAiCompatible,
+    GoogleGenai,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -82,13 +95,26 @@ pub struct BehaviorConfig {
     pub history_limit: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CloudConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub account_id: Option<String>,
+    #[serde(default)]
+    pub sync_token_ref: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResolvedProvider {
     pub name: String,
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
-    pub api_key: Option<String>,
+    pub auth: ResolvedProviderAuth,
+    pub auth_status: ProviderAuthStatus,
     pub extra_headers: BTreeMap<String, String>,
 }
 
@@ -119,6 +145,7 @@ impl Default for AppConfig {
                     kind: ProviderKind::Anthropic,
                     base_url: "https://api.anthropic.com".to_string(),
                     model: "claude-sonnet-4".to_string(),
+                    auth: None,
                     api_key_ref: Some("anthropic".to_string()),
                     extra_headers: BTreeMap::new(),
                 },
@@ -127,11 +154,13 @@ impl Default for AppConfig {
                     kind: ProviderKind::OpenAiCompatible,
                     base_url: "http://localhost:11434/v1".to_string(),
                     model: "llama3.1".to_string(),
+                    auth: Some(ProviderAuthConfig::None),
                     api_key_ref: None,
                     extra_headers: BTreeMap::new(),
                 },
             ],
             target: TargetConfig::default(),
+            cloud: CloudConfig::default(),
             behavior: BehaviorConfig::default(),
         }
     }
@@ -165,8 +194,58 @@ impl AppConfig {
         Ok(toml::to_string_pretty(&Self::default())?)
     }
 
+    pub fn provider_statuses(&self) -> Vec<ResolvedProviderSummary> {
+        self.providers
+            .iter()
+            .map(|provider| ResolvedProviderSummary {
+                name: provider.name.clone(),
+                kind: provider.kind.clone(),
+                base_url: provider.base_url.clone(),
+                model: provider.model.clone(),
+                auth_status: inspect_provider_auth(&provider.name, provider, None),
+            })
+            .collect()
+    }
+
+    pub fn provider_statuses_with_paths(&self, paths: &ConfigPaths) -> Vec<ResolvedProviderSummary> {
+        self.providers
+            .iter()
+            .map(|provider| {
+                let cloud_auth = if self.cloud.enabled {
+                    load_synced_provider_connection(paths, &provider.name)
+                        .ok()
+                        .flatten()
+                        .map(|connection| connection.auth)
+                } else {
+                    None
+                };
+
+                ResolvedProviderSummary {
+                    name: provider.name.clone(),
+                    kind: provider.kind.clone(),
+                    base_url: provider.base_url.clone(),
+                    model: provider.model.clone(),
+                    auth_status: inspect_provider_auth(
+                        &provider.name,
+                        provider,
+                        cloud_auth.as_ref(),
+                    ),
+                }
+            })
+            .collect()
+    }
+
     pub fn resolve_provider(
         &self,
+        provider_name: Option<&str>,
+        model_override: Option<&str>,
+    ) -> Result<ResolvedProvider> {
+        self.resolve_provider_with_paths(None, provider_name, model_override)
+    }
+
+    pub fn resolve_provider_with_paths(
+        &self,
+        paths: Option<&ConfigPaths>,
         provider_name: Option<&str>,
         model_override: Option<&str>,
     ) -> Result<ResolvedProvider> {
@@ -176,33 +255,36 @@ impl AppConfig {
             .iter()
             .find(|p| p.name == provider_name)
             .with_context(|| format!("provider '{}' not found in config", provider_name))?;
-
-        let api_key = provider
-            .api_key_ref
-            .as_deref()
-            .and_then(|name| load_secret(name).ok().or_else(|| std::env::var(name).ok()))
-            .filter(|value| !value.is_empty());
-
-        if let Some(secret_name) = provider.api_key_ref.as_deref() {
-            if api_key.is_none() {
-                bail!(
-                    "provider '{}' requires secret '{}'; set the env var or run `appctl config set-secret {} --value ...`",
-                    provider.name,
-                    secret_name,
-                    secret_name
-                );
-            }
-        }
+        let cloud_auth = if self.cloud.enabled {
+            paths
+                .and_then(|paths| load_synced_provider_connection(paths, provider_name).ok())
+                .flatten()
+                .map(|connection| connection.auth)
+        } else {
+            None
+        };
+        let auth = resolve_provider_auth(provider_name, provider, cloud_auth.as_ref())?;
+        let auth_status = inspect_provider_auth(provider_name, provider, cloud_auth.as_ref());
 
         Ok(ResolvedProvider {
             name: provider.name.clone(),
             kind: provider.kind.clone(),
             base_url: provider.base_url.clone(),
             model: model_override.unwrap_or(&provider.model).to_string(),
-            api_key,
+            auth,
+            auth_status,
             extra_headers: provider.extra_headers.clone(),
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedProviderSummary {
+    pub name: String,
+    pub kind: ProviderKind,
+    pub base_url: String,
+    pub model: String,
+    pub auth_status: ProviderAuthStatus,
 }
 
 pub fn load_secret(name: &str) -> Result<String> {
@@ -215,6 +297,12 @@ pub fn save_secret(name: &str, value: &str) -> Result<()> {
     Entry::new("appctl", name)?
         .set_password(value)
         .with_context(|| format!("failed to save secret '{}' to keychain", name))
+}
+
+pub fn delete_secret(name: &str) -> Result<()> {
+    Entry::new("appctl", name)?
+        .delete_credential()
+        .with_context(|| format!("failed to delete secret '{}' from keychain", name))
 }
 
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use appctl::{
     ai::run_agent,
+    auth::provider::ProviderAuthConfig,
     config::{AppConfig, BehaviorConfig, ConfigPaths, ProviderConfig, ProviderKind, TargetConfig},
     executor::ExecutionContext,
     safety::SafetyMode,
@@ -96,10 +97,12 @@ async fn sync_django_fixture_then_agent_calls_create_parcel() {
             kind: ProviderKind::OpenAiCompatible,
             base_url: format!("{}/", llm.uri()),
             model: "mock-model".to_string(),
+            auth: Some(ProviderAuthConfig::None),
             api_key_ref: None,
             extra_headers: Default::default(),
         }],
         target: TargetConfig::default(),
+        cloud: Default::default(),
         behavior: BehaviorConfig {
             max_iterations: 4,
             history_limit: 50,

@@ -28,8 +28,11 @@ impl LlmProvider for OpenAiCompatProvider {
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
         ));
-        if let Some(api_key) = &self.config.api_key {
+        if let Some(api_key) = self.config.auth.api_key() {
             request = request.bearer_auth(api_key);
+        }
+        if let Some(token) = self.config.auth.bearer_token() {
+            request = request.bearer_auth(token);
         }
         for (name, value) in &self.config.extra_headers {
             request = request.header(name, value);

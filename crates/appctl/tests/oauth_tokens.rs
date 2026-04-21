@@ -5,7 +5,9 @@
 //! a no-op if the current environment has no keychain (e.g. headless CI
 //! without `keyring`'s `secret-service`).
 
-use appctl::auth::oauth::{StoredTokens, load_tokens, save_tokens};
+use appctl::auth::oauth::{
+    StoredTokens, load_provider_tokens, load_tokens, save_provider_tokens, save_tokens,
+};
 use uuid::Uuid;
 
 #[test]
@@ -28,4 +30,25 @@ fn stored_tokens_round_trip() {
     assert_eq!(loaded.access_token, "at-123");
     assert_eq!(loaded.refresh_token.as_deref(), Some("rt-456"));
     assert_eq!(loaded.scopes.len(), 2);
+}
+
+#[test]
+fn provider_tokens_round_trip() {
+    let profile = format!("appctl-provider-test-{}", Uuid::new_v4());
+    let tokens = StoredTokens {
+        access_token: "provider-at-123".to_string(),
+        refresh_token: Some("provider-rt-456".to_string()),
+        expires_at: Some(chrono::Utc::now().timestamp() + 7200),
+        token_type: Some("bearer".to_string()),
+        scopes: vec!["scope-a".to_string()],
+    };
+    let Ok(()) = save_provider_tokens(&profile, &tokens) else {
+        eprintln!("keychain unavailable; skipping");
+        return;
+    };
+    let Some(loaded) = load_provider_tokens(&profile) else {
+        panic!("save succeeded but load returned None");
+    };
+    assert_eq!(loaded.access_token, "provider-at-123");
+    assert_eq!(loaded.refresh_token.as_deref(), Some("provider-rt-456"));
 }

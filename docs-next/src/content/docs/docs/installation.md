@@ -15,7 +15,7 @@ Verify:
 
 ```bash
 appctl --version
-# appctl 0.2.1
+# appctl 0.3.0
 ```
 
 ## From source
@@ -56,31 +56,31 @@ appctl config init
 Open `.appctl/config.toml` and uncomment the provider you want, or start from the sample:
 
 ```bash
-appctl config provider-sample
+appctl config provider-sample --preset gemini
 ```
 
 Output:
 
 ```toml
-default = "ollama"
+default = "gemini"
 
 [[provider]]
-name = "claude"
-kind = "anthropic"
-base_url = "https://api.anthropic.com"
-model = "claude-sonnet-4"
-api_key_ref = "anthropic"
-
-[[provider]]
-name = "ollama"
-kind = "open_ai_compatible"
-base_url = "http://localhost:11434/v1"
-model = "llama3.1"
+name = "gemini"
+kind = "google_genai"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.5-pro"
+auth = { kind = "oauth2", profile = "gemini-default", scopes = ["https://www.googleapis.com/auth/generative-language"] }
 ```
 
-### Store the API key
+### Complete provider auth
 
-Store the key in the OS keychain (keyed by `api_key_ref`):
+For Gemini OAuth:
+
+```bash
+appctl auth provider login gemini
+```
+
+For API-key providers such as Claude or Qwen:
 
 ```bash
 appctl config set-secret anthropic --value "$ANTHROPIC_API_KEY"
@@ -95,8 +95,10 @@ Any OpenAI-compatible endpoint works out of the box:
 - OpenAI, OpenRouter, NVIDIA NIM, Groq, Together, Fireworks
 - Ollama, LM Studio, vLLM, LiteLLM (local or self-hosted)
 - Anthropic Claude (native `kind = "anthropic"`)
+- Google Gemini (native `kind = "google_genai"`)
+- Qwen via DashScope / Coding Plan (OpenAI-compatible transport)
 
-Google Gemini and xAI work through their OpenAI-compatible endpoints.
+See [Provider matrix](/docs/provider-matrix/) for the supported auth path and billing expectations for each provider.
 
 ## Verify install
 
@@ -109,4 +111,5 @@ You should see a list of subcommands: `sync`, `chat`, `run`, `doctor`, `history`
 ## Next
 
 - [Quickstart](/docs/quickstart/): run through a demo app end-to-end.
+- [Provider matrix](/docs/provider-matrix/): choose the right auth and billing path.
 - [Sources](/docs/sources/openapi/): pick a sync source for your app.

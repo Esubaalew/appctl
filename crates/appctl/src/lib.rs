@@ -1,12 +1,14 @@
 pub mod ai;
 pub mod auth;
 pub mod chat;
+pub mod cloud;
 pub mod cli;
 pub mod config;
 pub mod doctor;
 pub mod events;
 pub mod executor;
 pub mod history;
+pub mod mcp_server;
 pub mod plugins;
 pub mod run;
 pub mod safety;
