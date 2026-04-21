@@ -18,8 +18,23 @@ picks the right tool under the hood. Nobody memorises CRUD commands.
 
 ## Install
 
+From [crates.io](https://crates.io/crates/appctl) (after the maintainer publishes the release):
+
 ```bash
 cargo install appctl
+```
+
+From this repository (exact version, no crates.io wait):
+
+```bash
+cargo install --locked --git https://github.com/esubaalew/appctl.git --tag v0.2.0
+```
+
+To build the embedded web UI the same way CI does (needed for a clean `cargo install` from a working tree):
+
+```bash
+cd web && npm ci && npm run build && cd ..
+cargo install --locked --path crates/appctl
 ```
 
 ## Usage
@@ -41,7 +56,7 @@ appctl sync --plugin airtable        # dynamic plugin from ~/.appctl/plugins/
 appctl chat
 appctl run "Add a user named John"
 appctl history --last 20
-appctl serve --port 7878             # HTTP + WebSocket daemon
+appctl serve --port 4242             # HTTP + WebSocket daemon + bundled web UI
 appctl auth login github --client-id ... --auth-url ... --token-url ...
 ```
 

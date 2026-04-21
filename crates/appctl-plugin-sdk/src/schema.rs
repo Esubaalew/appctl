@@ -25,6 +25,18 @@ pub struct Resource {
     pub actions: Vec<Action>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Provenance {
+    /// Route / operation was guessed from framework conventions (may 404).
+    #[default]
+    Inferred,
+    /// Declared by OpenAPI, explicit plugin, or introspected DB schema.
+    Declared,
+    /// Confirmed reachable by `appctl doctor` (HTTP probe).
+    Verified,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Action {
     pub name: String,
@@ -37,6 +49,9 @@ pub struct Action {
     pub safety: Safety,
     #[serde(default)]
     pub resource: Option<String>,
+    /// How we know this action exists (inferred routes are often wrong for non-API Django apps).
+    #[serde(default)]
+    pub provenance: Provenance,
     #[serde(default)]
     pub metadata: Map<String, Value>,
 }

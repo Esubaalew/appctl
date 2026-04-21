@@ -9,3 +9,10 @@ extensions/vscode/node_modules/
 appctl_spec.docx
 *.docx
 appctl_spec.docx
+
+# Local scratch clones (delete anytime)
+tmp/
+samples/
+
+# Frontend (built in CI; dist is committed for rust-embed / offline cargo)
+web/node_modules/
