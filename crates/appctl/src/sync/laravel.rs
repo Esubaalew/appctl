@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use regex::Regex;
-use serde_json::Map;
+use serde_json::{Map, json};
 
 use crate::schema::{
     AuthStrategy, Field, FieldType, ParameterLocation, Resource, Schema, SyncSource,
@@ -32,6 +32,14 @@ impl SyncPlugin for LaravelSync {
         let mut resources = parse_migrations(&migrations_dir).unwrap_or_default();
         let routed = parse_api_routes(&routes).unwrap_or_default();
 
+        let mut metadata = Map::new();
+        if routed.is_empty() && !resources.is_empty() {
+            metadata.insert(
+                "warnings".to_string(),
+                json!(["No routes parsed from routes/api.php; HTTP tools were not generated. Define API routes or use OpenAPI sync."]),
+            );
+        }
+
         for name in routed {
             let base_path = format!("/api/{}", pluralize(&name));
             let resource = match resources.iter_mut().find(|r| r.name == name) {
@@ -56,7 +64,7 @@ impl SyncPlugin for LaravelSync {
                 env_ref: "LARAVEL_API_TOKEN".to_string(),
             },
             resources,
-            metadata: Map::new(),
+            metadata,
         })
     }
 }

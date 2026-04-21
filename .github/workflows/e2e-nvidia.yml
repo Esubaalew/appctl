@@ -1,0 +1,27 @@
+# Opt-in: set repository secret NVIDIA_API_KEY to run a live NIM smoke test on main.
+name: e2e-nvidia
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  nim-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      # Avoid `secrets` in job `if:` — many linters reject it; GitHub also restricts secrets in some `if` contexts.
+      - name: Live NIM smoke (no-op when NVIDIA_API_KEY is unset)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          if [ -z "${NVIDIA_API_KEY}" ]; then
+            echo "Skipping: set repository secret NVIDIA_API_KEY to run nim_openai_compatible_smoke."
+            exit 0
+          fi
+          cargo test -p appctl nim_openai_compatible_smoke -- --ignored

@@ -2,12 +2,12 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use anyhow::{Context, Result};
 use regex::Regex;
-use serde_json::Map;
+use serde_json::{Map, json};
 use walkdir::WalkDir;
 
 use crate::schema::{
-    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
-    Schema, SyncSource, Transport, Verb,
+    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Provenance, Resource,
+    Safety, Schema, SyncSource, Transport, Verb,
 };
 
 use super::SyncPlugin;
@@ -26,20 +26,34 @@ impl DjangoSync {
 #[async_trait::async_trait]
 impl SyncPlugin for DjangoSync {
     async fn introspect(&self) -> Result<Schema> {
+        let drf = django_looks_like_drf(&self.root);
         let resources = parse_models(&self.root)?;
         let routes = parse_urls(&self.root)?;
 
         let resources = resources
             .into_iter()
             .map(|mut resource| {
-                let route = routes
-                    .get(&resource.name)
-                    .cloned()
-                    .unwrap_or_else(|| format!("/api/{}/", resource.name));
-                resource.actions = standard_drf_actions(&resource.name, &route, &resource.fields);
+                if drf {
+                    let route = routes
+                        .get(&resource.name)
+                        .cloned()
+                        .unwrap_or_else(|| format!("/api/{}/", resource.name));
+                    resource.actions =
+                        standard_drf_actions(&resource.name, &route, &resource.fields);
+                } else {
+                    resource.actions = Vec::new();
+                }
                 resource
             })
             .collect();
+
+        let mut metadata = Map::new();
+        if !drf {
+            metadata.insert(
+                "warnings".to_string(),
+                json!(["No Django REST Framework detected in project settings (missing `rest_framework`). HTTP tools were not generated — add DRF + API routes and re-sync, or use `appctl sync --url` for server-rendered Django apps."]),
+            );
+        }
 
         Ok(Schema {
             source: SyncSource::Django,
@@ -48,9 +62,39 @@ impl SyncPlugin for DjangoSync {
                 env_ref: "django_api_token".to_string(),
             },
             resources,
-            metadata: Map::new(),
+            metadata,
         })
     }
+}
+
+/// True if any `settings.py` (or `*/settings/*.py`) mentions `rest_framework`.
+fn django_looks_like_drf(root: &PathBuf) -> bool {
+    for entry in WalkDir::new(root).max_depth(10) {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("py") {
+            continue;
+        }
+        let rel = path.strip_prefix(root).ok();
+        let rel_str = rel.map(|p| p.to_string_lossy()).unwrap_or_default();
+        if rel_str.contains("__pycache__") || rel_str.contains("migrations") {
+            continue;
+        }
+        let is_settings =
+            path.file_name().is_some_and(|n| n == "settings.py") || rel_str.contains("/settings/");
+        if !is_settings {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(path) else {
+            continue;
+        };
+        if content.contains("rest_framework") {
+            return true;
+        }
+    }
+    false
 }
 
 fn parse_models(root: &PathBuf) -> Result<Vec<Resource>> {
@@ -169,6 +213,7 @@ fn standard_drf_actions(resource: &str, route: &str, fields: &[Field]) -> Vec<Ac
             parameters: Vec::new(),
             safety: Safety::ReadOnly,
             resource: Some(resource.to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -183,6 +228,7 @@ fn standard_drf_actions(resource: &str, route: &str, fields: &[Field]) -> Vec<Ac
             parameters: by_id.clone(),
             safety: Safety::ReadOnly,
             resource: Some(resource.to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -197,6 +243,7 @@ fn standard_drf_actions(resource: &str, route: &str, fields: &[Field]) -> Vec<Ac
             parameters: body_fields.clone(),
             safety: Safety::Mutating,
             resource: Some(resource.to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -215,6 +262,7 @@ fn standard_drf_actions(resource: &str, route: &str, fields: &[Field]) -> Vec<Ac
             },
             safety: Safety::Mutating,
             resource: Some(resource.to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -229,6 +277,7 @@ fn standard_drf_actions(resource: &str, route: &str, fields: &[Field]) -> Vec<Ac
             parameters: by_id.split_off(0),
             safety: Safety::Destructive,
             resource: Some(resource.to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
     ]

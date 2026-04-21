@@ -1,8 +1,8 @@
 use serde_json::Map;
 
 use crate::schema::{
-    Action, AuthStrategy, Field, FieldType, ParameterLocation, Resource, Safety, Schema,
-    SyncSource, Transport, Verb,
+    Action, AuthStrategy, Field, FieldType, ParameterLocation, Provenance, Resource, Safety,
+    Schema, SyncSource, Transport, Verb,
 };
 
 use super::SyncPlugin;
@@ -59,6 +59,7 @@ impl SyncPlugin for McpSync {
                     ],
                     safety: Safety::Mutating,
                     resource: Some("mcp".to_string()),
+                    provenance: Provenance::Declared,
                     metadata: Map::new(),
                 }],
             }],

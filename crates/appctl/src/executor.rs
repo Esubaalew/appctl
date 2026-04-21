@@ -359,7 +359,7 @@ impl ExecutionRequest {
     }
 }
 
-fn build_headers(
+pub(crate) fn build_headers(
     auth: &AuthStrategy,
     config: &AppConfig,
     inline_auth_header: Option<&Value>,
@@ -367,10 +367,12 @@ fn build_headers(
     let mut headers = HeaderMap::new();
     if let Some(header_value) = inline_auth_header.and_then(Value::as_str) {
         headers.insert(AUTHORIZATION, HeaderValue::from_str(header_value)?);
+        return Ok(headers);
     }
 
     if let Some(auth_header) = &config.target.auth_header {
         headers.insert(AUTHORIZATION, HeaderValue::from_str(auth_header)?);
+        return Ok(headers);
     }
 
     match auth {

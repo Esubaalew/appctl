@@ -25,12 +25,12 @@ A chat & tool-trace panel for [`appctl`](https://github.com/esubaalew/appctl), t
 3. Run the daemon:
 
    ```bash
-   appctl serve --port 7878
+   appctl serve --port 4242
    ```
 
 ## Configuration
 
-- `appctl.serverUrl` — base URL of the `appctl serve` process (default `http://127.0.0.1:7878`).
+- `appctl.serverUrl` — base URL of the `appctl serve` process (default `http://127.0.0.1:4242`).
 - `appctl.token` — optional bearer token.
 
 ## Commands

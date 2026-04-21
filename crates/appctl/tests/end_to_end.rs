@@ -6,8 +6,8 @@ use appctl::{
     executor::ExecutionContext,
     safety::SafetyMode,
     schema::{
-        Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
-        Schema, SyncSource, Transport, Verb,
+        Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Provenance,
+        Resource, Safety, Schema, SyncSource, Transport, Verb,
     },
     tools::schema_to_tools,
 };
@@ -117,6 +117,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
                 }],
                 safety: Safety::Mutating,
                 resource: Some("pet".to_string()),
+                provenance: Provenance::Declared,
                 metadata: Default::default(),
             }],
         }],
@@ -138,8 +139,10 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
                 read_only: false,
                 dry_run: false,
                 confirm: true,
+                strict: false,
             },
         },
+        None,
     )
     .await
     .unwrap();

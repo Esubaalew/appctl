@@ -1,4 +1,5 @@
 use anyhow::Result;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
@@ -17,11 +18,14 @@ pub struct RunOptions {
     pub read_only: bool,
     pub dry_run: bool,
     pub confirm: bool,
+    pub strict: bool,
 }
 
 pub async fn run_once(paths: &ConfigPaths, config: &AppConfig, options: RunOptions) -> Result<()> {
     let schema = load_schema(paths)?;
     let tools = load_tools(paths)?;
+    let (tx, rx) = mpsc::channel(64);
+    let printer = tokio::spawn(crate::term::run_event_printer(rx));
     let response = run_agent(
         paths,
         config,
@@ -36,11 +40,17 @@ pub async fn run_once(paths: &ConfigPaths, config: &AppConfig, options: RunOptio
                 read_only: options.read_only,
                 dry_run: options.dry_run,
                 confirm: options.confirm,
+                strict: options.strict,
             },
         },
+        Some(tx),
     )
-    .await?;
+    .await;
+    let _ = printer.await;
+    let response = response?;
 
-    println!("{}", serde_json::to_string_pretty(&response)?);
+    if !matches!(response, serde_json::Value::String(_)) {
+        println!("{}", serde_json::to_string_pretty(&response)?);
+    }
     Ok(())
 }

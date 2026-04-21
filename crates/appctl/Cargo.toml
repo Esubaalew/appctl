@@ -29,7 +29,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-appctl-plugin-sdk = { version = "0.1.0", path = "../appctl-plugin-sdk" }
+appctl-plugin-sdk = { version = "0.2.0", path = "../appctl-plugin-sdk" }
 async-trait = { workspace = true }
 axum = { version = "0.8.9", features = ["ws"] }
 base64 = "0.22.1"
@@ -45,6 +45,7 @@ libloading = "0.8.5"
 oauth2 = "5.0.0"
 owo-colors = "4.3.0"
 regex = "1.12.2"
+rust-embed = "8.5.0"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "json", "stream", "multipart", "cookies", "http2", "charset", "query", "form"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 rustyline = "18.0.0"
@@ -53,6 +54,7 @@ scraper = "0.26.0"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9.34"
+termimad = "0.31.0"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql"] }
 tempfile = "3.27.0"
 thiserror = { workspace = true }
@@ -68,4 +70,5 @@ uuid = { version = "1.23.1", features = ["v4", "serde"] }
 walkdir = "2.5.0"
 
 [dev-dependencies]
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "json"] }
 wiremock = "0.6.5"

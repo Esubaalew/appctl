@@ -170,6 +170,7 @@ pub async fn run_history_command(paths: &ConfigPaths, command: HistoryCommand) -
                         read_only: false,
                         dry_run: false,
                         confirm: true,
+                        strict: false,
                     },
                 },
                 inverse_tool,

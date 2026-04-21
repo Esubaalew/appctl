@@ -1,0 +1,11 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: appctl
+      POSTGRES_PASSWORD: appctl
+      POSTGRES_DB: appctl_demo
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro

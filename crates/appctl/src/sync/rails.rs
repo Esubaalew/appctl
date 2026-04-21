@@ -4,11 +4,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use regex::Regex;
-use serde_json::Map;
+use serde_json::{Map, json};
 
 use crate::schema::{
-    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
-    Schema, SyncSource, Transport, Verb,
+    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Provenance, Resource,
+    Safety, Schema, SyncSource, Transport, Verb,
 };
 
 use super::SyncPlugin;
@@ -32,6 +32,14 @@ impl SyncPlugin for RailsSync {
 
         let mut resources = parse_schema_rb(&schema_rb).unwrap_or_default();
         let routed = parse_routes_rb(&routes_rb).unwrap_or_default();
+
+        let mut metadata = Map::new();
+        if routed.is_empty() && !resources.is_empty() {
+            metadata.insert(
+                "warnings".to_string(),
+                json!(["No API resources parsed from config/routes.rb; HTTP tools were not generated. Add `resources` under your API scope or use OpenAPI sync."]),
+            );
+        }
 
         // For every `resources :foo` route, ensure the resource exists and has
         // the standard 5 REST actions.
@@ -59,7 +67,7 @@ impl SyncPlugin for RailsSync {
                 env_ref: "RAILS_API_TOKEN".to_string(),
             },
             resources,
-            metadata: Map::new(),
+            metadata,
         })
     }
 }
@@ -202,6 +210,7 @@ pub(crate) fn attach_crud_actions(resource: &mut Resource, base_path: &str) {
             parameters,
             safety,
             resource: Some(rn.clone()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         });
     }

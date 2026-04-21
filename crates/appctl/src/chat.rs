@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rustyline::{DefaultEditor, error::ReadlineError};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
@@ -17,6 +18,7 @@ pub struct ChatOptions {
     pub read_only: bool,
     pub dry_run: bool,
     pub confirm: bool,
+    pub strict: bool,
 }
 
 pub async fn run_chat(
@@ -51,6 +53,8 @@ pub async fn run_chat(
                     continue;
                 }
 
+                let (tx, rx) = mpsc::channel(64);
+                let printer = tokio::spawn(crate::term::run_event_printer(rx));
                 let response = run_agent(
                     paths,
                     config,
@@ -65,11 +69,17 @@ pub async fn run_chat(
                             read_only: options.read_only,
                             dry_run: options.dry_run,
                             confirm: options.confirm,
+                            strict: options.strict,
                         },
                     },
+                    Some(tx),
                 )
-                .await?;
-                println!("{}", serde_json::to_string_pretty(&response)?);
+                .await;
+                let _ = printer.await;
+                let response = response?;
+                if !matches!(response, serde_json::Value::String(_)) {
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                }
             }
             Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
             Err(err) => return Err(err.into()),

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>appctl — deploy &amp; embed</title>
+    <link rel="stylesheet" href="../design-tokens.css" />
+    <link rel="stylesheet" href="../style.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <nav>
+        <span class="logo">appctl</span>
+        <a href="../index.html">Home</a>
+        <a href="../index.html#will-it-work">Will it work?</a>
+        <a href="https://github.com/esubaalew/appctl">GitHub</a>
+      </nav>
+      <h1>Deploy &amp; embed</h1>
+      <p class="lede">
+        The CLI is for integrators. <code>appctl serve</code> is how clients (web UI, VS Code,
+        Slack, mobile) talk to the same agent core.
+      </p>
+    </header>
+    <main>
+      <section>
+        <h2>Internal LAN / Tailscale</h2>
+        <p>
+          Run <code>appctl serve --bind 0.0.0.0 --port 4242 --token $(openssl rand -hex 16)</code> on
+          a VM or container reachable on your LAN or Tailscale network. Team members open
+          <code>http://appctl.internal:4242/</code> for the bundled web UI, or point the VS Code
+          extension at the same URL.
+        </p>
+        <p class="muted">
+          Prefer TLS termination at a reverse proxy (Caddy, nginx) when exposing beyond a trusted
+          network.
+        </p>
+      </section>
+      <section>
+        <h2>Embed in your product</h2>
+        <p>Your app talks to the same HTTP + WebSocket API as the bundled UI:</p>
+        <ul>
+          <li><code>POST /run</code> — JSON <code>{ "message": "...", "read_only": true }</code>; response includes <code>events</code> (agent trace).</li>
+          <li><code>WS /chat</code> — send JSON <code>{"message":"...","dry_run":true}</code> or a plain string; each event is one JSON line (see <code>AgentEvent</code> in the Rust crate).</li>
+          <li><code>GET /tools</code>, <code>GET /history</code>, <code>GET /schema</code>, <code>GET /config/public</code> — for dashboards.</li>
+        </ul>
+        <p>Pass auth via <code>Authorization: Bearer &lt;token&gt;</code>, header <code>x-appctl-token</code>, or <code>?token=</code> on WebSocket when serve was started with <code>--token</code>.</p>
+      </section>
+      <section>
+        <h2>Hosted option (future)</h2>
+        <p class="muted">
+          A managed, multi-tenant hosted control plane is not part of this repository yet. Today,
+          you self-host <code>appctl serve</code> next to the systems you control.
+        </p>
+      </section>
+      <section>
+        <h2>Threat model (short)</h2>
+        <ul class="grid two">
+          <li><strong>Token auth.</strong> Set <code>--token</code> for any network beyond localhost.</li>
+          <li><strong>Upstream RBAC.</strong> The agent uses your credentials; it cannot bypass your API&rsquo;s authorization.</li>
+          <li><strong>Read-only / dry-run.</strong> Server defaults + per-request overrides reduce blast radius.</li>
+          <li><strong>Audit.</strong> Tool executions are logged to local SQLite; replay with <code>appctl history</code>.</li>
+          <li><strong>Strict mode.</strong> Refuses HTTP tools that are still <code>Inferred</code> until <code>appctl doctor --write</code> verifies routes.</li>
+        </ul>
+      </section>
+    </main>
+    <footer>
+      <p>
+        <a href="../index.html">&larr; Back to home</a>
+      </p>
+    </footer>
+  </body>
+</html>

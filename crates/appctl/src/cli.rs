@@ -8,6 +8,7 @@ use crate::{
     auth::oauth::{OAuthLoginConfig, login as oauth_login},
     chat::{ChatOptions, run_chat},
     config::{AppConfig, ConfigPaths, load_secret},
+    doctor::{DoctorRunArgs, run_doctor},
     history::{HistoryCommand, run_history_command},
     plugins,
     run::{RunOptions, run_once},
@@ -38,11 +39,21 @@ pub enum Command {
     Sync(SyncArgs),
     Chat(ChatArgs),
     Run(RunArgs),
+    Doctor(DoctorArgsCli),
     History(HistoryArgs),
     Serve(ServeArgs),
     Config(ConfigArgs),
     Plugin(PluginArgs),
     Auth(AuthArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgsCli {
+    /// Write provenance=verified for routes that did not return 404.
+    #[arg(long)]
+    pub write: bool,
+    #[arg(long, default_value_t = 10)]
+    pub timeout_secs: u64,
 }
 
 #[derive(Debug, Args)]
@@ -128,6 +139,9 @@ pub struct ChatArgs {
     pub dry_run: bool,
     #[arg(long)]
     pub confirm: bool,
+    /// Block inferred HTTP tools until `appctl doctor --write` marks them verified.
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, Args)]
@@ -143,6 +157,8 @@ pub struct RunArgs {
     pub dry_run: bool,
     #[arg(long)]
     pub confirm: bool,
+    #[arg(long)]
+    pub strict: bool,
 }
 
 #[derive(Debug, Args)]
@@ -165,6 +181,15 @@ pub struct ServeArgs {
     pub provider: Option<String>,
     #[arg(long)]
     pub model: Option<String>,
+    #[arg(long)]
+    pub strict: bool,
+    #[arg(long)]
+    pub read_only: bool,
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Auto-approve mutating tools (on by default for non-interactive `serve`).
+    #[arg(long, default_value_t = true)]
+    pub confirm: bool,
 }
 
 #[derive(Debug, Args)]
@@ -178,6 +203,13 @@ pub enum ConfigSubcommand {
     Init,
     Show,
     ProviderSample,
+    /// Store a secret in the OS keychain (service `appctl`). Env vars still override at runtime.
+    SetSecret {
+        name: String,
+        /// Value to store; if omitted, read from stdin (TTY prompt in future).
+        #[arg(long)]
+        value: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -237,6 +269,7 @@ impl Cli {
                         read_only: args.read_only,
                         dry_run: args.dry_run,
                         confirm: args.confirm,
+                        strict: args.strict,
                     },
                 )
                 .await?;
@@ -253,6 +286,17 @@ impl Cli {
                         read_only: args.read_only,
                         dry_run: args.dry_run,
                         confirm: args.confirm,
+                        strict: args.strict,
+                    },
+                )
+                .await?;
+            }
+            Command::Doctor(args) => {
+                run_doctor(
+                    &paths,
+                    DoctorRunArgs {
+                        write: args.write,
+                        timeout_secs: args.timeout_secs,
                     },
                 )
                 .await?;
@@ -278,6 +322,10 @@ impl Cli {
                         token: args.token,
                         provider: args.provider,
                         model: args.model,
+                        strict: args.strict,
+                        read_only: args.read_only,
+                        dry_run: args.dry_run,
+                        confirm: args.confirm,
                     },
                 )
                 .await?;
@@ -294,6 +342,16 @@ impl Cli {
                 }
                 ConfigSubcommand::ProviderSample => {
                     println!("{}", AppConfig::sample_toml()?);
+                }
+                ConfigSubcommand::SetSecret { name, value } => {
+                    let v = match value {
+                        Some(s) => s,
+                        None => dialoguer::Password::new()
+                            .with_prompt(format!("Enter secret `{name}`"))
+                            .interact()?,
+                    };
+                    crate::config::save_secret(&name, &v)?;
+                    println!("stored secret '{}' in keychain", name);
                 }
             },
             Command::Plugin(args) => match args.command {

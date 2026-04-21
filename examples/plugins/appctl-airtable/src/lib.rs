@@ -42,6 +42,7 @@ async fn introspect(_input: SyncInput) -> Result<Schema> {
             parameters: Vec::new(),
             safety: Safety::ReadOnly,
             resource: Some("record".to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
         Action {
@@ -56,6 +57,7 @@ async fn introspect(_input: SyncInput) -> Result<Schema> {
             parameters: fields[..1].to_vec(),
             safety: Safety::ReadOnly,
             resource: Some("record".to_string()),
+            provenance: Provenance::Inferred,
             metadata: Map::new(),
         },
     ];
