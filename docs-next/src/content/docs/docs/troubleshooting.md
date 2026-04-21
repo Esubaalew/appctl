@@ -3,7 +3,7 @@ title: Troubleshooting
 description: Common problems hit while syncing, calling tools, and running appctl serve.
 ---
 
-Real problems seen while building and testing the demos.
+Common issues and their fixes.
 
 ## `sync` refuses to overwrite
 
@@ -36,7 +36,7 @@ You are on a pre-0.2.0 build. Upgrade. The fix is in [`doctor.rs`](https://githu
 
 ## Supabase sync "document missing paths object"
 
-Your PostgREST serves the OpenAPI document at `/` (bare PostgREST) but the old sync only probed `/rest/v1` (hosted Supabase layout). Upgrade to 0.2.0+ — the sync now probes both layouts automatically.
+Your PostgREST serves the OpenAPI document at `/` (bare PostgREST) but older builds only probed `/rest/v1` (hosted Supabase layout). Upgrade to 0.2.0 or newer. The sync now probes both layouts automatically.
 
 ## Rails tools use singular paths
 
@@ -86,7 +86,7 @@ The login worked but the post-login page had no discoverable structure (no forms
 
 ## MCP sync expects a URL
 
-`appctl sync --mcp` expects a URL. If your MCP server is stdio-only, wrap it with an HTTP or WebSocket bridge. The `examples/demos/mcp-stdio/` server is for protocol verification, not for `sync --mcp`.
+`appctl sync --mcp` expects a URL. If your MCP server is stdio-only, wrap it with an HTTP or WebSocket bridge. The `examples/demos/mcp-stdio/` example shows the protocol, but it is not a direct target for `sync --mcp`.
 
 ## Docker-required demos do not start
 
