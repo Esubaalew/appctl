@@ -52,10 +52,11 @@ appctl sync --openapi http://127.0.0.1:8000/openapi.json \
   --base-url http://127.0.0.1:8000 --force
 ```
 
-Real output with the current build:
+Current output shape:
 
 ```
-Synced Openapi: 1 resources, 1 tools written to .appctl
+Sync complete
+✔ Openapi: 1 resources, 1 tools written under .appctl
 ```
 
 A new `.appctl/schema.json` describes the generated tool and `.appctl/tools.json`
@@ -80,6 +81,12 @@ For a one-shot answer:
 
 ```bash
 appctl run "create a widget named Demo"
+```
+
+Or get structured output for scripts:
+
+```bash
+appctl run --json "create a widget named Demo"
 ```
 
 Or open the interactive REPL:

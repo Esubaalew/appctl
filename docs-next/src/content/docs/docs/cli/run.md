@@ -24,6 +24,7 @@ whitespace by your shell.
 | --- | --- |
 | `--provider <NAME>` | Override the `default` provider for this invocation. |
 | `--model <NAME>` | Override the provider's model. |
+| `--json` | Emit a single JSON object containing the final answer, `session_id`, event stream, and summarized tool calls. |
 | `--read-only` | Block every mutating tool. |
 | `--dry-run` | Stream events, skip real I/O. |
 | `--confirm` | Auto-approve mutations (on by default in non-TTY mode, off in TTY). |
@@ -44,6 +45,9 @@ appctl run --read-only "How many active users signed up this week?"
 # Force OpenAI for this one call
 appctl run --provider openai "Create a test user"
 
+# Structured output for scripts
+appctl run --json --read-only "Summarize the last 20 support tickets"
+
 # Dry-run a destructive request — no HTTP call is issued
 appctl run --dry-run "Delete all orders from staging"
 
@@ -54,9 +58,9 @@ appctl run --confirm --read-only "Summarize the last 20 support tickets" \
 
 ## Streaming output
 
-`appctl run` uses the same event renderer as `appctl chat`. The final answer is
-the last block printed; intermediate plan / call / observation frames go to the
-same terminal stream. Pipe the command to a file to capture them.
+`appctl run` uses the same event renderer as `appctl chat` unless you pass
+`--json`. With `--json`, stdout contains one machine-readable payload and no
+terminal framing.
 
 To get only the final answer without any tool trace, prefer [`appctl
 serve`](/docs/cli/serve/)'s `POST /run` endpoint, which returns a single JSON

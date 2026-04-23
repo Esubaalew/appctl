@@ -1,9 +1,15 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufReader, BufWriter},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
-use reqwest::{Client, cookie::Jar};
+use reqwest::Client;
+use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
 use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
 use serde_json::Map;
 
 use crate::{
@@ -19,7 +25,7 @@ use super::{SyncPlugin, SyncRequest};
 pub struct UrlSync {
     url: String,
     client: Client,
-    jar: Arc<Jar>,
+    jar: Arc<CookieStoreMutex>,
     session_path: PathBuf,
     login_url: Option<String>,
     login_user: Option<String>,
@@ -27,22 +33,10 @@ pub struct UrlSync {
     login_form_selector: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct SerializedJar {
-    cookies: Vec<SerializedCookie>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct SerializedCookie {
-    url: String,
-    header: String,
-}
-
 impl UrlSync {
     pub fn new(url: String, paths: &ConfigPaths, request: &SyncRequest) -> Result<Self> {
         let session_path = paths.root.join("session.json");
-        let jar = Arc::new(Jar::default());
-        load_jar(&jar, &session_path);
+        let jar = Arc::new(load_jar(&session_path));
         let client = Client::builder()
             .cookie_provider(jar.clone())
             .user_agent(format!(
@@ -254,32 +248,26 @@ impl SyncPlugin for UrlSync {
     }
 }
 
-fn load_jar(_jar: &Arc<Jar>, path: &std::path::Path) {
-    // We persist a flat list of (url, Set-Cookie header) pairs. On load we
-    // replay them back into the jar via `add_cookie_str`.
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return;
-    };
-    let Ok(parsed): std::result::Result<SerializedJar, _> = serde_json::from_str(&raw) else {
-        return;
-    };
-    for SerializedCookie { url, header } in parsed.cookies {
-        let Ok(url) = url::Url::parse(&url) else {
-            continue;
-        };
-        _jar.add_cookie_str(&header, &url);
-    }
+fn load_jar(path: &std::path::Path) -> CookieStoreMutex {
+    let store = File::open(path)
+        .map(BufReader::new)
+        .ok()
+        .and_then(|reader| cookie_store::serde::json::load(reader).ok())
+        .unwrap_or_else(CookieStore::new);
+    CookieStoreMutex::new(store)
 }
 
-fn save_jar(_jar: &Arc<Jar>, path: &std::path::Path) -> Result<()> {
-    // reqwest's Jar does not expose an enumerate API, so we persist only a
-    // marker here; cookies remain in process memory for subsequent calls. In
-    // future we can swap Jar for a custom provider that exposes iteration.
+fn save_jar(jar: &Arc<CookieStoreMutex>, path: &std::path::Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let payload = serde_json::to_string_pretty(&SerializedJar::default())?;
-    std::fs::write(path, payload)?;
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    let store = jar
+        .lock()
+        .map_err(|e| anyhow::anyhow!("cookie store lock poisoned: {e}"))?;
+    cookie_store::serde::json::save(&store, &mut writer)
+        .map_err(|e| anyhow::anyhow!("failed to save cookie jar: {e}"))?;
     Ok(())
 }
 

@@ -34,7 +34,17 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
     let base = schema
         .base_url
         .clone()
-        .or_else(|| config.target.base_url.clone())
+        .or_else(|| {
+            config
+                .target
+                .base_url_env
+                .as_deref()
+                .and_then(|name| std::env::var(name).ok())
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| std::env::var("APPCTL_BASE_URL").ok())
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| config.target.base_url.clone())
+        })
         .context("schema has no base_url; pass --base-url on sync or set target.base_url")?;
 
     let headers = build_headers(&schema.auth, &config, None)?;

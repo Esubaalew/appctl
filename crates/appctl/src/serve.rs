@@ -13,6 +13,7 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tokio::process::Command;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -23,7 +24,7 @@ use crate::{
     executor::ExecutionContext,
     history::HistoryStore,
     safety::SafetyMode,
-    sync::{load_schema, load_tools},
+    sync::{load_runtime_tools, load_schema},
 };
 
 /// Max in-memory HTTP `/run` session transcripts. Beyond this, older ids may be evicted.
@@ -38,6 +39,8 @@ pub struct ServeOptions {
     pub port: u16,
     pub bind: String,
     pub token: Option<String>,
+    pub identity_header: String,
+    pub tunnel: bool,
     pub provider: Option<String>,
     pub model: Option<String>,
     pub strict: bool,
@@ -109,6 +112,13 @@ pub async fn run_server(
     let addr: SocketAddr = format!("{}:{}", state.options.bind, state.options.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("appctl serve listening on http://{}", addr);
+    if state.options.tunnel {
+        let target = format!("http://{}", addr);
+        Command::new("cloudflared")
+            .args(["tunnel", "--url", &target, "--no-autoupdate"])
+            .spawn()?;
+        println!("cloudflared tunnel started for {}", target);
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -168,7 +178,7 @@ async fn get_tools(
     if !auth_ok(&state, &headers, None) {
         return Err(auth_err());
     }
-    let tools = load_tools(&state.paths).map_err(internal_error)?;
+    let tools = load_runtime_tools(&state.paths, &state.config).map_err(internal_error)?;
     Ok(Json(serde_json::to_value(tools).map_err(internal_error)?))
 }
 
@@ -234,7 +244,7 @@ async fn post_run(
         return Err(auth_err());
     }
     let schema = load_schema(&state.paths).map_err(internal_error)?;
-    let tools = load_tools(&state.paths).map_err(internal_error)?;
+    let tools = load_runtime_tools(&state.paths, &state.config).map_err(internal_error)?;
     let (tx, mut rx) = mpsc::channel::<AgentEvent>(128);
     let paths = state.paths.clone();
     let config = state.config.clone();
@@ -248,6 +258,7 @@ async fn post_run(
         payload.strict,
     );
     let msg = payload.message.clone();
+    let client_id = client_id_from_headers(&state, &headers);
     let session_id = payload
         .session_id
         .as_deref()
@@ -277,6 +288,7 @@ async fn post_run(
             &schema,
             ExecutionContext {
                 session_id: sid_run,
+                session_name: client_id.clone(),
                 safety,
             },
             Some(tx),
@@ -322,10 +334,15 @@ async fn ws_chat(
     if !auth_ok(&state, &headers, q.token.as_deref()) {
         return Err(auth_err());
     }
-    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state)))
+    let client_id = client_id_from_headers(&state, &headers);
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, client_id)))
 }
 
-async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
+async fn handle_socket(
+    socket: axum::extract::ws::WebSocket,
+    state: Arc<AppState>,
+    client_id: Option<String>,
+) {
     let session_id = Uuid::new_v4().to_string();
     let mut transcript: Vec<Message> = Vec::new();
     let (mut sink, mut stream) = socket.split();
@@ -342,12 +359,13 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
         let model = state.options.model.clone();
         let prior = transcript.clone();
         let sid = session_id.clone();
+        let request_client_id = client_id.clone();
         let agent = tokio::spawn(async move {
             let schema = match load_schema(&paths) {
                 Ok(s) => s,
                 Err(e) => return Err(e),
             };
-            let tools = match load_tools(&paths) {
+            let tools = match load_runtime_tools(&paths, &config) {
                 Ok(t) => t,
                 Err(e) => return Err(e),
             };
@@ -362,6 +380,7 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
                 &schema,
                 ExecutionContext {
                     session_id: sid,
+                    session_name: request_client_id,
                     safety,
                 },
                 Some(tx),
@@ -408,6 +427,15 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
             }
         }
     }
+}
+
+fn client_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(state.options.identity_header.as_str())
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn merge_safety(

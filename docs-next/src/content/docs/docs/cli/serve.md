@@ -27,6 +27,8 @@ appctl serve [OPTIONS]
 | `--bind <ADDR>` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` only with `--token`. |
 | `--port <N>` | `4242` | TCP port. |
 | `--token <STRING>` | unset | Require this bearer token on every request. When set, the web UI prompts for it. |
+| `--identity-header <NAME>` | `x-appctl-client-id` | Header used to tag requests with a caller identity in the activity log. |
+| `--tunnel` | off | Start `cloudflared tunnel --url ...` next to the local server. |
 | `--provider <NAME>` | — | Override the default provider for this server instance. |
 | `--model <NAME>` | — | Override the provider's model. |
 | `--read-only` | off | Block every mutating tool server-wide. |
@@ -46,8 +48,9 @@ app with four tabs:
   as collapsible cards showing arguments and truncated responses.
 - **Tools** — searchable list of every tool the agent can call, with its
   `kind`, `op`, safety level, and schema.
-- **History** — the audit log (same table as `appctl history`), with
-  expandable rows for arguments and raw response.
+- **History** — the activity log (same table as `appctl history`), with
+  expandable rows for arguments and raw response. If clients send the identity
+  header, the session label is recorded there too.
 - **Settings** — provider status, token usage (if the provider reports
   billing info), and a field for the auth token when `--token` is set.
 
@@ -61,7 +64,9 @@ stores the last value for the HTTP path).
 ## HTTP endpoints
 
 All endpoints honour `--token` (via `Authorization: Bearer ...` or
-`x-appctl-token`) when set.
+`x-appctl-token`) when set. Clients can also send the configured identity
+header (default `x-appctl-client-id`) so requests are labeled in history and
+the web activity panel.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -83,6 +88,9 @@ appctl serve
 
 # Share on the LAN behind a token
 appctl serve --bind 0.0.0.0 --token "$(openssl rand -hex 24)"
+
+# Start a public tunnel through cloudflared
+appctl serve --token "$(openssl rand -hex 24)" --tunnel
 
 # Read-only, dry-run demo instance
 appctl serve --read-only --dry-run

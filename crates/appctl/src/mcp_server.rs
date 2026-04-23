@@ -6,12 +6,12 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
-    config::ConfigPaths,
+    config::{AppConfig, ConfigPaths},
     executor::{
         ExecutionContext, ExecutionRequest, Executor, tool_result_is_error, tool_result_summary,
     },
     safety::SafetyMode,
-    sync::{load_schema, load_tools},
+    sync::{load_runtime_tools, load_schema},
     tools::ToolDef,
 };
 
@@ -32,7 +32,8 @@ struct ToolCallParams {
 
 pub async fn run_mcp_server(paths: ConfigPaths, options: McpServeOptions) -> Result<()> {
     let schema = load_schema(&paths)?;
-    let tools = load_tools(&paths)?;
+    let config = AppConfig::load_or_init(&paths)?;
+    let tools = load_runtime_tools(&paths, &config)?;
     let executor = Executor::new(&paths)?;
 
     let stdin = io::stdin();
@@ -53,7 +54,7 @@ pub async fn run_mcp_server(paths: ConfigPaths, options: McpServeOptions) -> Res
         };
 
         let Some(response) =
-            handle_mcp_request(&schema, &tools, &executor, &options, request).await
+            handle_mcp_request(&schema, &config, &tools, &executor, &options, request).await
         else {
             continue;
         };
@@ -85,6 +86,7 @@ fn render_result_text(value: &Value) -> String {
 
 async fn handle_mcp_request(
     schema: &crate::schema::Schema,
+    config: &AppConfig,
     tools: &[ToolDef],
     executor: &Executor,
     options: &McpServeOptions,
@@ -124,13 +126,14 @@ async fn handle_mcp_request(
                 .unwrap_or(Value::Object(Default::default()));
             match serde_json::from_value::<ToolCallParams>(params) {
                 Ok(params) => {
+                    let resolved_name = config.resolve_tool_name(&params.name).to_string();
                     let safety = SafetyMode {
                         read_only: options.read_only,
                         dry_run: options.dry_run,
                         confirm: options.confirm,
                         strict: options.strict,
                     };
-                    let Some(action) = schema.action(&params.name) else {
+                    let Some(action) = schema.action(&resolved_name) else {
                         return Some(json!({
                             "jsonrpc": "2.0",
                             "id": id,
@@ -149,9 +152,10 @@ async fn handle_mcp_request(
                             schema,
                             ExecutionContext {
                                 session_id: Uuid::new_v4().to_string(),
+                                session_name: None,
                                 safety,
                             },
-                            ExecutionRequest::new(params.name, params.arguments),
+                            ExecutionRequest::new(resolved_name, params.arguments),
                         )
                         .await;
                     match execution {
@@ -223,6 +227,7 @@ mod tests {
             target: TargetConfig::default(),
             cloud: Default::default(),
             behavior: BehaviorConfig::default(),
+            tooling: Default::default(),
         };
         config.save(&paths).unwrap();
 
@@ -271,6 +276,7 @@ mod tests {
 
         let list = handle_mcp_request(
             &schema,
+            &AppConfig::default(),
             &tools,
             &executor,
             &options,
@@ -282,6 +288,7 @@ mod tests {
 
         let call = handle_mcp_request(
             &schema,
+            &AppConfig::default(),
             &tools,
             &executor,
             &options,

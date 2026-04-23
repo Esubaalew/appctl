@@ -126,12 +126,21 @@ type Transport =
   | { kind: "http"; method: string; path: string }
   | { kind: "form"; method: string; action: string }
   | { kind: "sql"; table: string; operation: string; database_kind: string }
+  | {
+      kind: "no_sql";
+      collection: string;
+      operation: string;
+      database_kind: string;
+      primary_key?: string | null;
+      secondary_key?: string | null;
+    }
   | { kind: "mcp"; server_url: string };
 
 type HistoryEntry = {
   id: number;
   ts: string;
   session_id: string;
+  session_name?: string | null;
   tool: string;
   arguments_json: unknown;
   request_snapshot_json?: unknown;
@@ -218,11 +227,64 @@ function transportLabel(transport: Transport): string {
     case "form":
       return `${transport.method} ${transport.action}`;
     case "sql":
-      return `${transport.database_kind} ${transport.operation} ${transport.table}`;
+      return `${databaseKindLabel(transport.database_kind)} ${sqlOperationLabel(transport.operation)} ${transport.table}`;
+    case "no_sql":
+      return `${databaseKindLabel(transport.database_kind)} ${noSqlOperationLabel(transport.operation)} ${transport.collection}`;
     case "mcp":
       return `MCP ${transport.server_url}`;
     default:
       return "Unknown transport";
+  }
+}
+
+function databaseKindLabel(value: string): string {
+  switch (value) {
+    case "postgres":
+      return "Postgres";
+    case "mysql":
+      return "MySQL";
+    case "sqlite":
+      return "SQLite";
+    case "mongodb":
+      return "MongoDB";
+    case "redis":
+      return "Redis";
+    case "firestore":
+      return "Firestore";
+    case "dynamodb":
+      return "DynamoDB";
+    default:
+      return value.replace(/_/g, " ");
+  }
+}
+
+function sqlOperationLabel(value: string): string {
+  switch (value) {
+    case "select":
+      return "list";
+    case "get_by_pk":
+      return "get";
+    case "insert":
+      return "create";
+    case "update_by_pk":
+      return "update";
+    case "delete_by_pk":
+      return "delete";
+    default:
+      return value.replace(/_/g, " ");
+  }
+}
+
+function noSqlOperationLabel(value: string): string {
+  switch (value) {
+    case "get_by_pk":
+      return "get";
+    case "update_by_pk":
+      return "update";
+    case "delete_by_pk":
+      return "delete";
+    default:
+      return value.replace(/_/g, " ");
   }
 }
 
@@ -1438,9 +1500,9 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
       <div className="mx-auto w-full max-w-[1200px]">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h2 className="text-[20px] font-semibold text-fg">Audit Log</h2>
+            <h2 className="text-[20px] font-semibold text-fg">Activity</h2>
             <p className="mt-1 text-[13px] text-muted">
-              A complete history of tool executions and side effects.
+              A complete history of tool calls, results, and side effects.
             </p>
           </div>
         </div>
@@ -1455,6 +1517,7 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
               <thead className="border-b border-border bg-panel text-[11px] uppercase tracking-wider text-muted">
                 <tr>
                   <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Session</th>
                   <th className="px-4 py-3 font-medium">Tool</th>
                   <th className="px-4 py-3 font-medium">Timestamp</th>
                   <th className="px-4 py-3 font-medium text-right">Details</th>
@@ -1474,6 +1537,16 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
                             <span className="text-fg-dim">{h.status === "ok" ? "Success" : "Error"}</span>
                           </div>
                         </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="font-mono text-fg">
+                              {h.session_name || "interactive"}
+                            </span>
+                            <span className="text-[11px] text-muted font-mono">
+                              {h.session_id}
+                            </span>
+                          </div>
+                        </td>
                         <td className="px-4 py-3 font-mono text-fg">{h.tool}</td>
                         <td className="px-4 py-3 text-muted font-mono text-[12px]">{formatTs(h.ts)}</td>
                         <td className="px-4 py-3 text-right">
@@ -1487,7 +1560,7 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
                       </tr>
                       {isExpanded && (
                         <tr className="bg-panel border-t-0">
-                          <td colSpan={4} className="p-4">
+                          <td colSpan={5} className="p-4">
                             <div className="grid gap-4 lg:grid-cols-2">
                               <div>
                                 <div className="mb-2 text-[11px] font-medium text-muted uppercase tracking-wider">Arguments</div>

@@ -120,6 +120,8 @@ pub struct AppConfig {
     pub cloud: CloudConfig,
     #[serde(default)]
     pub behavior: BehaviorConfig,
+    #[serde(default)]
+    pub tooling: ToolingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,9 +159,19 @@ pub struct TargetConfig {
     #[serde(default)]
     pub base_url: Option<String>,
     #[serde(default)]
+    pub base_url_env: Option<String>,
+    #[serde(default)]
     pub auth_header: Option<String>,
     #[serde(default)]
     pub database_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolingConfig {
+    #[serde(default)]
+    pub pin: Vec<String>,
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,6 +219,16 @@ impl Default for BehaviorConfig {
             max_iterations: default_max_iterations(),
             history_limit: default_history_limit(),
         }
+    }
+}
+
+impl AppConfig {
+    pub fn resolve_tool_name<'a>(&'a self, tool_name: &'a str) -> &'a str {
+        self.tooling
+            .aliases
+            .get(tool_name)
+            .map(String::as_str)
+            .unwrap_or(tool_name)
     }
 }
 

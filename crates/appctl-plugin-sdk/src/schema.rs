@@ -77,6 +77,7 @@ pub struct Field {
 pub enum SyncSource {
     Openapi,
     Django,
+    Flask,
     Db,
     Url,
     Mcp,
@@ -123,6 +124,15 @@ pub enum Transport {
         #[serde(default)]
         primary_key: Option<String>,
     },
+    NoSql {
+        database_kind: DatabaseKind,
+        collection: String,
+        operation: NoSqlOperation,
+        #[serde(default)]
+        primary_key: Option<String>,
+        #[serde(default)]
+        secondary_key: Option<String>,
+    },
     Form {
         method: HttpMethod,
         action: String,
@@ -138,6 +148,10 @@ pub enum DatabaseKind {
     Postgres,
     Mysql,
     Sqlite,
+    Mongodb,
+    Redis,
+    Firestore,
+    Dynamodb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -151,6 +165,16 @@ pub enum SqlOperation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NoSqlOperation {
+    List,
+    GetByPk,
+    Insert,
+    UpdateByPk,
+    DeleteByPk,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum HttpMethod {
     GET,

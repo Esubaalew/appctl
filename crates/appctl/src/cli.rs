@@ -108,6 +108,18 @@ pub enum AppSubcommand {
         /// App directory to register. Defaults to the resolved `--app-dir`.
         #[arg(long)]
         path: Option<PathBuf>,
+        /// Sync an OpenAPI document immediately after registering the app.
+        #[arg(long)]
+        openapi: Option<String>,
+        /// Base URL to store in the synced schema when `--openapi` is used.
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Override the inferred auth header when `--openapi` is used.
+        #[arg(long)]
+        auth_header: Option<String>,
+        /// Overwrite an existing schema/tools set during the immediate sync.
+        #[arg(long)]
+        force: bool,
     },
     /// List all registered apps and show the active one.
     List,
@@ -219,43 +231,73 @@ pub enum ProviderAuthSubcommand {
 
 #[derive(Debug, Args)]
 pub struct SyncArgs {
+    /// OpenAPI document URL or file path.
     #[arg(long)]
     pub openapi: Option<String>,
+    /// Django project root.
     #[arg(long)]
     pub django: Option<PathBuf>,
+    /// Flask project root.
+    #[arg(long)]
+    pub flask: Option<PathBuf>,
+    /// Database or datastore connection string.
     #[arg(long)]
     pub db: Option<String>,
+    /// Browser-login site root.
     #[arg(long)]
     pub url: Option<String>,
+    /// Remote MCP server URL.
     #[arg(long)]
     pub mcp: Option<String>,
+    /// Rails project root.
     #[arg(long)]
     pub rails: Option<PathBuf>,
+    /// Laravel project root.
     #[arg(long)]
     pub laravel: Option<PathBuf>,
+    /// ASP.NET project root.
     #[arg(long)]
     pub aspnet: Option<PathBuf>,
+    /// Strapi project root.
     #[arg(long)]
     pub strapi: Option<PathBuf>,
+    /// Supabase project URL.
     #[arg(long)]
     pub supabase: Option<String>,
+    /// Secret name that holds the Supabase anon key.
     #[arg(long)]
     pub supabase_anon_ref: Option<String>,
     /// Invoke a dynamic plugin by name, e.g. `--plugin airtable`.
     #[arg(long)]
     pub plugin: Option<String>,
+    /// Force a specific Authorization header into the synced schema.
     #[arg(long)]
     pub auth_header: Option<String>,
+    /// Override the base URL written to the schema.
     #[arg(long)]
     pub base_url: Option<String>,
+    /// Overwrite existing schema and tools output.
     #[arg(long)]
     pub force: bool,
+    /// Keep polling an OpenAPI source and re-sync when it changes.
+    #[arg(long)]
+    pub watch: bool,
+    /// Polling interval for `--watch`, in seconds.
+    #[arg(long, default_value_t = 2)]
+    pub watch_interval_secs: u64,
+    /// Run `appctl doctor --write` after a successful sync.
+    #[arg(long)]
+    pub doctor_write: bool,
+    /// Login page URL for `--url` sync.
     #[arg(long)]
     pub login_url: Option<String>,
+    /// Login username for `--url` sync.
     #[arg(long)]
     pub login_user: Option<String>,
+    /// Login password for `--url` sync.
     #[arg(long)]
     pub login_password: Option<String>,
+    /// CSS selector used to target the login form during `--url` sync.
     #[arg(long)]
     pub login_form_selector: Option<String>,
 }
@@ -266,6 +308,9 @@ pub struct ChatArgs {
     pub provider: Option<String>,
     #[arg(long)]
     pub model: Option<String>,
+    /// Human-readable session label for history and the web UI.
+    #[arg(long)]
+    pub session: Option<String>,
     #[arg(long)]
     pub read_only: bool,
     #[arg(long)]
@@ -284,6 +329,9 @@ pub struct RunArgs {
     pub provider: Option<String>,
     #[arg(long)]
     pub model: Option<String>,
+    /// Emit machine-readable JSON instead of the terminal renderer.
+    #[arg(long)]
+    pub json: bool,
     #[arg(long)]
     pub read_only: bool,
     #[arg(long)]
@@ -308,8 +356,15 @@ pub struct ServeArgs {
     pub port: u16,
     #[arg(long, default_value = "127.0.0.1")]
     pub bind: String,
+    /// Require this token on HTTP and WebSocket requests.
     #[arg(long)]
     pub token: Option<String>,
+    /// Request header used to tag callers in the activity log.
+    #[arg(long, default_value = "x-appctl-client-id")]
+    pub identity_header: String,
+    /// Start a local `cloudflared` tunnel for this server.
+    #[arg(long)]
+    pub tunnel: bool,
     #[arg(long)]
     pub provider: Option<String>,
     #[arg(long)]
@@ -395,16 +450,20 @@ impl Cli {
                 run_init(&paths).await?;
             }
             Command::App(args) => {
-                run_app_command(app_dir.as_ref(), args.command)?;
+                run_app_command(app_dir.as_ref(), args.command).await?;
             }
             Command::Sync(args) => {
-                let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                let paths = resolve_init_paths(app_dir.as_ref())?;
                 if let Some(name) = args.plugin.as_deref() {
-                    run_dynamic_sync(app.paths, name, args.base_url.as_deref())?;
+                    if args.watch {
+                        bail!("`appctl sync --watch` is not supported for dynamic plugins yet");
+                    }
+                    run_dynamic_sync(paths, name, args.base_url.as_deref())?;
                 } else {
                     let request = SyncRequest {
                         openapi: args.openapi,
                         django: args.django,
+                        flask: args.flask,
                         db: args.db,
                         url: args.url,
                         mcp: args.mcp,
@@ -417,12 +476,15 @@ impl Cli {
                         auth_header: args.auth_header,
                         base_url: args.base_url,
                         force: args.force,
+                        watch: args.watch,
+                        watch_interval_secs: args.watch_interval_secs,
+                        doctor_write: args.doctor_write,
                         login_url: args.login_url,
                         login_user: args.login_user,
                         login_password: args.login_password,
                         login_form_selector: args.login_form_selector,
                     };
-                    run_sync(app.paths, request).await?;
+                    run_sync(paths, request).await?;
                 }
             }
             Command::Chat(args) => {
@@ -435,6 +497,7 @@ impl Cli {
                     ChatOptions {
                         provider: args.provider,
                         model: args.model,
+                        session: args.session,
                         read_only: args.read_only,
                         dry_run: args.dry_run,
                         confirm: args.confirm,
@@ -454,6 +517,7 @@ impl Cli {
                         prompt: args.prompt,
                         provider: args.provider,
                         model: args.model,
+                        json: args.json,
                         read_only: args.read_only,
                         dry_run: args.dry_run,
                         confirm: args.confirm,
@@ -502,6 +566,8 @@ impl Cli {
                         port: args.port,
                         bind: args.bind,
                         token: args.token,
+                        identity_header: args.identity_header,
+                        tunnel: args.tunnel,
                         provider: args.provider,
                         model: args.model,
                         strict: args.strict,
@@ -1194,7 +1260,7 @@ struct ResolvedAppContext {
     paths: ConfigPaths,
 }
 
-fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcommand) -> Result<()> {
+async fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcommand) -> Result<()> {
     use crate::term::{
         print_flow_header, print_section_title, print_status_error, print_status_success, print_tip,
     };
@@ -1202,7 +1268,14 @@ fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcommand) -
     let mut registry = AppRegistry::load_or_default()?;
 
     match command {
-        AppSubcommand::Add { name, path } => {
+        AppSubcommand::Add {
+            name,
+            path,
+            openapi,
+            base_url,
+            auth_header,
+            force,
+        } => {
             let app_dir = path
                 .map(|p| {
                     std::fs::canonicalize(&p)
@@ -1228,6 +1301,20 @@ fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcommand) -
             registry.save()?;
             print_status_success(&format!("Registered '{}' -> {}", chosen, app_dir.display()));
             print_tip("Use `appctl app use <name>` later to switch the global active app.");
+            if let Some(source) = openapi {
+                print_tip("Syncing OpenAPI source immediately after registration.");
+                run_sync(
+                    ConfigPaths::new(app_dir.clone()),
+                    SyncRequest {
+                        openapi: Some(source),
+                        auth_header,
+                        base_url,
+                        force,
+                        ..SyncRequest::default()
+                    },
+                )
+                .await?;
+            }
         }
         AppSubcommand::List => {
             print_flow_header(

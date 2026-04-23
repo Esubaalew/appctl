@@ -20,20 +20,25 @@ impl OpenApiSync {
     }
 }
 
+pub async fn load_openapi_source(source: &str) -> Result<String> {
+    if source.starts_with("http://") || source.starts_with("https://") {
+        reqwest::get(source)
+            .await
+            .with_context(|| format!("failed to fetch {}", source))?
+            .text()
+            .await
+            .map_err(Into::into)
+    } else {
+        tokio::fs::read_to_string(source)
+            .await
+            .with_context(|| format!("failed to read {}", source))
+    }
+}
+
 #[async_trait::async_trait]
 impl SyncPlugin for OpenApiSync {
     async fn introspect(&self) -> Result<Schema> {
-        let raw = if self.source.starts_with("http://") || self.source.starts_with("https://") {
-            reqwest::get(&self.source)
-                .await
-                .with_context(|| format!("failed to fetch {}", self.source))?
-                .text()
-                .await?
-        } else {
-            tokio::fs::read_to_string(&self.source)
-                .await
-                .with_context(|| format!("failed to read {}", self.source))?
-        };
+        let raw = load_openapi_source(&self.source).await?;
 
         let document: Value = serde_json::from_str(&raw)
             .or_else(|_| serde_yaml::from_str(&raw))

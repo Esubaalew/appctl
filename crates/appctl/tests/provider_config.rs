@@ -28,6 +28,7 @@ fn resolve_provider_requires_configured_secret() {
         target: TargetConfig::default(),
         cloud: Default::default(),
         behavior: BehaviorConfig::default(),
+        tooling: Default::default(),
     };
 
     let error = config.resolve_provider(None, None).unwrap_err().to_string();
@@ -82,6 +83,7 @@ fn resolve_provider_uses_cloud_connection_when_enabled() {
             ..Default::default()
         },
         behavior: BehaviorConfig::default(),
+        tooling: Default::default(),
     };
     config.save(&paths).unwrap();
 

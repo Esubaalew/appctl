@@ -107,6 +107,7 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
             max_iterations: 4,
             history_limit: 50,
         },
+        tooling: Default::default(),
     };
     config.save(&paths).unwrap();
 
@@ -124,6 +125,7 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
         &schema,
         ExecutionContext {
             session_id: Uuid::new_v4().to_string(),
+            session_name: None,
             safety: SafetyMode {
                 read_only: false,
                 dry_run: false,

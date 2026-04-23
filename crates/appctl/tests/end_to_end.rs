@@ -90,6 +90,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
             max_iterations: 4,
             history_limit: 50,
         },
+        tooling: Default::default(),
     };
     config.save(&paths).unwrap();
 
@@ -140,6 +141,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
         &schema,
         ExecutionContext {
             session_id: Uuid::new_v4().to_string(),
+            session_name: None,
             safety: SafetyMode {
                 read_only: false,
                 dry_run: false,

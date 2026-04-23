@@ -18,7 +18,7 @@ appctl app <COMMAND>
 
 | Command | What it does |
 | --- | --- |
-| `appctl app add [NAME]` | Register the current directory's `.appctl/` (or the one passed via `--app-dir`) under a name and mark it as the global active app. `NAME` defaults to the parent directory name. |
+| `appctl app add [NAME]` | Register the current directory's `.appctl/` (or the one passed via `--app-dir`) under a name and mark it as the global active app. `NAME` defaults to the parent directory name. You can also pass `--openapi`, `--base-url`, and `--auth-header` to sync immediately after registration. |
 | `appctl app list` | Show every registered app, which one is active, and the absolute path to its `.appctl` directory. The active app is marked with `*`. |
 | `appctl app use <NAME>` | Switch the globally active app by name. |
 | `appctl app remove <NAME>` | Unregister an app. Files on disk are not touched. |
@@ -99,6 +99,16 @@ Explicit override for one command:
 
 ```bash
 appctl --app-dir /tmp/experiment/.appctl chat
+```
+
+Register and sync in one step:
+
+```bash
+appctl app add storefront \
+  --path /Users/you/projects/storefront/.appctl \
+  --openapi http://127.0.0.1:8000/openapi.json \
+  --base-url http://127.0.0.1:8000 \
+  --force
 ```
 
 ## Removing an app

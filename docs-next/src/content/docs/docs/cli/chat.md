@@ -22,6 +22,7 @@ The command reads `.appctl/config.toml` from the current `--app-dir` (default
 | --- | --- |
 | `--provider <NAME>` | Override `default` in `.appctl/config.toml` for this session. |
 | `--model <NAME>` | Override the provider's `model` field. |
+| `--session <NAME>` | Attach a human label to this chat session so history and the web UI show a stable name instead of an anonymous id. |
 | `--read-only` | Reject any tool whose `op` is not a safe read. |
 | `--dry-run` | Plan and stream events, but skip the real HTTP / SQL call. |
 | `--confirm` | Auto-approve mutating calls (default is interactive confirm on TTY). |
@@ -74,6 +75,9 @@ appctl chat
 
 # Read-only session with OpenAI
 appctl chat --provider openai --read-only
+
+# Named session
+appctl chat --session incident-123
 
 # Preview what the agent would do, no live calls
 appctl chat --dry-run

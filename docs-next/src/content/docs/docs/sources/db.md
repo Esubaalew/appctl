@@ -1,14 +1,14 @@
 ---
-title: SQL databases (Postgres, MySQL, SQLite)
-description: Skip the API. Point at a database URL and get typed CRUD tools per table.
+title: Datastores (SQL, MongoDB, Redis, Firestore, DynamoDB)
+description: Skip the API. Point at a datastore URL and get CRUD tools for tables, collections, keys, or documents.
 ---
 
-Skip the API. Point `appctl` at a Postgres, MySQL, or SQLite URL and it gives
-the agent SQL tools for your tables, executed as prepared statements.
+Skip the API. Point `appctl` at a datastore URL and it gives the agent CRUD
+tools directly against tables, collections, keys, or documents.
 
 ## Prerequisites
 
-- A Postgres, MySQL, or SQLite connection string. A read-only account is strongly recommended for server databases.
+- A datastore connection string.
 - `appctl` installed.
 
 ## Run it
@@ -21,9 +21,28 @@ appctl sync --db "mysql://reader:pass@db.acme.com:3306/shop" --force
 
 # or
 appctl sync --db "sqlite:///Users/you/dev/shop.db" --force
+
+# or
+appctl sync --db "mongodb://127.0.0.1:27017/shop" --force
+
+# or
+appctl sync --db "redis://127.0.0.1:6379" --force
+
+# or
+appctl sync --db "firestore://my-gcp-project" --force
+
+# or
+appctl sync --db "dynamodb://us-east-1" --force
 ```
 
-For each table, the sync produces five tools: `list_{table}`, `get_{table}`, `create_{table}`, `update_{table}`, `delete_{table}`. Each tool uses a prepared statement against the table and primary key. There is no free-form SQL tool.
+For every supported backend, the sync produces the same five logical tools:
+`list_*`, `get_*`, `create_*`, `update_*`, and `delete_*`.
+
+- **SQL** sources generate typed CRUD tools per table and execute them as prepared statements.
+- **MongoDB** generates CRUD tools per collection, keyed by `_id`.
+- **Redis** generates a generic `redis_key` resource backed by key/value operations.
+- **Firestore** generates CRUD tools per top-level collection and uses Google ADC at runtime.
+- **DynamoDB** generates CRUD tools per table and uses the normal AWS credential chain.
 
 ## The local demo in this repo
 
@@ -89,6 +108,12 @@ widget: list_widgets, get_widget, create_widget, update_widget, delete_widget
 docker compose down -v
 ```
 
+## Auth notes
+
+- **Firestore**: run `gcloud auth application-default login` first. `appctl` uses Google ADC to call the Firestore REST API.
+- **DynamoDB**: export AWS credentials, use an AWS profile, or point at local DynamoDB with `dynamodb://us-east-1?endpoint=http://127.0.0.1:8000`.
+- **MongoDB / Redis**: standard URI auth works through the connection string.
+
 ## Staying safe
 
 - **Use a read-only account.** Create a Postgres role with only `SELECT` on the tables you want to expose.
@@ -102,7 +127,8 @@ docker compose down -v
 - Views and materialized views are not introspected.
 - Stored procedures are not auto-registered.
 - Multi-schema databases only expose the default schema unless the connection string selects one.
-- First-class DB support is intentionally scoped to Postgres, MySQL, and SQLite. For other engines, use an OpenAPI layer, an MCP server, or a plugin.
+- Redis support is generic key/value access, not a schema-aware hash/stream model.
+- Firestore and DynamoDB use document/item payloads rather than per-column typing.
 
 ## See also
 

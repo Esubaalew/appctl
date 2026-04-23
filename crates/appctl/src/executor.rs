@@ -1,15 +1,24 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
+use aws_sdk_dynamodb::types::AttributeValue;
+use futures::TryStreamExt;
+use mongodb::bson::{Document, doc, oid::ObjectId};
+use redis::AsyncCommands;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
+use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sqlx::{Column, Row};
 
 use crate::{
+    auth::gcloud,
     config::{AppConfig, ConfigPaths, load_secret},
     safety::SafetyMode,
-    schema::{Action, AuthStrategy, DatabaseKind, HttpMethod, Schema, SqlOperation, Transport},
+    schema::{
+        Action, AuthStrategy, DatabaseKind, HttpMethod, NoSqlOperation, Schema, SqlOperation,
+        Transport,
+    },
 };
 
 pub fn tool_http_status(value: &Value) -> Option<u16> {
@@ -34,6 +43,7 @@ pub fn tool_result_is_error(value: &Value) -> bool {
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub session_id: String,
+    pub session_name: Option<String>,
     pub safety: SafetyMode,
 }
 
@@ -58,11 +68,14 @@ pub struct Executor {
 impl Executor {
     pub fn new(paths: &ConfigPaths) -> Result<Self> {
         let config = AppConfig::load_or_init(paths)?;
-        let client = reqwest::Client::builder()
+        let cookie_store = runtime_cookie_store(paths, &config);
+        let mut builder = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(60))
-            .build()
-            .context("failed to build HTTP client")?;
+            .timeout(Duration::from_secs(60));
+        if let Some(cookie_store) = cookie_store {
+            builder = builder.cookie_provider(cookie_store);
+        }
+        let client = builder.build().context("failed to build HTTP client")?;
         Ok(Self { client, config })
     }
 
@@ -98,6 +111,7 @@ impl Executor {
         let mut result = match &action.transport {
             Transport::Http { .. } => self.execute_http(schema, action, &request.arguments).await,
             Transport::Sql { .. } => self.execute_sql(action, &request.arguments).await,
+            Transport::NoSql { .. } => self.execute_nosql(action, &request.arguments).await,
             Transport::Form { .. } => self.execute_form(action, &request.arguments).await,
             Transport::Mcp { .. } => self.execute_mcp(action, &request.arguments).await,
         }?;
@@ -145,6 +159,30 @@ impl Executor {
                     self.fetch_sql_row(database_kind, table, pk, id)
                         .await
                         .unwrap_or(Value::Null)
+                } else {
+                    Value::Null
+                }
+            }
+            Transport::NoSql {
+                collection,
+                primary_key,
+                secondary_key,
+                database_kind,
+                ..
+            } => {
+                if let Some(pk) = primary_key
+                    && let Some(id) = arguments.get(pk)
+                {
+                    self.fetch_nosql_row(
+                        database_kind,
+                        collection,
+                        pk,
+                        secondary_key.as_deref(),
+                        id,
+                        arguments,
+                    )
+                    .await
+                    .unwrap_or(Value::Null)
                 } else {
                     Value::Null
                 }
@@ -242,14 +280,7 @@ impl Executor {
             unreachable!();
         };
 
-        let connection_string = self
-            .config
-            .target
-            .database_url
-            .clone()
-            .or_else(|| self.config.target.base_url.clone())
-            .or_else(|| self.config.target.auth_header.clone())
-            .unwrap_or_default();
+        let connection_string = runtime_database_source(&self.config).unwrap_or_default();
 
         if connection_string.is_empty() {
             bail!(
@@ -280,6 +311,69 @@ impl Executor {
                     .await?;
                 execute_sql_sqlite(&pool, table, operation, primary_key.as_deref(), arguments).await
             }
+            DatabaseKind::Mongodb
+            | DatabaseKind::Redis
+            | DatabaseKind::Firestore
+            | DatabaseKind::Dynamodb => {
+                bail!("non-SQL datastore passed to SQL executor")
+            }
+        }
+    }
+
+    async fn execute_nosql(&self, action: &Action, arguments: &Value) -> Result<ExecutionResult> {
+        let Transport::NoSql {
+            database_kind,
+            collection,
+            operation,
+            primary_key,
+            secondary_key,
+        } = &action.transport
+        else {
+            unreachable!();
+        };
+
+        let source = runtime_database_source(&self.config)
+            .context("database connection string not configured; set target.database_url in .appctl/config.toml")?;
+
+        match database_kind {
+            DatabaseKind::Mongodb => {
+                execute_nosql_mongodb(
+                    &source,
+                    collection,
+                    operation,
+                    primary_key.as_deref(),
+                    arguments,
+                )
+                .await
+            }
+            DatabaseKind::Redis => {
+                execute_nosql_redis(&source, operation, primary_key.as_deref(), arguments).await
+            }
+            DatabaseKind::Firestore => {
+                execute_nosql_firestore(
+                    &self.client,
+                    &source,
+                    operation,
+                    collection,
+                    primary_key.as_deref(),
+                    arguments,
+                )
+                .await
+            }
+            DatabaseKind::Dynamodb => {
+                execute_nosql_dynamodb(
+                    &source,
+                    collection,
+                    operation,
+                    primary_key.as_deref(),
+                    secondary_key.as_deref(),
+                    arguments,
+                )
+                .await
+            }
+            DatabaseKind::Postgres | DatabaseKind::Mysql | DatabaseKind::Sqlite => {
+                bail!("SQL datastore passed to NoSQL executor")
+            }
         }
     }
 
@@ -305,7 +399,7 @@ impl Executor {
         let base_url = schema
             .base_url
             .clone()
-            .or_else(|| self.config.target.base_url.clone())
+            .or_else(|| runtime_base_url(&self.config))
             .context("schema has no base URL; pass --base-url or set target.base_url")?;
         let mut url = format!("{}{}", base_url.trim_end_matches('/'), path);
         let mut body_map = arguments.as_object().cloned().unwrap_or_default();
@@ -359,13 +453,8 @@ impl Executor {
         primary_key: &str,
         id: &Value,
     ) -> Result<Value> {
-        let connection_string = self
-            .config
-            .target
-            .database_url
-            .clone()
-            .or_else(|| self.config.target.base_url.clone())
-            .context("database connection string missing")?;
+        let connection_string =
+            runtime_database_source(&self.config).context("database connection string missing")?;
         match database_kind {
             DatabaseKind::Postgres => {
                 let pool = sqlx::postgres::PgPoolOptions::new()
@@ -395,6 +484,72 @@ impl Executor {
                     .and_then(|rows| rows.first().cloned())
                     .unwrap_or(Value::Null))
             }
+            DatabaseKind::Mongodb
+            | DatabaseKind::Redis
+            | DatabaseKind::Firestore
+            | DatabaseKind::Dynamodb => Ok(Value::Null),
+        }
+    }
+
+    async fn fetch_nosql_row(
+        &self,
+        database_kind: &DatabaseKind,
+        collection: &str,
+        primary_key: &str,
+        secondary_key: Option<&str>,
+        id: &Value,
+        arguments: &Value,
+    ) -> Result<Value> {
+        let source =
+            runtime_database_source(&self.config).context("database connection string missing")?;
+        match database_kind {
+            DatabaseKind::Mongodb => execute_nosql_mongodb(
+                &source,
+                collection,
+                &NoSqlOperation::GetByPk,
+                Some(primary_key),
+                &json!({ primary_key: id.clone() }),
+            )
+            .await
+            .map(|result| result.output),
+            DatabaseKind::Redis => execute_nosql_redis(
+                &source,
+                &NoSqlOperation::GetByPk,
+                Some(primary_key),
+                &json!({ primary_key: id.clone() }),
+            )
+            .await
+            .map(|result| result.output),
+            DatabaseKind::Firestore => execute_nosql_firestore(
+                &self.client,
+                &source,
+                &NoSqlOperation::GetByPk,
+                collection,
+                Some(primary_key),
+                &json!({ primary_key: id.clone() }),
+            )
+            .await
+            .map(|result| result.output),
+            DatabaseKind::Dynamodb => {
+                let mut payload = Map::new();
+                payload.insert(primary_key.to_string(), id.clone());
+                if let Some(secondary_key) = secondary_key
+                    && let Some(value) = arguments.get(secondary_key)
+                {
+                    payload.insert(secondary_key.to_string(), value.clone());
+                }
+                execute_nosql_dynamodb(
+                    &source,
+                    collection,
+                    &NoSqlOperation::GetByPk,
+                    Some(primary_key),
+                    secondary_key,
+                    &Value::Object(payload),
+                )
+                .await
+                .map(|result| result.output)
+            }
+            DatabaseKind::Postgres | DatabaseKind::Mysql | DatabaseKind::Sqlite => Ok(Value::Null),
         }
     }
 }
@@ -517,6 +672,39 @@ fn classify_http_status(status: u16) -> &'static str {
         500..=599 => "server_error",
         400..=499 => "client_error",
         _ => "ok",
+    }
+}
+
+fn runtime_base_url(config: &AppConfig) -> Option<String> {
+    config
+        .target
+        .base_url_env
+        .as_deref()
+        .and_then(|name| std::env::var(name).ok())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var("APPCTL_BASE_URL").ok())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| config.target.base_url.clone())
+}
+
+fn runtime_cookie_store(paths: &ConfigPaths, config: &AppConfig) -> Option<Arc<CookieStoreMutex>> {
+    let session_file = session_file_path(paths, config)?;
+    let store = std::fs::File::open(&session_file)
+        .map(std::io::BufReader::new)
+        .ok()
+        .and_then(|reader| cookie_store::serde::json::load(reader).ok())
+        .unwrap_or_else(CookieStore::new);
+    Some(Arc::new(CookieStoreMutex::new(store)))
+}
+
+fn session_file_path(paths: &ConfigPaths, _config: &AppConfig) -> Option<std::path::PathBuf> {
+    let schema = crate::sync::load_schema(paths).ok()?;
+    match schema.auth {
+        AuthStrategy::Cookie {
+            env_ref: _,
+            session_file,
+        } => session_file.map(std::path::PathBuf::from),
+        _ => None,
     }
 }
 
@@ -924,9 +1112,560 @@ fn rows_to_json_sqlite(rows: Vec<sqlx::sqlite::SqliteRow>) -> Value {
     Value::Array(out)
 }
 
+async fn execute_nosql_mongodb(
+    source: &str,
+    collection: &str,
+    operation: &NoSqlOperation,
+    primary_key: Option<&str>,
+    arguments: &Value,
+) -> Result<ExecutionResult> {
+    let client = mongodb::Client::with_uri_str(source).await?;
+    let db = client
+        .default_database()
+        .context("mongodb connection string must include a default database name")?;
+    let coll = db.collection::<Document>(collection);
+    let primary_key = primary_key.unwrap_or("_id");
+
+    let output = match operation {
+        NoSqlOperation::List => {
+            let docs = coll
+                .find(doc! {})
+                .limit(50)
+                .await?
+                .try_collect::<Vec<_>>()
+                .await?;
+            Value::Array(docs.into_iter().map(mongodb_document_to_json).collect())
+        }
+        NoSqlOperation::GetByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let filter = mongo_filter(primary_key, id);
+            coll.find_one(filter)
+                .await?
+                .map(mongodb_document_to_json)
+                .unwrap_or(Value::Null)
+        }
+        NoSqlOperation::Insert => {
+            let mut doc = json_to_mongodb_document(arguments.get("document").unwrap_or(arguments))?;
+            if let Some(id) = arguments.get(primary_key).or_else(|| arguments.get("id")) {
+                insert_mongo_id(&mut doc, primary_key, id);
+            }
+            let result = coll.insert_one(doc.clone()).await?;
+            let inserted_id = bson_to_json(result.inserted_id);
+            json!({ "inserted_id": inserted_id, "document": mongodb_document_to_json(doc) })
+        }
+        NoSqlOperation::UpdateByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let mut doc = json_to_mongodb_document(arguments.get("document").unwrap_or(arguments))?;
+            insert_mongo_id(&mut doc, primary_key, id);
+            coll.replace_one(mongo_filter(primary_key, id), doc.clone())
+                .await?;
+            mongodb_document_to_json(doc)
+        }
+        NoSqlOperation::DeleteByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let result = coll.delete_one(mongo_filter(primary_key, id)).await?;
+            json!({ "deleted": result.deleted_count > 0, primary_key: id.clone() })
+        }
+    };
+
+    Ok(ExecutionResult {
+        output,
+        request_snapshot: Value::Null,
+    })
+}
+
+async fn execute_nosql_redis(
+    source: &str,
+    operation: &NoSqlOperation,
+    primary_key: Option<&str>,
+    arguments: &Value,
+) -> Result<ExecutionResult> {
+    let client = redis::Client::open(source)?;
+    let mut conn = client.get_multiplexed_async_connection().await?;
+    let primary_key = primary_key.unwrap_or("key");
+
+    let output = match operation {
+        NoSqlOperation::List => {
+            let mut iter = conn.scan_match::<_, String>("*").await?;
+            let mut values = Vec::new();
+            while values.len() < 50 {
+                let Some(key) = iter.next_item().await.transpose()? else {
+                    break;
+                };
+                values.push(json!({ primary_key: key }));
+            }
+            Value::Array(values)
+        }
+        NoSqlOperation::GetByPk => {
+            let key = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing key argument")?;
+            let key = value_to_string(key);
+            let value: Option<String> = conn.get(&key).await?;
+            value.map(|raw| parse_jsonish(&raw)).unwrap_or(Value::Null)
+        }
+        NoSqlOperation::Insert | NoSqlOperation::UpdateByPk => {
+            let key = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing key argument")?;
+            let key = value_to_string(key);
+            let payload = arguments.get("document").unwrap_or(arguments);
+            let rendered = if payload.is_string() {
+                payload.as_str().unwrap_or_default().to_string()
+            } else {
+                serde_json::to_string(payload)?
+            };
+            let _: () = conn.set(&key, rendered).await?;
+            json!({ "stored": true, primary_key: key })
+        }
+        NoSqlOperation::DeleteByPk => {
+            let key = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing key argument")?;
+            let key = value_to_string(key);
+            let deleted: i64 = conn.del(&key).await?;
+            json!({ "deleted": deleted > 0, primary_key: key })
+        }
+    };
+
+    Ok(ExecutionResult {
+        output,
+        request_snapshot: Value::Null,
+    })
+}
+
+async fn execute_nosql_firestore(
+    client: &reqwest::Client,
+    source: &str,
+    operation: &NoSqlOperation,
+    collection: &str,
+    primary_key: Option<&str>,
+    arguments: &Value,
+) -> Result<ExecutionResult> {
+    let project = firestore_project(source)?;
+    let token = gcloud::adc_access_token(Some(&project))?;
+    let base = format!(
+        "https://firestore.googleapis.com/v1/projects/{project}/databases/(default)/documents/{collection}"
+    );
+    let primary_key = primary_key.unwrap_or("id");
+
+    let output = match operation {
+        NoSqlOperation::List => {
+            let response = client
+                .get(&base)
+                .bearer_auth(&token.access_token)
+                .query(&[("pageSize", "50")])
+                .send()
+                .await?
+                .json::<Value>()
+                .await?;
+            let docs = response
+                .get("documents")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            Value::Array(docs.into_iter().map(firestore_document_to_json).collect())
+        }
+        NoSqlOperation::GetByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let response = client
+                .get(format!("{base}/{}", value_to_string(id)))
+                .bearer_auth(&token.access_token)
+                .send()
+                .await?;
+            if response.status().is_success() {
+                firestore_document_to_json(response.json::<Value>().await?)
+            } else {
+                Value::Null
+            }
+        }
+        NoSqlOperation::Insert => {
+            let payload =
+                firestore_fields_from_json(arguments.get("document").unwrap_or(arguments));
+            let mut request = client
+                .post(&base)
+                .bearer_auth(&token.access_token)
+                .json(&json!({ "fields": payload }));
+            if let Some(id) = arguments.get(primary_key).or_else(|| arguments.get("id")) {
+                request = request.query(&[("documentId", value_to_string(id))]);
+            }
+            firestore_document_to_json(request.send().await?.json::<Value>().await?)
+        }
+        NoSqlOperation::UpdateByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let payload =
+                firestore_fields_from_json(arguments.get("document").unwrap_or(arguments));
+            firestore_document_to_json(
+                client
+                    .patch(format!("{base}/{}", value_to_string(id)))
+                    .bearer_auth(&token.access_token)
+                    .json(&json!({ "fields": payload }))
+                    .send()
+                    .await?
+                    .json::<Value>()
+                    .await?,
+            )
+        }
+        NoSqlOperation::DeleteByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            client
+                .delete(format!("{base}/{}", value_to_string(id)))
+                .bearer_auth(&token.access_token)
+                .send()
+                .await?;
+            json!({ "deleted": true, primary_key: id.clone() })
+        }
+    };
+
+    Ok(ExecutionResult {
+        output,
+        request_snapshot: Value::Null,
+    })
+}
+
+async fn execute_nosql_dynamodb(
+    source: &str,
+    collection: &str,
+    operation: &NoSqlOperation,
+    primary_key: Option<&str>,
+    secondary_key: Option<&str>,
+    arguments: &Value,
+) -> Result<ExecutionResult> {
+    let (region, endpoint) = dynamodb_runtime_config(source)?;
+    let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .region(aws_config::Region::new(region));
+    if let Some(endpoint) = endpoint {
+        loader = loader.endpoint_url(endpoint);
+    }
+    let config = loader.load().await;
+    let client = aws_sdk_dynamodb::Client::new(&config);
+    let primary_key = primary_key.unwrap_or("id");
+
+    let output = match operation {
+        NoSqlOperation::List => {
+            let response = client
+                .scan()
+                .table_name(collection)
+                .limit(50)
+                .send()
+                .await?;
+            Value::Array(response.items().iter().map(dynamo_item_to_json).collect())
+        }
+        NoSqlOperation::GetByPk => {
+            let key = dynamo_key(arguments, primary_key, secondary_key)?;
+            let response = client
+                .get_item()
+                .table_name(collection)
+                .set_key(Some(key))
+                .send()
+                .await?;
+            response
+                .item()
+                .map(dynamo_item_to_json)
+                .unwrap_or(Value::Null)
+        }
+        NoSqlOperation::Insert | NoSqlOperation::UpdateByPk => {
+            let item = dynamo_item(arguments.get("document").unwrap_or(arguments));
+            client
+                .put_item()
+                .table_name(collection)
+                .set_item(Some(item.clone()))
+                .send()
+                .await?;
+            dynamo_item_to_json(&item)
+        }
+        NoSqlOperation::DeleteByPk => {
+            let key = dynamo_key(arguments, primary_key, secondary_key)?;
+            client
+                .delete_item()
+                .table_name(collection)
+                .set_key(Some(key))
+                .send()
+                .await?;
+            json!({ "deleted": true, primary_key: arguments.get(primary_key).cloned().unwrap_or(Value::Null) })
+        }
+    };
+
+    Ok(ExecutionResult {
+        output,
+        request_snapshot: Value::Null,
+    })
+}
+
+fn runtime_database_source(config: &AppConfig) -> Option<String> {
+    config
+        .target
+        .database_url
+        .clone()
+        .or_else(|| config.target.base_url.clone())
+        .or_else(|| config.target.auth_header.clone())
+}
+
+fn mongo_filter(primary_key: &str, id: &Value) -> Document {
+    let mut filter = Document::new();
+    if primary_key == "_id"
+        && let Some(raw) = id.as_str()
+        && let Ok(object_id) = ObjectId::parse_str(raw)
+    {
+        filter.insert("_id", object_id);
+        return filter;
+    }
+    filter.insert(
+        primary_key,
+        mongodb::bson::to_bson(&id).unwrap_or(mongodb::bson::Bson::Null),
+    );
+    filter
+}
+
+fn insert_mongo_id(document: &mut Document, primary_key: &str, id: &Value) {
+    if primary_key == "_id"
+        && let Some(raw) = id.as_str()
+        && let Ok(object_id) = ObjectId::parse_str(raw)
+    {
+        document.insert("_id", object_id);
+        return;
+    }
+    document.insert(
+        primary_key,
+        mongodb::bson::to_bson(&id).unwrap_or(mongodb::bson::Bson::Null),
+    );
+}
+
+fn json_to_mongodb_document(value: &Value) -> Result<Document> {
+    match mongodb::bson::to_bson(value)? {
+        mongodb::bson::Bson::Document(document) => Ok(document),
+        _ => bail!("document payload must be a JSON object"),
+    }
+}
+
+fn mongodb_document_to_json(document: Document) -> Value {
+    mongodb::bson::from_bson(mongodb::bson::Bson::Document(document)).unwrap_or(Value::Null)
+}
+
+fn bson_to_json(value: mongodb::bson::Bson) -> Value {
+    mongodb::bson::from_bson(value).unwrap_or(Value::Null)
+}
+
+fn parse_jsonish(value: &str) -> Value {
+    serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string()))
+}
+
+fn firestore_project(source: &str) -> Result<String> {
+    let parsed = url::Url::parse(source).context("invalid firestore connection string")?;
+    parsed
+        .host_str()
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            parsed
+                .path_segments()
+                .and_then(|mut segments| segments.next().map(str::to_string))
+        })
+        .filter(|value| !value.is_empty())
+        .or_else(|| gcloud::detect_project())
+        .context("firestore connection string must include a project id or gcloud project")
+}
+
+fn firestore_document_to_json(value: Value) -> Value {
+    let mut object = Map::new();
+    if let Some(name) = value.get("name").and_then(Value::as_str)
+        && let Some(id) = name.rsplit('/').next()
+    {
+        object.insert("id".to_string(), Value::String(id.to_string()));
+    }
+    let fields = value
+        .get("fields")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    object.insert("document".to_string(), firestore_fields_to_json(&fields));
+    Value::Object(object)
+}
+
+fn firestore_fields_to_json(value: &Value) -> Value {
+    let Some(fields) = value.as_object() else {
+        return Value::Null;
+    };
+    let mut object = Map::new();
+    for (key, raw) in fields {
+        let decoded = if let Some(v) = raw.get("stringValue") {
+            v.clone()
+        } else if let Some(v) = raw.get("integerValue") {
+            v.as_str()
+                .and_then(|v| v.parse::<i64>().ok())
+                .map(Value::from)
+                .unwrap_or(Value::Null)
+        } else if let Some(v) = raw.get("doubleValue") {
+            v.clone()
+        } else if let Some(v) = raw.get("booleanValue") {
+            v.clone()
+        } else if let Some(v) = raw.get("nullValue") {
+            let _ = v;
+            Value::Null
+        } else if let Some(v) = raw.get("mapValue").and_then(|v| v.get("fields")) {
+            firestore_fields_to_json(v)
+        } else if let Some(v) = raw.get("arrayValue").and_then(|v| v.get("values")) {
+            Value::Array(
+                v.as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|item| {
+                        firestore_fields_to_json(&json!({ "value": item }))["value"].clone()
+                    })
+                    .collect(),
+            )
+        } else {
+            Value::Null
+        };
+        object.insert(key.clone(), decoded);
+    }
+    Value::Object(object)
+}
+
+fn firestore_fields_from_json(value: &Value) -> Value {
+    let Some(object) = value.as_object() else {
+        return Value::Object(Map::new());
+    };
+    Value::Object(
+        object
+            .iter()
+            .map(|(key, value)| (key.clone(), firestore_value_from_json(value)))
+            .collect(),
+    )
+}
+
+fn firestore_value_from_json(value: &Value) -> Value {
+    match value {
+        Value::Null => json!({ "nullValue": null }),
+        Value::Bool(v) => json!({ "booleanValue": v }),
+        Value::Number(v) if v.is_i64() || v.is_u64() => {
+            json!({ "integerValue": v.to_string() })
+        }
+        Value::Number(v) => json!({ "doubleValue": v }),
+        Value::String(v) => json!({ "stringValue": v }),
+        Value::Array(values) => json!({
+            "arrayValue": { "values": values.iter().map(firestore_value_from_json).collect::<Vec<_>>() }
+        }),
+        Value::Object(map) => json!({
+            "mapValue": { "fields": map.iter().map(|(k, v)| (k.clone(), firestore_value_from_json(v))).collect::<Map<_, _>>() }
+        }),
+    }
+}
+
+fn dynamodb_runtime_config(source: &str) -> Result<(String, Option<String>)> {
+    let parsed = url::Url::parse(source).context("invalid dynamodb connection string")?;
+    let region = parsed
+        .host_str()
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .context("dynamodb connection string must include a region, e.g. dynamodb://us-east-1")?;
+    let endpoint = parsed
+        .query_pairs()
+        .find(|(key, _)| key == "endpoint")
+        .map(|(_, value)| value.to_string());
+    Ok((region, endpoint))
+}
+
+fn dynamo_key(
+    arguments: &Value,
+    primary_key: &str,
+    secondary_key: Option<&str>,
+) -> Result<std::collections::HashMap<String, AttributeValue>> {
+    let mut key = std::collections::HashMap::new();
+    let primary = arguments
+        .get(primary_key)
+        .or_else(|| arguments.get("id"))
+        .context("missing primary key argument")?;
+    key.insert(primary_key.to_string(), json_to_dynamo_attr(primary));
+    if let Some(secondary_key) = secondary_key {
+        let secondary = arguments
+            .get(secondary_key)
+            .context("missing secondary key argument")?;
+        key.insert(secondary_key.to_string(), json_to_dynamo_attr(secondary));
+    }
+    Ok(key)
+}
+
+fn dynamo_item(value: &Value) -> std::collections::HashMap<String, AttributeValue> {
+    value
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(key, value)| (key, json_to_dynamo_attr(&value)))
+        .collect()
+}
+
+fn json_to_dynamo_attr(value: &Value) -> AttributeValue {
+    match value {
+        Value::Null => AttributeValue::Null(true),
+        Value::Bool(v) => AttributeValue::Bool(*v),
+        Value::Number(v) => AttributeValue::N(v.to_string()),
+        Value::String(v) => AttributeValue::S(v.clone()),
+        Value::Array(values) => AttributeValue::L(values.iter().map(json_to_dynamo_attr).collect()),
+        Value::Object(map) => AttributeValue::M(
+            map.iter()
+                .map(|(key, value)| (key.clone(), json_to_dynamo_attr(value)))
+                .collect(),
+        ),
+    }
+}
+
+fn dynamo_item_to_json(item: &std::collections::HashMap<String, AttributeValue>) -> Value {
+    Value::Object(
+        item.iter()
+            .map(|(key, value)| (key.clone(), dynamo_attr_to_json(value)))
+            .collect(),
+    )
+}
+
+fn dynamo_attr_to_json(value: &AttributeValue) -> Value {
+    match value {
+        AttributeValue::S(v) => Value::String(v.clone()),
+        AttributeValue::N(v) => {
+            serde_json::from_str(v).unwrap_or_else(|_| Value::String(v.clone()))
+        }
+        AttributeValue::Bool(v) => Value::Bool(*v),
+        AttributeValue::Null(_) => Value::Null,
+        AttributeValue::L(values) => Value::Array(values.iter().map(dynamo_attr_to_json).collect()),
+        AttributeValue::M(values) => Value::Object(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), dynamo_attr_to_json(value)))
+                .collect(),
+        ),
+        _ => Value::Null,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{HttpMethod, summarize_http_status, tool_result_is_error};
+    use super::{
+        HttpMethod, dynamo_attr_to_json, firestore_fields_from_json, firestore_fields_to_json,
+        summarize_http_status, tool_result_is_error,
+    };
+    use aws_sdk_dynamodb::types::AttributeValue;
     use serde_json::json;
 
     #[test]
@@ -947,5 +1686,39 @@ mod tests {
             "ok": true,
             "status": 200
         })));
+    }
+
+    #[test]
+    fn firestore_field_conversion_round_trips_simple_json() {
+        let value = json!({
+            "name": "Ada",
+            "count": 3,
+            "enabled": true
+        });
+        let encoded = firestore_fields_from_json(&value);
+        let decoded = firestore_fields_to_json(&encoded);
+        assert_eq!(decoded["name"], "Ada");
+        assert_eq!(decoded["count"], 3);
+        assert_eq!(decoded["enabled"], true);
+    }
+
+    #[test]
+    fn dynamo_attribute_conversion_handles_nested_maps() {
+        let value = AttributeValue::M(
+            [(
+                "profile".to_string(),
+                AttributeValue::M(
+                    [("name".to_string(), AttributeValue::S("Ada".to_string()))]
+                        .into_iter()
+                        .collect(),
+                ),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        assert_eq!(
+            dynamo_attr_to_json(&value),
+            json!({ "profile": { "name": "Ada" } })
+        );
     }
 }

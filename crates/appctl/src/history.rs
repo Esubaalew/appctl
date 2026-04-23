@@ -24,6 +24,7 @@ pub struct HistoryEntry {
     pub id: i64,
     pub ts: DateTime<Utc>,
     pub session_id: String,
+    pub session_name: Option<String>,
     pub tool: String,
     pub arguments_json: Value,
     pub request_snapshot_json: Option<Value>,
@@ -56,6 +57,7 @@ impl HistoryStore {
                 id integer primary key,
                 ts text not null,
                 session_id text not null,
+                session_name text,
                 tool text not null,
                 arguments_json text not null,
                 request_snapshot_json text,
@@ -64,12 +66,18 @@ impl HistoryStore {
                 undone integer default 0
             );",
         )?;
+        let _ = self
+            .connection
+            .lock()
+            .unwrap()
+            .execute("alter table actions add column session_name text", []);
         Ok(())
     }
 
     pub fn log(
         &self,
         session_id: &str,
+        session_name: Option<&str>,
         request: &ExecutionRequest,
         result: &ExecutionResult,
         status: &str,
@@ -81,11 +89,12 @@ impl HistoryStore {
 
         let connection = self.connection.lock().unwrap();
         connection.execute(
-            "insert into actions (ts, session_id, tool, arguments_json, request_snapshot_json, response_json, status)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "insert into actions (ts, session_id, session_name, tool, arguments_json, request_snapshot_json, response_json, status)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 ts,
                 session_id,
+                session_name,
                 request.tool_name,
                 arguments_json,
                 request_snapshot_json,
@@ -99,13 +108,13 @@ impl HistoryStore {
     pub fn list(&self, limit: usize) -> Result<Vec<HistoryEntry>> {
         let connection = self.connection.lock().unwrap();
         let mut stmt = connection.prepare(
-            "select id, ts, session_id, tool, arguments_json, request_snapshot_json, response_json, status, undone
+            "select id, ts, session_id, session_name, tool, arguments_json, request_snapshot_json, response_json, status, undone
              from actions order by id desc limit ?1",
         )?;
         let rows = stmt.query_map([limit as i64], |row| {
             let ts: String = row.get(1)?;
-            let request_snapshot: Option<String> = row.get(5)?;
-            let response: Option<String> = row.get(6)?;
+            let request_snapshot: Option<String> = row.get(6)?;
+            let response: Option<String> = row.get(7)?;
 
             Ok(HistoryEntry {
                 id: row.get(0)?,
@@ -113,8 +122,9 @@ impl HistoryStore {
                     .map(|dt| dt.with_timezone(&Utc))
                     .unwrap_or_else(|_| Utc::now()),
                 session_id: row.get(2)?,
-                tool: row.get(3)?,
-                arguments_json: serde_json::from_str(&row.get::<_, String>(4)?)
+                session_name: row.get(3)?,
+                tool: row.get(4)?,
+                arguments_json: serde_json::from_str(&row.get::<_, String>(5)?)
                     .unwrap_or(Value::Null),
                 request_snapshot_json: request_snapshot
                     .as_deref()
@@ -122,8 +132,8 @@ impl HistoryStore {
                 response_json: response
                     .as_deref()
                     .and_then(|raw| serde_json::from_str(raw).ok()),
-                status: row.get(7)?,
-                undone: row.get::<_, i64>(8)? == 1,
+                status: row.get(8)?,
+                undone: row.get::<_, i64>(9)? == 1,
             })
         })?;
 
@@ -166,6 +176,7 @@ pub async fn run_history_command(paths: &ConfigPaths, command: HistoryCommand) -
                 &schema,
                 ExecutionContext {
                     session_id: session_id.clone(),
+                    session_name: None,
                     safety: SafetyMode {
                         read_only: false,
                         dry_run: false,
@@ -183,9 +194,11 @@ pub async fn run_history_command(paths: &ConfigPaths, command: HistoryCommand) -
 
     for entry in store.list(command.last)? {
         println!(
-            "#{:>4} {} {} {}{}",
+            "#{:>4} {} {} [{}] {} {}{}",
             entry.id,
             entry.ts.to_rfc3339(),
+            entry.session_name.as_deref().unwrap_or("interactive"),
+            entry.session_id,
             entry.tool,
             entry.status,
             if entry.undone { " (undone)" } else { "" }

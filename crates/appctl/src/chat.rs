@@ -8,13 +8,14 @@ use crate::{
     config::{AppConfig, ConfigPaths},
     executor::ExecutionContext,
     safety::SafetyMode,
-    sync::{load_schema, load_tools},
+    sync::{load_runtime_tools, load_schema},
 };
 
 #[derive(Debug, Clone)]
 pub struct ChatOptions {
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub session: Option<String>,
     pub read_only: bool,
     pub dry_run: bool,
     pub confirm: bool,
@@ -28,12 +29,16 @@ pub async fn run_chat(
     mut options: ChatOptions,
 ) -> Result<()> {
     let schema = load_schema(paths)?;
-    let tools = load_tools(paths)?;
+    let tools = load_runtime_tools(paths, config)?;
     let context = crate::term::chat_context(app_name, &config.default, options.provider.as_deref());
     crate::term::print_chat_banner(&context, &paths.root, schema.resources.len(), tools.len());
     let mut editor = Editor::<crate::term::PromptHelper, DefaultHistory>::new()?;
     editor.set_helper(Some(crate::term::PromptHelper::new(context)));
-    let session_id = Uuid::new_v4().to_string();
+    let session_name = options.session.clone();
+    let session_id = session_name
+        .as_deref()
+        .map(session_id_from_name)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let mut transcript = Vec::new();
 
     loop {
@@ -74,6 +79,7 @@ pub async fn run_chat(
                     &schema,
                     ExecutionContext {
                         session_id: session_id.clone(),
+                        session_name: session_name.clone(),
                         safety: SafetyMode {
                             read_only: options.read_only,
                             dry_run: options.dry_run,
@@ -97,6 +103,26 @@ pub async fn run_chat(
     }
 
     Ok(())
+}
+
+fn session_id_from_name(name: &str) -> String {
+    let trimmed = name.trim();
+    let slug = trimmed
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let prefix = if slug.is_empty() { "session" } else { &slug };
+    format!("{prefix}-{}", Uuid::new_v4())
 }
 
 fn refresh_prompt_helper(

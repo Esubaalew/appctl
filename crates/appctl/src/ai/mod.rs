@@ -145,8 +145,9 @@ pub async fn run_agent(
                     });
 
                     for call in calls {
+                        let resolved_name = config.resolve_tool_name(&call.name).to_string();
                         let action = schema
-                            .action(&call.name)
+                            .action(&resolved_name)
                             .with_context(|| format!("tool '{}' not found", call.name))?;
                         send_agent_event(&events, AgentEvent::AwaitingInput).await;
                         // Let the printer task clear spinner frames before dialoguer asks
@@ -173,8 +174,7 @@ pub async fn run_agent(
                         )
                         .await;
 
-                        let request =
-                            ExecutionRequest::new(call.name.clone(), call.arguments.clone());
+                        let request = ExecutionRequest::new(resolved_name, call.arguments.clone());
                         let start = Instant::now();
                         match executor
                             .execute(schema, exec_context.clone(), request.clone())
@@ -185,6 +185,7 @@ pub async fn run_agent(
                                 let tool_failed = tool_result_is_error(&result.output);
                                 history.log(
                                     &exec_context.session_id,
+                                    exec_context.session_name.as_deref(),
                                     &request,
                                     &result,
                                     if tool_failed { "error" } else { "ok" },

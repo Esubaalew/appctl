@@ -5,6 +5,32 @@ description: Version history for appctl. Mirrors the latest tagged releases.
 
 Mirrors [`CHANGELOG.md`](https://github.com/Esubaalew/appctl/blob/main/CHANGELOG.md) in the repository. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `appctl sync --watch` for OpenAPI sources, plus `--doctor-write` to verify routes immediately after a successful sync.
+- Named chat sessions via `appctl chat --session <name>`, with session labels carried into history and the web audit UI.
+- `appctl run --json` for machine-readable one-shot output.
+- `appctl app add --openapi ...` so registration and first sync can happen in one command.
+- Native `appctl sync --flask .` support.
+- Additional datastore support for MongoDB, Redis, Firestore, and DynamoDB under `sync --db`.
+- Tool pinning and aliasing in app config.
+- `appctl serve --identity-header` and `--tunnel`.
+
+### Changed
+
+- Cookie/session auth from URL-login syncs is now persisted and reused across later invocations.
+- Runtime target resolution can read the base URL from config or environment (`target.base_url_env` / `APPCTL_BASE_URL`).
+- The web history panel now shows session labels alongside session ids.
+- CI is being updated to remove older Node 20 assumptions from the main workflow.
+
+## [0.5.0] — 2026-04-23
+
+### Added
+
+- `init`, `app`, and `doctor models` were wired into the real CLI surface.
+
 ## [0.4.0] — 2026-04-23
 
 Operator-console redesign and an honest rewrite of the CLI reference.
