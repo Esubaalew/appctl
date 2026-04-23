@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import remarkPrefixBase from './remark-prefix-base.mjs';
 
 // GitHub Pages serves this project site under /appctl/.
 // Set APPCTL_DOCS_BASE=/ to build a root-served preview locally.
@@ -13,21 +14,28 @@ export default defineConfig({
   site,
   base,
   trailingSlash: 'always',
-  redirects: {
-    '/docs/': '/docs/introduction/',
-    '/sources/openapi/': '/docs/sources/openapi/',
-    '/sources/django/': '/docs/sources/django/',
-    '/sources/rails/': '/docs/sources/rails/',
-    '/sources/laravel/': '/docs/sources/laravel/',
-    '/sources/aspnet/': '/docs/sources/aspnet/',
-    '/sources/strapi/': '/docs/sources/strapi/',
-    '/sources/supabase/': '/docs/sources/supabase/',
-    '/sources/db/': '/docs/sources/db/',
-    '/sources/url/': '/docs/sources/url/',
-    '/sources/mcp/': '/docs/sources/mcp/',
-    '/sources/plugins/': '/docs/sources/plugins/',
-    '/deploy/': '/docs/deploy/local/',
+  markdown: {
+    remarkPlugins: [[remarkPrefixBase, { base }]],
   },
+  redirects: (() => {
+    const b = base.endsWith('/') ? base : `${base}/`;
+    const bp = (p) => `${b.replace(/\/$/, '')}${p}`;
+    return {
+      '/docs/': bp('/docs/introduction/'),
+      '/sources/openapi/': bp('/docs/sources/openapi/'),
+      '/sources/django/': bp('/docs/sources/django/'),
+      '/sources/rails/': bp('/docs/sources/rails/'),
+      '/sources/laravel/': bp('/docs/sources/laravel/'),
+      '/sources/aspnet/': bp('/docs/sources/aspnet/'),
+      '/sources/strapi/': bp('/docs/sources/strapi/'),
+      '/sources/supabase/': bp('/docs/sources/supabase/'),
+      '/sources/db/': bp('/docs/sources/db/'),
+      '/sources/url/': bp('/docs/sources/url/'),
+      '/sources/mcp/': bp('/docs/sources/mcp/'),
+      '/sources/plugins/': bp('/docs/sources/plugins/'),
+      '/deploy/': bp('/docs/deploy/local/'),
+    };
+  })(),
   integrations: [
     starlight({
       title: 'appctl',

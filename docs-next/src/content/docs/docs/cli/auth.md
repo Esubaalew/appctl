@@ -110,14 +110,29 @@ appctl auth provider status
 appctl auth provider logout openai
 ```
 
-## What is not there
+## Signing in with a consumer subscription
 
-- There is **no** built-in "login with ChatGPT subscription" or "login with
-  Claude subscription" flow inside this command. The MCP bridge entries that
-  appear under `kind = "mcp_bridge"` depend on the external client already
-  being installed (Codex CLI, Claude Code, Qwen Code, Gemini CLI).
-- There is no Azure CLI wrapper here. The Azure AD path currently expects the
-  access token to be retrieved by the runtime verify logic, not by `login`.
+If you want to use your ChatGPT or Claude consumer subscription, `appctl`
+does not run the subscription login itself — it piggy-backs on the vendor's
+official CLI through the **MCP bridge**. Install the vendor CLI (Codex CLI,
+Claude Code, Qwen Code, Gemini CLI), complete its login, and configure
+`appctl` to bridge to it:
+
+```toml
+[[provider]]
+name = "openai-subscription"
+kind = "open_ai_compatible"
+auth = { kind = "mcp_bridge", client = "codex" }
+```
+
+See the [Provider matrix](/docs/provider-matrix/) for the full list.
+
+## Azure AD
+
+For providers with `auth.kind = "azure_ad"`, the device-code flow runs the
+first time the provider makes a request. `appctl auth provider login` prints
+a recovery hint but does not drive the flow itself — the next `chat` or
+`run` call will.
 
 ## Related
 

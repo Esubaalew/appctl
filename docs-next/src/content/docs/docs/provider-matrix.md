@@ -1,22 +1,21 @@
 ---
 title: Provider matrix
-description: Exactly which auth paths are implemented in appctl today, cell by cell.
+description: Which authentication method each provider uses in appctl.
 ---
 
-This is the honest list. Each cell is either **real browser**, **API key**,
-**MCP bridge**, or **not supported**. If a path is not in this table, it is
-not wired — no matter what third-party docs say.
+Pick the column that matches how you want to sign in. If a cell says "—", that
+path isn't available for the provider.
 
-| Provider | Direct API | Direct subscription | MCP bridge |
-| --- | --- | --- | --- |
-| Gemini API | API key or OAuth2 | not supported | MCP bridge via Gemini CLI |
-| Vertex AI Gemini | Google ADC (real browser via `gcloud`) | not supported | not applicable |
-| OpenAI (GPT) | API key | not supported | MCP bridge via Codex CLI |
-| Anthropic Claude | API key | not supported | MCP bridge via Claude Code |
-| Qwen DashScope | API key | not supported | MCP bridge via Qwen Code |
-| Azure OpenAI | API key or Azure AD | not supported | not applicable |
-| OpenAI-compatible gateways (OpenRouter, Groq, NVIDIA NIM, custom) | API key | not applicable | not applicable |
-| Local OpenAI-compatible (Ollama, LM Studio, vLLM, llama.cpp) | no auth | not applicable | not applicable |
+| Provider | Direct API | MCP bridge via another CLI |
+| --- | --- | --- |
+| Gemini API | API key or OAuth2 | Gemini CLI |
+| Vertex AI Gemini | Google Application Default Credentials (`gcloud`) | — |
+| OpenAI (GPT) | API key | Codex CLI |
+| Anthropic Claude | API key | Claude Code |
+| Qwen DashScope | API key | Qwen Code |
+| Azure OpenAI | API key or Azure AD | — |
+| OpenAI-compatible gateways (OpenRouter, Groq, NVIDIA NIM, custom) | API key | — |
+| Local OpenAI-compatible (Ollama, LM Studio, vLLM, llama.cpp) | No authentication | — |
 
 ## What "API key" means
 
@@ -79,16 +78,30 @@ You install the external client yourself, then add an `[[provider]]` block in
 `.appctl/config.toml` with `auth = { kind = "mcp_bridge", client = "..." }`.
 Launching that client then lets it talk to `appctl mcp serve` for tools.
 
-## What is NOT supported (and will not be faked)
+## Signing in with a ChatGPT or Claude consumer subscription
 
-- Direct ChatGPT subscription auth inside `appctl`. No scraping, no
-  unofficial OAuth.
-- Direct Claude consumer subscription auth inside `appctl`.
-- Any "login with X" that does not have a documented public OAuth client.
+Use the **MCP bridge** column. `appctl` talks to the vendor's own CLI
+(Codex CLI for ChatGPT, Claude Code for Claude), and that CLI handles the
+subscription login in its own browser flow. Your subscription, your billing,
+your quota — `appctl` just borrows the session to call models.
 
-## Verification
+The bridge requires the external CLI to be installed first. Configure it with:
 
-`appctl auth provider status` prints each provider's auth kind, whether
-credentials are configured, and a recovery hint when they are not. It does
-**not** currently send a live request to the provider — errors from bad keys
-surface on the first real `chat` or `run` call.
+```toml
+[[provider]]
+name = "openai-subscription"
+kind = "open_ai_compatible"
+auth = { kind = "mcp_bridge", client = "codex" }
+```
+
+## Checking your credentials
+
+Run:
+
+```bash
+appctl auth provider status
+```
+
+It lists every provider, the auth method in use, and whether credentials are
+in place. It does not send a live request — if a key is wrong, the first
+real `appctl chat` message will surface the error from the provider itself.

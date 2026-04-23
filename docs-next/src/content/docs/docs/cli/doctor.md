@@ -39,13 +39,16 @@ Only `404` and connection errors are treated as not reachable.
 Path placeholders (`{id}`, `{Id}`, `{uuid}`) are substituted with `1` or a
 zero-UUID so the probe has a real URL.
 
-## What it does NOT do
+## Scope
 
-- It does not call the LLM provider. For a provider sanity check, just run
-  `appctl chat` and send `hi` — the agent starts up lazily on first message.
-- It does not `POST` anything unless it has to; mutating tools are probed with
-  `OPTIONS` first.
-- It does not write to the schema unless you pass `--write`.
+`appctl doctor` only probes the HTTP surface of your synced schema. It is
+deliberately narrow:
+
+- To sanity-check the LLM provider, run `appctl chat` and send a short
+  message — the provider is contacted lazily on the first turn.
+- Mutating tools are probed with `OPTIONS` or `HEAD` first; a real `POST`
+  is sent only if the server rejects both.
+- The schema file is read-only unless you pass `--write`.
 
 ## `--strict` and provenance
 
