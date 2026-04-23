@@ -43,7 +43,7 @@ appctl sync --openapi http://127.0.0.1:8000/openapi.json \
   --base-url http://127.0.0.1:8000 --force
 ```
 
-Real output with `appctl 0.3.0`:
+Real output with `appctl {{appctl_version}}`:
 
 ```
 Synced Openapi: 1 resources, 1 tools written to .appctl

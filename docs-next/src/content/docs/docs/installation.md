@@ -27,7 +27,7 @@ Verify:
 appctl --version
 ```
 
-Output matches the version in this repo's `Cargo.toml` (currently `0.3.0`).
+Output matches the version in this repo's `Cargo.toml` (currently `{{appctl_version}}`).
 
 ## From source
 

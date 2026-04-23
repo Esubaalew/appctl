@@ -2,10 +2,12 @@
 import HeroChat from './HeroChat.astro';
 import ValueCards from './ValueCards.astro';
 import InstallTabs from './InstallTabs.astro';
+import { APPCTL_VERSION } from '../lib/version.mjs';
 
 const base = import.meta.env.BASE_URL;
 const docsHref = `${base}docs/quickstart/`;
 const githubHref = 'https://github.com/Esubaalew/appctl';
+const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
 ---
 <style>
   :global(body) {
@@ -232,7 +234,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
 
 <section class="hero">
   <div>
-    <span class="eyebrow">v0.3 · Rust · MIT</span>
+    <span class="eyebrow">{eyebrow}</span>
     <h1>Talk to your app. In plain English.</h1>
     <p class="lede">
       appctl points at your existing app, reads its routes or schema, and turns them into

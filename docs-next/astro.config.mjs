@@ -2,6 +2,8 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import remarkPrefixBase from './remark-prefix-base.mjs';
+import remarkAppctlVersion from './remark-appctl-version.mjs';
+import { APPCTL_VERSION } from './src/lib/version.mjs';
 
 // GitHub Pages serves this project site under /appctl/.
 // Set APPCTL_DOCS_BASE=/ to build a root-served preview locally.
@@ -15,7 +17,10 @@ export default defineConfig({
   base,
   trailingSlash: 'always',
   markdown: {
-    remarkPlugins: [[remarkPrefixBase, { base }]],
+    remarkPlugins: [
+      [remarkPrefixBase, { base }],
+      [remarkAppctlVersion, { version: APPCTL_VERSION }],
+    ],
   },
   redirects: (() => {
     const b = base.endsWith('/') ? base : `${base}/`;
