@@ -167,6 +167,12 @@ function previewJson(value: unknown, max = 260): string {
   return `${rendered.slice(0, max - 1)}…`;
 }
 
+function toolResultSummary(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const summary = (value as { summary?: unknown }).summary;
+  return typeof summary === "string" && summary.trim() ? summary : null;
+}
+
 
 function formatTs(ts: string): string {
   const date = new Date(ts);
@@ -513,6 +519,7 @@ function ToolCard({
   result?: unknown;
 }) {
   const [open, setOpen] = useState(false);
+  const summary = toolResultSummary(result);
 
   const statusIcon =
     status === "ok" ? (
@@ -532,6 +539,9 @@ function ToolCard({
           className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-panel transition"
         >
           <span className="font-mono text-[12px] text-fg-dim">{name}</span>
+          {summary && (
+            <span className="min-w-0 truncate text-[11px] text-muted">{summary}</span>
+          )}
           <span className="ml-auto flex items-center gap-2 text-[11px]">
             {typeof duration_ms === "number" && (
               <span className="text-muted">{duration_ms}ms</span>
@@ -659,6 +669,8 @@ export default function App() {
   );
   const [lastError, setLastError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  /** For `POST /run` only: server-issued id so the HTTP fallback keeps chat context. */
+  const runSessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const saveToken = useCallback((value: string) => {
@@ -869,6 +881,9 @@ export default function App() {
       read_only: readOnly,
       dry_run: dryRun,
       strict: strictMode,
+      ...(runSessionIdRef.current
+        ? { session_id: runSessionIdRef.current }
+        : {}),
     });
 
     setInput("");
@@ -892,6 +907,7 @@ export default function App() {
         result?: unknown;
         events?: unknown[];
         error?: string;
+        session_id?: string;
       };
 
       if (!response.ok || body.error) {
@@ -903,6 +919,10 @@ export default function App() {
         ]);
         setSending(false);
         return;
+      }
+
+      if (typeof body.session_id === "string" && body.session_id.length > 0) {
+        runSessionIdRef.current = body.session_id;
       }
 
       if (Array.isArray(body.events)) {

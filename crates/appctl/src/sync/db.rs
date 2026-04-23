@@ -34,8 +34,15 @@ impl SyncPlugin for DbSync {
                 DatabaseKind::Mysql,
                 introspect_mysql(&self.connection_string).await?,
             )
+        } else if self.connection_string.starts_with("sqlite:") {
+            (
+                DatabaseKind::Sqlite,
+                introspect_sqlite(&self.connection_string).await?,
+            )
         } else {
-            bail!("unsupported database connection string; expected postgres:// or mysql://");
+            bail!(
+                "unsupported database connection string; expected postgres://, mysql://, or sqlite:"
+            );
         };
 
         Ok(Schema {
@@ -50,6 +57,7 @@ impl SyncPlugin for DbSync {
                     serde_json::Value::String(match db_kind {
                         DatabaseKind::Postgres => "postgres".to_string(),
                         DatabaseKind::Mysql => "mysql".to_string(),
+                        DatabaseKind::Sqlite => "sqlite".to_string(),
                     }),
                 );
                 meta
@@ -157,6 +165,54 @@ async fn introspect_mysql(connection_string: &str) -> Result<Vec<Resource>> {
             .collect::<Vec<_>>();
 
         resources.push(resource_from_table(&table, &columns, DatabaseKind::Mysql));
+    }
+    Ok(resources)
+}
+
+async fn introspect_sqlite(connection_string: &str) -> Result<Vec<Resource>> {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(connection_string)
+        .await
+        .context("failed to connect to sqlite")?;
+
+    let tables = sqlx::query(
+        "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let mut resources = Vec::new();
+    for row in tables {
+        let table: String = row.try_get("name")?;
+        let pragma = format!("pragma table_info('{table}')");
+        let columns = sqlx::query(&pragma).fetch_all(&pool).await?;
+        let columns = columns
+            .into_iter()
+            .map(|row| {
+                let pk: i64 = row.try_get("pk").unwrap_or(0);
+                let notnull: i64 = row.try_get("notnull").unwrap_or(0);
+                ColumnInfo {
+                    column_name: row.try_get("name").unwrap_or_default(),
+                    data_type: row
+                        .try_get::<String, _>("type")
+                        .unwrap_or_else(|_| "text".to_string())
+                        .to_lowercase(),
+                    is_nullable: if notnull == 1 {
+                        "NO".to_string()
+                    } else {
+                        "YES".to_string()
+                    },
+                    constraint_type: if pk > 0 {
+                        Some("PRIMARY KEY".to_string())
+                    } else {
+                        None
+                    },
+                }
+            })
+            .collect::<Vec<_>>();
+
+        resources.push(resource_from_table(&table, &columns, DatabaseKind::Sqlite));
     }
     Ok(resources)
 }
@@ -300,7 +356,9 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
 fn sql_type_to_field_type(data_type: &str) -> FieldType {
     match data_type {
         "integer" | "bigint" | "smallint" | "serial" | "bigserial" | "int" => FieldType::Integer,
-        "numeric" | "decimal" | "float" | "double" | "real" => FieldType::Number,
+        "numeric" | "decimal" | "float" | "double" | "real" | "double precision" => {
+            FieldType::Number
+        }
         "bool" | "boolean" => FieldType::Boolean,
         "timestamp" | "timestamp without time zone" | "timestamp with time zone" | "datetime" => {
             FieldType::DateTime
@@ -308,6 +366,71 @@ fn sql_type_to_field_type(data_type: &str) -> FieldType {
         "date" => FieldType::Date,
         "uuid" => FieldType::Uuid,
         "json" | "jsonb" => FieldType::Json,
+        value if value.contains("int") => FieldType::Integer,
+        value if value.contains("char") || value.contains("text") || value.contains("clob") => {
+            FieldType::String
+        }
+        value if value.contains("real") || value.contains("floa") || value.contains("doub") => {
+            FieldType::Number
+        }
+        value if value.contains("bool") => FieldType::Boolean,
+        value if value.contains("date") || value.contains("time") => FieldType::DateTime,
+        value if value.contains("json") => FieldType::Json,
         _ => FieldType::String,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DbSync;
+    use crate::sync::SyncPlugin;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn sqlite_sync_introspects_tables() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("ordering.db");
+        let connection = format!("sqlite://{}?mode=rwc", db_path.display());
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&connection)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "create table products (
+                id integer primary key,
+                name text not null,
+                price real not null
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        drop(pool);
+
+        let schema = DbSync::new(connection).introspect().await.unwrap();
+        assert_eq!(schema.resources.len(), 1);
+        assert_eq!(schema.metadata["database_kind"], "sqlite");
+        let resource = &schema.resources[0];
+        assert_eq!(resource.name, "product");
+        assert!(
+            resource
+                .actions
+                .iter()
+                .any(|action| action.name == "list_products")
+        );
+        assert!(
+            resource
+                .actions
+                .iter()
+                .any(|action| action.name == "get_product")
+        );
+        assert!(
+            resource
+                .actions
+                .iter()
+                .any(|action| action.name == "delete_product")
+        );
     }
 }

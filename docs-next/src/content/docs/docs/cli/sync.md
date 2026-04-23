@@ -22,7 +22,7 @@ appctl sync [OPTIONS]
 | `--aspnet <dir>` | ASP.NET project folder | [ASP.NET](/docs/sources/aspnet/) |
 | `--strapi <dir>` | Strapi v4 project folder | [Strapi](/docs/sources/strapi/) |
 | `--supabase <URL>` | Supabase or bare PostgREST | [Supabase](/docs/sources/supabase/) |
-| `--db <CONN>` | Postgres/MySQL URL | [SQL](/docs/sources/db/) |
+| `--db <CONN>` | Postgres/MySQL/SQLite URL | [SQL](/docs/sources/db/) |
 | `--url <URL>` | site root for URL login | [URL login](/docs/sources/url/) |
 | `--mcp <URL>` | MCP server URL | [MCP](/docs/sources/mcp/) |
 | `--plugin <NAME>` | dynamic plugin from `~/.appctl/plugins/` | [Plugins](/docs/sources/plugins/) |
@@ -47,6 +47,9 @@ appctl sync --django . --base-url http://127.0.0.1:8001/api --force
 
 # Postgres
 appctl sync --db "postgres://reader:pass@db.acme.com:5432/shop" --force
+
+# SQLite
+appctl sync --db "sqlite:///tmp/shop.db" --force
 
 # Supabase
 appctl sync --supabase https://YOUR-PROJECT.supabase.co \

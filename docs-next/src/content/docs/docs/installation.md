@@ -27,7 +27,8 @@ Verify:
 appctl --version
 ```
 
-Output matches the version in this repo's `Cargo.toml` (currently `{{appctl_version}}`).
+Output matches the binary you actually installed. If you build from source, the
+version comes from the root `Cargo.toml` in that checkout.
 
 ## From source
 

@@ -12,7 +12,10 @@ use crate::{
         provider::ProviderAuthConfig,
     },
     chat::{ChatOptions, run_chat},
-    config::{AppConfig, AppRegistry, ConfigPaths, app_name_from_dir, load_secret},
+    config::{
+        AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, find_app_dir_from,
+        find_registered_app_name, load_secret, normalize_app_dir,
+    },
     doctor::{DoctorRunArgs, run_doctor, run_doctor_models},
     history::{HistoryCommand, run_history_command},
     init::run_init,
@@ -33,8 +36,8 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
 
-    #[arg(long, global = true, default_value = ".appctl")]
-    pub app_dir: PathBuf,
+    #[arg(long, global = true)]
+    pub app_dir: Option<PathBuf>,
 
     #[arg(long, global = true, default_value = "info")]
     pub log_level: String,
@@ -379,20 +382,25 @@ pub enum PluginSubcommand {
 
 impl Cli {
     pub async fn run(self) -> Result<()> {
-        init_tracing(&self.log_level)?;
+        let Cli {
+            command,
+            app_dir,
+            log_level,
+        } = self;
+        init_tracing(&log_level)?;
 
-        let paths = ConfigPaths::new(self.app_dir.clone());
-
-        match self.command {
+        match command {
             Command::Init => {
+                let paths = resolve_init_paths(app_dir.as_ref())?;
                 run_init(&paths).await?;
             }
             Command::App(args) => {
-                run_app_command(&paths, args.command)?;
+                run_app_command(app_dir.as_ref(), args.command)?;
             }
             Command::Sync(args) => {
+                let app = resolve_runtime_app_context(app_dir.as_ref())?;
                 if let Some(name) = args.plugin.as_deref() {
-                    run_dynamic_sync(paths, name, args.base_url.as_deref())?;
+                    run_dynamic_sync(app.paths, name, args.base_url.as_deref())?;
                 } else {
                     let request = SyncRequest {
                         openapi: args.openapi,
@@ -414,15 +422,16 @@ impl Cli {
                         login_password: args.login_password,
                         login_form_selector: args.login_form_selector,
                     };
-                    run_sync(paths, request).await?;
+                    run_sync(app.paths, request).await?;
                 }
             }
             Command::Chat(args) => {
-                let config = AppConfig::load_or_init(&paths)?;
+                let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                let config = AppConfig::load_for_runtime(&app.paths, "chat")?;
                 run_chat(
-                    &paths,
+                    &app.paths,
                     &config,
-                    "app",
+                    &app.app_name,
                     ChatOptions {
                         provider: args.provider,
                         model: args.model,
@@ -435,11 +444,12 @@ impl Cli {
                 .await?;
             }
             Command::Run(args) => {
-                let config = AppConfig::load_or_init(&paths)?;
+                let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                let config = AppConfig::load_for_runtime(&app.paths, "run")?;
                 run_once(
-                    &paths,
+                    &app.paths,
                     &config,
-                    "app",
+                    &app.app_name,
                     RunOptions {
                         prompt: args.prompt,
                         provider: args.provider,
@@ -454,12 +464,14 @@ impl Cli {
             }
             Command::Doctor(args) => match args.command {
                 Some(DoctorSubcommand::Models { provider }) => {
-                    let config = AppConfig::load_or_init(&paths)?;
-                    run_doctor_models(&paths, &config, provider.as_deref()).await?;
+                    let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                    let config = AppConfig::load_for_runtime(&app.paths, "doctor models")?;
+                    run_doctor_models(&app.paths, &config, provider.as_deref()).await?;
                 }
                 None => {
+                    let app = resolve_runtime_app_context(app_dir.as_ref())?;
                     run_doctor(
-                        &paths,
+                        &app.paths,
                         DoctorRunArgs {
                             write: args.write,
                             timeout_secs: args.timeout_secs,
@@ -469,8 +481,9 @@ impl Cli {
                 }
             },
             Command::History(args) => {
+                let app = resolve_runtime_app_context(app_dir.as_ref())?;
                 run_history_command(
-                    &paths,
+                    &app.paths,
                     HistoryCommand {
                         last: args.last,
                         undo: args.undo,
@@ -479,10 +492,11 @@ impl Cli {
                 .await?;
             }
             Command::Serve(args) => {
-                let config = AppConfig::load_or_init(&paths)?;
+                let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                let config = AppConfig::load_for_runtime(&app.paths, "serve")?;
                 run_server(
-                    "app".to_string(),
-                    paths,
+                    app.app_name,
+                    app.paths,
                     config,
                     ServeOptions {
                         port: args.port,
@@ -500,10 +514,12 @@ impl Cli {
             }
             Command::Config(args) => match args.command {
                 ConfigSubcommand::Init => {
+                    let paths = resolve_init_paths(app_dir.as_ref())?;
                     run_init(&paths).await?;
                 }
                 ConfigSubcommand::Show => {
-                    let config = AppConfig::load_or_init(&paths)?;
+                    let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                    let config = AppConfig::load_or_init(&app.paths)?;
                     println!("{}", toml::to_string_pretty(&config)?);
                 }
                 ConfigSubcommand::ProviderSample { preset } => {
@@ -610,7 +626,8 @@ impl Cli {
                         scope,
                         redirect_port,
                     } => {
-                        let config = AppConfig::load_or_init(&paths)?;
+                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                        let config = AppConfig::load_or_init(&app.paths)?;
                         login_provider_auth(
                             &config,
                             &provider,
@@ -628,16 +645,19 @@ impl Cli {
                         .await?;
                     }
                     ProviderAuthSubcommand::Status { provider } => {
-                        let config = AppConfig::load_or_init(&paths)?;
-                        print_provider_auth_status(&paths, &config, provider.as_deref())?;
+                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                        let config = AppConfig::load_or_init(&app.paths)?;
+                        print_provider_auth_status(&app.paths, &config, provider.as_deref())?;
                     }
                     ProviderAuthSubcommand::Logout { provider } => {
-                        let config = AppConfig::load_or_init(&paths)?;
+                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                        let config = AppConfig::load_or_init(&app.paths)?;
                         logout_provider_auth(&config, &provider)?;
                     }
                     ProviderAuthSubcommand::List => {
-                        let config = AppConfig::load_or_init(&paths)?;
-                        print_provider_auth_status(&paths, &config, None)?;
+                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                        let config = AppConfig::load_or_init(&app.paths)?;
+                        print_provider_auth_status(&app.paths, &config, None)?;
                     }
                 },
             },
@@ -648,8 +668,9 @@ impl Cli {
                     strict,
                     confirm,
                 } => {
+                    let app = resolve_runtime_app_context(app_dir.as_ref())?;
                     run_mcp_server(
-                        paths,
+                        app.paths,
                         McpServeOptions {
                             read_only,
                             dry_run,
@@ -1167,7 +1188,13 @@ fn init_tracing(log_level: &str) -> Result<()> {
     Ok(())
 }
 
-fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
+#[derive(Debug, Clone)]
+struct ResolvedAppContext {
+    app_name: String,
+    paths: ConfigPaths,
+}
+
+fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcommand) -> Result<()> {
     use crate::term::{
         print_flow_header, print_section_title, print_status_error, print_status_success, print_tip,
     };
@@ -1181,9 +1208,11 @@ fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
                     std::fs::canonicalize(&p)
                         .with_context(|| format!("failed to canonicalize {}", p.display()))
                 })
+                .or_else(|| resolve_local_app_dir(app_dir_override).transpose())
                 .unwrap_or_else(|| {
-                    std::fs::canonicalize(&paths.root)
-                        .with_context(|| format!("failed to canonicalize {}", paths.root.display()))
+                    default_app_dir()
+                        .and_then(|path| std::fs::canonicalize(&path).or(Ok(path)))
+                        .with_context(|| "failed to resolve app directory".to_string())
                 })?;
 
             if !app_dir.exists() {
@@ -1249,4 +1278,82 @@ fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_runtime_app_context(app_dir_override: Option<&PathBuf>) -> Result<ResolvedAppContext> {
+    if let Some(path) = app_dir_override {
+        return app_context_from_path(
+            normalize_app_dir(path),
+            Some("Use `appctl init` to create it."),
+        );
+    }
+
+    if let Some(path) = resolve_local_app_dir(None)? {
+        return app_context_from_path(path, None);
+    }
+
+    let registry = AppRegistry::load_or_default()?;
+    if let Some((name, path)) = active_app_path(&registry) {
+        if !path.exists() {
+            bail!(
+                "Active app '{}' points to {} but that directory no longer exists. Run `appctl app list` and `appctl app remove {}` or re-register it.",
+                name,
+                path.display(),
+                name
+            );
+        }
+        return Ok(ResolvedAppContext {
+            app_name: name,
+            paths: ConfigPaths::new(path),
+        });
+    }
+
+    bail!(
+        "No app found. Run `appctl init` in this project, or use `appctl app add` / `appctl app use <name>` to select a global app."
+    )
+}
+
+fn app_context_from_path(
+    path: PathBuf,
+    not_found_hint: Option<&str>,
+) -> Result<ResolvedAppContext> {
+    if !path.exists() {
+        let hint = not_found_hint.unwrap_or("Run `appctl init` or pick a different app context.");
+        bail!("App directory {} does not exist. {}", path.display(), hint);
+    }
+
+    let registry = AppRegistry::load_or_default()?;
+    let app_name =
+        find_registered_app_name(&registry, &path).unwrap_or_else(|| app_name_from_dir(&path));
+    Ok(ResolvedAppContext {
+        app_name,
+        paths: ConfigPaths::new(path),
+    })
+}
+
+fn resolve_init_paths(app_dir_override: Option<&PathBuf>) -> Result<ConfigPaths> {
+    if let Some(path) = app_dir_override {
+        return Ok(ConfigPaths::new(normalize_app_dir(path)));
+    }
+
+    if let Some(path) = resolve_local_app_dir(None)? {
+        return Ok(ConfigPaths::new(path));
+    }
+
+    Ok(ConfigPaths::new(default_app_dir()?))
+}
+
+fn resolve_local_app_dir(app_dir_override: Option<&PathBuf>) -> Result<Option<PathBuf>> {
+    if let Some(path) = app_dir_override {
+        return Ok(Some(normalize_app_dir(path)));
+    }
+
+    let cwd = std::env::current_dir().context("failed to read current working directory")?;
+    Ok(find_app_dir_from(&cwd))
+}
+
+fn default_app_dir() -> Result<PathBuf> {
+    Ok(std::env::current_dir()
+        .context("failed to read current working directory")?
+        .join(".appctl"))
 }

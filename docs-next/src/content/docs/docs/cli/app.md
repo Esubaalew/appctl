@@ -47,6 +47,10 @@ at the first match:
 4. Otherwise the command errors out with a hint to run `appctl init` or
    `appctl app use <name>`.
 
+`appctl init` now offers to register the project globally as part of setup, so
+for most projects you no longer need to run `appctl app add` manually unless
+you skipped that prompt or want a custom name.
+
 The resolved app label shows up in the chat prompt so you always know which
 context you are in:
 
@@ -61,11 +65,11 @@ Initialize two projects:
 ```bash
 cd ~/projects/api-backend
 appctl init
-appctl app add backend
+# answer "yes" when init asks to register globally
 
 cd ~/projects/admin-dashboard
 appctl init
-appctl app add dashboard
+# answer "yes" when init asks to register globally
 ```
 
 Inspect the registry:

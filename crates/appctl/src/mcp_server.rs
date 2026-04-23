@@ -7,7 +7,9 @@ use uuid::Uuid;
 
 use crate::{
     config::ConfigPaths,
-    executor::{ExecutionContext, ExecutionRequest, Executor},
+    executor::{
+        ExecutionContext, ExecutionRequest, Executor, tool_result_is_error, tool_result_summary,
+    },
     safety::SafetyMode,
     sync::{load_schema, load_tools},
     tools::ToolDef,
@@ -64,6 +66,16 @@ pub async fn run_mcp_server(paths: ConfigPaths, options: McpServeOptions) -> Res
 }
 
 fn render_result_text(value: &Value) -> String {
+    if let Some(summary) = tool_result_summary(value) {
+        return match value {
+            Value::Null => summary.to_string(),
+            Value::String(text) => format!("{summary}\n\n{text}"),
+            _ => format!(
+                "{summary}\n\n{}",
+                serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+            ),
+        };
+    }
     match value {
         Value::Null => "null".to_string(),
         Value::String(text) => text.clone(),
@@ -152,7 +164,7 @@ async fn handle_mcp_request(
                                     "text": render_result_text(&result.output),
                                 }],
                                 "structuredContent": result.output,
-                                "isError": false,
+                                "isError": tool_result_is_error(&result.output),
                             }
                         }),
                         Err(err) => json!({

@@ -80,6 +80,21 @@ The schema is plain JSON. You can:
 
 Keep a copy in version control alongside your app. CI can re-sync and diff.
 
+## SQL support tiers
+
+`appctl sync --db` is first-class for three engines today:
+
+- Postgres
+- MySQL
+- SQLite
+
+That support is deliberately narrow. If your real system uses another database
+engine, the recommended escape hatches are:
+
+- sync from an OpenAPI layer in front of the database
+- expose tools through MCP
+- add a dynamic plugin for the engine-specific behavior you need
+
 ## Next
 
 - [Tools and actions](/docs/concepts/tools-and-actions/)

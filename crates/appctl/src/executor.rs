@@ -12,6 +12,25 @@ use crate::{
     schema::{Action, AuthStrategy, DatabaseKind, HttpMethod, Schema, SqlOperation, Transport},
 };
 
+pub fn tool_http_status(value: &Value) -> Option<u16> {
+    value
+        .get("status")
+        .and_then(Value::as_u64)
+        .and_then(|status| u16::try_from(status).ok())
+}
+
+pub fn tool_result_summary(value: &Value) -> Option<&str> {
+    value.get("summary").and_then(Value::as_str)
+}
+
+pub fn tool_result_is_error(value: &Value) -> bool {
+    value
+        .get("ok")
+        .and_then(Value::as_bool)
+        .is_some_and(|ok| !ok)
+        || tool_http_status(value).is_some_and(|status| status >= 400)
+}
+
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub session_id: String,
@@ -254,6 +273,13 @@ impl Executor {
                     .await?;
                 execute_sql_mysql(&pool, table, operation, primary_key.as_deref(), arguments).await
             }
+            DatabaseKind::Sqlite => {
+                let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                    .max_connections(5)
+                    .connect(&connection_string)
+                    .await?;
+                execute_sql_sqlite(&pool, table, operation, primary_key.as_deref(), arguments).await
+            }
         }
     }
 
@@ -316,8 +342,12 @@ impl Executor {
         let status = response.status();
         let text = response.text().await?;
         let parsed = serde_json::from_str(&text).unwrap_or_else(|_| json!({ "text": text }));
+        let summary = summarize_http_status(status.as_u16(), &method, path);
         Ok(json!({
+            "ok": status.is_success(),
             "status": status.as_u16(),
+            "classification": classify_http_status(status.as_u16()),
+            "summary": summary,
             "data": parsed
         }))
     }
@@ -351,6 +381,20 @@ impl Executor {
                 Ok(row.unwrap_or(Value::Null))
             }
             DatabaseKind::Mysql => Ok(Value::Null),
+            DatabaseKind::Sqlite => {
+                let pool = sqlx::sqlite::SqlitePoolOptions::new()
+                    .connect(&connection_string)
+                    .await?;
+                let sql = format!("select * from {table} where {primary_key} = ? limit 1");
+                let rows = sqlx::query(&sql)
+                    .bind(value_to_string(id))
+                    .fetch_all(&pool)
+                    .await?;
+                Ok(rows_to_json_sqlite(rows)
+                    .as_array()
+                    .and_then(|rows| rows.first().cloned())
+                    .unwrap_or(Value::Null))
+            }
         }
     }
 }
@@ -459,6 +503,51 @@ fn value_to_string(value: &Value) -> String {
         Value::String(value) => value.clone(),
         Value::Null => "null".to_string(),
         other => other.to_string(),
+    }
+}
+
+fn classify_http_status(status: u16) -> &'static str {
+    match status {
+        401 => "unauthorized",
+        403 => "forbidden",
+        404 => "not_found",
+        405 => "method_not_allowed",
+        409 => "conflict",
+        422 => "validation_error",
+        500..=599 => "server_error",
+        400..=499 => "client_error",
+        _ => "ok",
+    }
+}
+
+fn summarize_http_status(status: u16, method: &HttpMethod, path: &str) -> String {
+    let method = reqwest_method(method).as_str().to_string();
+    match status {
+        401 => format!(
+            "HTTP 401 Unauthorized for {method} {path}. The app rejected the request because credentials or session state are missing or invalid."
+        ),
+        403 => format!(
+            "HTTP 403 Forbidden for {method} {path}. The app understood the request but refused it for the current user or token."
+        ),
+        404 => format!(
+            "HTTP 404 Not Found for {method} {path}. The route or resource could not be found."
+        ),
+        405 => format!(
+            "HTTP 405 Method Not Allowed for {method} {path}. The server rejected this HTTP method for the route. This can mean a route mismatch or backend policy; it does not prove missing admin access."
+        ),
+        409 => format!(
+            "HTTP 409 Conflict for {method} {path}. The request conflicts with the current server state."
+        ),
+        422 => format!(
+            "HTTP 422 Unprocessable Entity for {method} {path}. The route was reached, but the app rejected the input payload."
+        ),
+        500..=599 => format!(
+            "HTTP {status} server error for {method} {path}. The request reached the app, but the backend failed while handling it."
+        ),
+        400..=499 => format!(
+            "HTTP {status} client error for {method} {path}. The app rejected the request, but the exact cause is app-specific."
+        ),
+        _ => format!("HTTP {status} for {method} {path}."),
     }
 }
 
@@ -687,6 +776,114 @@ async fn execute_sql_mysql(
     }
 }
 
+async fn execute_sql_sqlite(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    table: &str,
+    operation: &SqlOperation,
+    primary_key: Option<&str>,
+    arguments: &Value,
+) -> Result<ExecutionResult> {
+    let primary_key = primary_key.unwrap_or("id");
+    match operation {
+        SqlOperation::Select => {
+            let sql = format!("select * from {table} limit 100");
+            let rows = sqlx::query(&sql).fetch_all(pool).await?;
+            Ok(ExecutionResult {
+                output: rows_to_json_sqlite(rows),
+                request_snapshot: Value::Null,
+            })
+        }
+        SqlOperation::GetByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let sql = format!("select * from {table} where {primary_key} = ? limit 1");
+            let rows = sqlx::query(&sql)
+                .bind(value_to_string(id))
+                .fetch_all(pool)
+                .await?;
+            Ok(ExecutionResult {
+                output: rows_to_json_sqlite(rows)
+                    .as_array()
+                    .and_then(|rows| rows.first().cloned())
+                    .unwrap_or(Value::Null),
+                request_snapshot: Value::Null,
+            })
+        }
+        SqlOperation::Insert => {
+            let payload = arguments
+                .as_object()
+                .context("insert expects a JSON object")?;
+            let columns: Vec<_> = payload.keys().cloned().collect();
+            let placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>();
+            let sql = format!(
+                "insert into {table} ({}) values ({})",
+                columns.join(", "),
+                placeholders.join(", ")
+            );
+            let mut query = sqlx::query(&sql);
+            for value in payload.values() {
+                query = query.bind(value_to_string(value));
+            }
+            let result = query.execute(pool).await?;
+            Ok(ExecutionResult {
+                output: json!({ "rows_affected": result.rows_affected(), "last_insert_rowid": result.last_insert_rowid() }),
+                request_snapshot: Value::Null,
+            })
+        }
+        SqlOperation::UpdateByPk => {
+            let payload = arguments
+                .as_object()
+                .context("update expects a JSON object")?;
+            let id = payload
+                .get(primary_key)
+                .or_else(|| payload.get("id"))
+                .context("missing primary key argument")?;
+            let columns = payload
+                .keys()
+                .filter(|key| key.as_str() != primary_key && key.as_str() != "id")
+                .cloned()
+                .collect::<Vec<_>>();
+            if columns.is_empty() {
+                bail!("update requires at least one mutable field");
+            }
+            let assignments = columns
+                .iter()
+                .map(|column| format!("{column} = ?"))
+                .collect::<Vec<_>>();
+            let sql = format!(
+                "update {table} set {} where {primary_key} = ?",
+                assignments.join(", ")
+            );
+            let mut query = sqlx::query(&sql);
+            for column in &columns {
+                query = query.bind(value_to_string(payload.get(column).unwrap()));
+            }
+            let result = query.bind(value_to_string(id)).execute(pool).await?;
+            Ok(ExecutionResult {
+                output: json!({ "rows_affected": result.rows_affected() }),
+                request_snapshot: Value::Null,
+            })
+        }
+        SqlOperation::DeleteByPk => {
+            let id = arguments
+                .get(primary_key)
+                .or_else(|| arguments.get("id"))
+                .context("missing primary key argument")?;
+            let sql = format!("delete from {table} where {primary_key} = ?");
+            let result = sqlx::query(&sql)
+                .bind(value_to_string(id))
+                .execute(pool)
+                .await?;
+            Ok(ExecutionResult {
+                output: json!({ "rows_affected": result.rows_affected(), "deleted": true }),
+                request_snapshot: Value::Null,
+            })
+        }
+    }
+}
+
 fn rows_to_json(rows: Vec<sqlx::mysql::MySqlRow>) -> Value {
     let mut out = Vec::new();
     for row in rows {
@@ -705,4 +902,50 @@ fn rows_to_json(rows: Vec<sqlx::mysql::MySqlRow>) -> Value {
         out.push(Value::Object(obj));
     }
     Value::Array(out)
+}
+
+fn rows_to_json_sqlite(rows: Vec<sqlx::sqlite::SqliteRow>) -> Value {
+    let mut out = Vec::new();
+    for row in rows {
+        let mut obj = Map::new();
+        for column in row.columns() {
+            let name = column.name();
+            let value = row
+                .try_get::<String, _>(name)
+                .map(Value::String)
+                .or_else(|_| row.try_get::<i64, _>(name).map(Value::from))
+                .or_else(|_| row.try_get::<f64, _>(name).map(Value::from))
+                .or_else(|_| row.try_get::<bool, _>(name).map(Value::from))
+                .unwrap_or(Value::Null);
+            obj.insert(name.to_string(), value);
+        }
+        out.push(Value::Object(obj));
+    }
+    Value::Array(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HttpMethod, summarize_http_status, tool_result_is_error};
+    use serde_json::json;
+
+    #[test]
+    fn http_405_summary_stays_ambiguous() {
+        let summary = summarize_http_status(405, &HttpMethod::DELETE, "/admin/product/10/delete");
+        assert!(summary.contains("405 Method Not Allowed"));
+        assert!(summary.contains("does not prove missing admin access"));
+    }
+
+    #[test]
+    fn non_success_http_tool_results_are_errors() {
+        assert!(tool_result_is_error(&json!({
+            "ok": false,
+            "status": 405,
+            "summary": "HTTP 405 Method Not Allowed"
+        })));
+        assert!(!tool_result_is_error(&json!({
+            "ok": true,
+            "status": 200
+        })));
+    }
 }

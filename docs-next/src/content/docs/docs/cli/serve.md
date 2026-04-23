@@ -52,7 +52,11 @@ app with four tabs:
   billing info), and a field for the auth token when `--token` is set.
 
 The UI connects over `WS /chat` for streaming; if WebSocket is blocked it
-falls back to `POST /run` for non-streaming completions.
+falls back to `POST /run` for non-streaming completions. Both paths keep
+multi-turn **conversation memory** in the server process: WebSocket uses one
+transcript per open connection, and `POST /run` accepts an optional
+`session_id` in the request and always returns a `session_id` (the web console
+stores the last value for the HTTP path).
 
 ## HTTP endpoints
 

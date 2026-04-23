@@ -16,7 +16,9 @@ Five minutes, one real app, real output. We will use the FastAPI demo in the rep
   ```
 
   See [`appctl init`](/docs/init/) for the full walkthrough of what it writes
-  and where secrets are stored.
+  and where secrets are stored. If you say yes to the final registration
+  prompt, the demo app is also added to `~/.appctl/apps.toml` so later
+  `appctl chat` / `appctl serve` commands can find it globally.
 
 ## 1. Clone and start the demo
 
@@ -50,7 +52,7 @@ appctl sync --openapi http://127.0.0.1:8000/openapi.json \
   --base-url http://127.0.0.1:8000 --force
 ```
 
-Real output with `appctl {{appctl_version}}`:
+Real output with the current build:
 
 ```
 Synced Openapi: 1 resources, 1 tools written to .appctl

@@ -448,11 +448,30 @@ pub fn find_registered_app_name(registry: &AppRegistry, app_dir: &Path) -> Optio
     })
 }
 
+pub fn find_app_dir_from(start: &Path) -> Option<PathBuf> {
+    let mut current = start.to_path_buf();
+    loop {
+        let candidate = current.join(".appctl");
+        if candidate.exists() {
+            return Some(normalize_app_dir(&candidate));
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+pub fn active_app_path(registry: &AppRegistry) -> Option<(String, PathBuf)> {
+    let active = registry.active.as_ref()?;
+    let path = registry.apps.get(active)?;
+    Some((active.clone(), normalize_app_dir(path)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        AppConfig, AppRegistry, ConfigPaths, app_name_from_dir, find_registered_app_name,
-        normalize_app_dir, write_json,
+        AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, find_app_dir_from,
+        find_registered_app_name, normalize_app_dir, write_json,
     };
     use serde_json::json;
     use std::path::{Path, PathBuf};
@@ -501,5 +520,32 @@ mod tests {
             .insert("playground".to_string(), PathBuf::from("./.appctl"));
         let found = find_registered_app_name(&registry, &normalize_app_dir(Path::new("./.appctl")));
         assert_eq!(found.as_deref(), Some("playground"));
+    }
+
+    #[test]
+    fn find_app_dir_from_walks_upward() {
+        let dir = tempdir().unwrap();
+        let app_dir = dir.path().join(".appctl");
+        let nested = dir.path().join("src").join("ui");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let found = find_app_dir_from(&nested).unwrap();
+        assert_eq!(normalize_app_dir(&found), normalize_app_dir(&app_dir));
+    }
+
+    #[test]
+    fn active_app_path_returns_active_registration() {
+        let registry = AppRegistry {
+            active: Some("ordering".to_string()),
+            apps: std::iter::once(("ordering".to_string(), PathBuf::from("./.appctl"))).collect(),
+        };
+
+        let (name, path) = active_app_path(&registry).unwrap();
+        assert_eq!(name, "ordering");
+        assert_eq!(
+            normalize_app_dir(&path),
+            normalize_app_dir(Path::new("./.appctl"))
+        );
     }
 }

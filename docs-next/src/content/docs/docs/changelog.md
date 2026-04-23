@@ -1,11 +1,9 @@
 ---
 title: Changelog
-description: Version history for appctl. Mirrors CHANGELOG.md.
+description: Version history for appctl. Mirrors the latest tagged releases.
 ---
 
 Mirrors [`CHANGELOG.md`](https://github.com/Esubaalew/appctl/blob/main/CHANGELOG.md) in the repository. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
 
 ## [0.4.0] — 2026-04-23
 

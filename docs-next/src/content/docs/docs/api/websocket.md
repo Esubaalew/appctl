@@ -32,6 +32,8 @@ Only `message` is required. Safety fields override the server defaults for this 
 
 ## Receive
 
+Each prompt on the **same WebSocket** shares one conversation transcript (same model context as a multi-turn [`appctl chat`](/docs/cli/chat/) run). Reconnecting or opening a new WebSocket starts a new transcript.
+
 The server writes one JSON text frame per [`AgentEvent`](/docs/api/agent-events/). Examples:
 
 ```json

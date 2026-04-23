@@ -137,6 +137,7 @@ pub enum Transport {
 pub enum DatabaseKind {
     Postgres,
     Mysql,
+    Sqlite,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

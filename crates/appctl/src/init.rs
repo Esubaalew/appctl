@@ -12,7 +12,10 @@ use crate::{
         provider::{McpBridgeClient, ProviderAuthConfig},
         verify::verify_provider,
     },
-    config::{AppConfig, ConfigPaths, ProviderConfig, ProviderKind, save_secret},
+    config::{
+        AppConfig, AppRegistry, ConfigPaths, ProviderConfig, ProviderKind, app_name_from_dir,
+        find_registered_app_name, save_secret,
+    },
     term::{
         print_flow_header, print_section_title, print_status_error, print_status_success, print_tip,
     },
@@ -192,6 +195,44 @@ pub async fn run_init(paths: &ConfigPaths) -> Result<()> {
         config.save(paths)?;
         print_section_title("Next step");
         println!("{}", next_step);
+    }
+
+    prompt_register_app(paths)?;
+
+    Ok(())
+}
+
+fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
+    let mut registry = AppRegistry::load_or_default()?;
+    let detected_name = find_registered_app_name(&registry, &paths.root)
+        .unwrap_or_else(|| app_name_from_dir(&paths.root));
+    let prompt = if registry.apps.contains_key(&detected_name) {
+        format!(
+            "Update global app registration for '{}' and make it active?",
+            detected_name
+        )
+    } else {
+        format!(
+            "Register this app globally as '{}' and make it active?",
+            detected_name
+        )
+    };
+
+    if Confirm::new()
+        .with_prompt(prompt)
+        .default(true)
+        .interact()?
+    {
+        registry.register_and_activate(detected_name.clone(), paths.root.clone());
+        registry.save()?;
+        print_status_success(&format!(
+            "global app registered as '{}' in ~/.appctl/apps.toml",
+            detected_name
+        ));
+    } else {
+        print_tip(
+            "Skipped global registration. Run `appctl app add` later if you want this app in `appctl app list`.",
+        );
     }
 
     Ok(())

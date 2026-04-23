@@ -1,13 +1,13 @@
----
-title: SQL databases (Postgres, MySQL)
-description: Skip the API. Point at a database URL and get SQL tools per table.
+title: SQL databases (Postgres, MySQL, SQLite)
+description: Skip the API. Point at a database URL and get typed CRUD tools per table.
 ---
 
-Skip the API. Point `appctl` at a Postgres or MySQL URL and it gives the agent SQL tools for your tables, executed as prepared statements.
+Skip the API. Point `appctl` at a Postgres, MySQL, or SQLite URL and it gives
+the agent SQL tools for your tables, executed as prepared statements.
 
 ## Prerequisites
 
-- A Postgres or MySQL connection string. A read-only account is strongly recommended.
+- A Postgres, MySQL, or SQLite connection string. A read-only account is strongly recommended for server databases.
 - `appctl` installed.
 
 ## Run it
@@ -17,6 +17,9 @@ appctl sync --db "postgres://reader:pass@db.acme.com:5432/shop" --force
 
 # or
 appctl sync --db "mysql://reader:pass@db.acme.com:3306/shop" --force
+
+# or
+appctl sync --db "sqlite:///Users/you/dev/shop.db" --force
 ```
 
 For each table, the sync produces five tools: `list_{table}`, `get_{table}`, `create_{table}`, `update_{table}`, `delete_{table}`. Each tool uses a prepared statement against the table and primary key. There is no free-form SQL tool.
@@ -88,14 +91,17 @@ docker compose down -v
 ## Staying safe
 
 - **Use a read-only account.** Create a Postgres role with only `SELECT` on the tables you want to expose.
+- **SQLite is local by nature.** Prefer a copy of the DB for experiments if you do not want agent mutations to hit your live file.
 - **Or run with `--read-only`.** That flag blocks the `create_*`, `update_*`, and `delete_*` tools at the `appctl` layer even if your DB role could perform them.
 
 ## Known limits
 
 - The SQL tools use prepared statements against the table and primary key. There is no free-form raw SQL tool in this source.
+- Only single-column primary keys are modeled today.
 - Views and materialized views are not introspected.
 - Stored procedures are not auto-registered.
 - Multi-schema databases only expose the default schema unless the connection string selects one.
+- First-class DB support is intentionally scoped to Postgres, MySQL, and SQLite. For other engines, use an OpenAPI layer, an MCP server, or a plugin.
 
 ## See also
 

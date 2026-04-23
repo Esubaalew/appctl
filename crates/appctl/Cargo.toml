@@ -52,7 +52,7 @@ owo-colors = "4.3.0"
 regex = "1.12.2"
 rust-embed = "8.5.0"
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "json", "stream", "multipart", "cookies", "http2", "charset", "query", "form"] }
-rusqlite = { version = "0.39.0", features = ["bundled"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 rustyline = "18.0.0"
 schemars = { workspace = true }
 scraper = "0.26.0"
@@ -60,7 +60,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = "0.9.34"
 termimad = "0.31.0"
-sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql", "sqlite"] }
 tempfile = "3.27.0"
 thiserror = { workspace = true }
 tiny_http = "0.12.0"

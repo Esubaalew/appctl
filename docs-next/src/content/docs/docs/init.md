@@ -17,8 +17,9 @@ appctl init
 ```
 
 Run it from the project root you want to control. `init` will create
-`.appctl/config.toml`, `.appctl/schema.json` (empty), and other tracking files
-in the current directory unless `--app-dir` is passed.
+`.appctl/config.toml` in the current directory unless `--app-dir` is passed.
+If a parent folder already contains `.appctl/`, `init` reuses that app
+directory instead of creating a second nested one.
 
 ## What it walks you through
 
@@ -57,7 +58,12 @@ in the current directory unless `--app-dir` is passed.
    quota, etc.), the config is still saved but `verified = false`. You then
    see an actionable error and a hint to rerun the step after fixing the
    underlying problem.
-6. **Print the next command.** For direct-API providers this is
+6. **Offer global registration.** After writing the local config, `init` asks
+   whether to register this app in `~/.appctl/apps.toml` and make it the
+   active global app. Saying yes means `appctl app list`, `appctl chat`,
+   `appctl run`, `appctl serve`, and other runtime commands can find the app
+   later even when you are outside the project tree.
+7. **Print the next command.** For direct-API providers this is
    `appctl chat` in the same directory. For MCP bridge providers it is the
    external client's launch command (`codex`, `claude`, `qwen`, `gemini`).
 
@@ -79,7 +85,8 @@ not re-prompt for keychain access on every chat turn.
 
 `appctl init` is safe to re-run. It will detect the existing
 `config.toml`, offer to augment (add another provider alongside the existing
-ones) or replace, and respect whichever choice you make.
+ones) or replace, and respect whichever choice you make. It will also offer to
+refresh the matching global app registration if one already exists.
 
 ## What it does NOT do
 

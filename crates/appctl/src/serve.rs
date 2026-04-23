@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use axum::{
@@ -16,7 +17,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{
-    ai::run_agent,
+    ai::{Message, run_agent},
     config::{AppConfig, ConfigPaths},
     events::AgentEvent,
     executor::ExecutionContext,
@@ -24,6 +25,9 @@ use crate::{
     safety::SafetyMode,
     sync::{load_schema, load_tools},
 };
+
+/// Max in-memory HTTP `/run` session transcripts. Beyond this, older ids may be evicted.
+const HTTP_SESSION_BUDGET: usize = 256;
 
 #[derive(rust_embed::RustEmbed)]
 #[folder = "embedded-web/dist"]
@@ -48,6 +52,8 @@ struct AppState {
     paths: ConfigPaths,
     config: AppConfig,
     options: ServeOptions,
+    /// `POST /run` sessions only (key = client-supplied or server-issued `session_id`).
+    http_transcripts: Arc<Mutex<HashMap<String, Vec<Message>>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,6 +67,9 @@ struct RunPayload {
     confirm: Option<bool>,
     #[serde(default)]
     strict: Option<bool>,
+    /// When set, continue the same conversation as earlier `/run` requests in this process.
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +93,7 @@ pub async fn run_server(
         paths,
         config,
         options,
+        http_transcripts: Arc::new(Mutex::new(HashMap::new())),
     });
 
     let app = Router::new()
@@ -238,6 +248,23 @@ async fn post_run(
         payload.strict,
     );
     let msg = payload.message.clone();
+    let session_id = payload
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    let prior = {
+        let map = state
+            .http_transcripts
+            .lock()
+            .map_err(|e| internal_error(format!("http session store: {e}")))?;
+        map.get(&session_id).cloned().unwrap_or_default()
+    };
+
+    let sid_run = session_id.clone();
     let agent = tokio::spawn(async move {
         run_agent(
             &paths,
@@ -245,11 +272,11 @@ async fn post_run(
             prov.as_deref(),
             model.as_deref(),
             &msg,
-            &[],
+            &prior,
             &tools,
             &schema,
             ExecutionContext {
-                session_id: Uuid::new_v4().to_string(),
+                session_id: sid_run,
                 safety,
             },
             Some(tx),
@@ -268,9 +295,22 @@ async fn post_run(
         Ok(r) => r,
         Err(e) => return Err(internal_error(e)),
     };
-    let response = inner.map_err(internal_error)?.response;
+    let outcome = inner.map_err(internal_error)?;
+    let response = outcome.response;
+    let new_transcript = outcome.transcript;
 
-    Ok(Json(json!({ "result": response, "events": events })))
+    {
+        let mut map = state
+            .http_transcripts
+            .lock()
+            .map_err(|e| internal_error(format!("http session store: {e}")))?;
+        evict_http_sessions_if_needed(&mut map);
+        map.insert(session_id.clone(), new_transcript);
+    }
+
+    Ok(Json(
+        json!({ "result": response, "events": events, "session_id": session_id }),
+    ))
 }
 
 async fn ws_chat(
@@ -286,6 +326,8 @@ async fn ws_chat(
 }
 
 async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
+    let session_id = Uuid::new_v4().to_string();
+    let mut transcript: Vec<Message> = Vec::new();
     let (mut sink, mut stream) = socket.split();
     while let Some(Ok(msg)) = stream.next().await {
         let axum::extract::ws::Message::Text(text) = msg else {
@@ -298,6 +340,8 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
         let config = state.config.clone();
         let prov = state.options.provider.clone();
         let model = state.options.model.clone();
+        let prior = transcript.clone();
+        let sid = session_id.clone();
         let agent = tokio::spawn(async move {
             let schema = match load_schema(&paths) {
                 Ok(s) => s,
@@ -313,11 +357,11 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
                 prov.as_deref(),
                 model.as_deref(),
                 &message,
-                &[],
+                &prior,
                 &tools,
                 &schema,
                 ExecutionContext {
-                    session_id: Uuid::new_v4().to_string(),
+                    session_id: sid,
                     safety,
                 },
                 Some(tx),
@@ -339,7 +383,9 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
             }
         }
         match agent.await {
-            Ok(Ok(_)) => {}
+            Ok(Ok(outcome)) => {
+                transcript = outcome.transcript;
+            }
             Ok(Err(error)) => {
                 let line = serde_json::to_string(&AgentEvent::Error {
                     message: error.to_string(),
@@ -396,6 +442,17 @@ fn merge_safety_ws(raw: &str, opts: &ServeOptions) -> (String, SafetyMode) {
         }
     }
     (raw.to_string(), merge_safety(opts, None, None, None, None))
+}
+
+fn evict_http_sessions_if_needed(sessions: &mut HashMap<String, Vec<Message>>) {
+    if sessions.len() < HTTP_SESSION_BUDGET {
+        return;
+    }
+    // Drop a batch of keys to make room. HashMap iteration order is not meaningful here.
+    let to_remove: Vec<String> = sessions.keys().take(64).cloned().collect();
+    for k in to_remove {
+        sessions.remove(&k);
+    }
 }
 
 fn internal_error(error: impl ToString) -> Response {

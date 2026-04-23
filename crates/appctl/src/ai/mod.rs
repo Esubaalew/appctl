@@ -9,7 +9,9 @@ use tokio::sync::mpsc;
 use crate::{
     config::{AppConfig, ConfigPaths, ProviderKind, ResolvedProvider},
     events::{AgentEvent, ToolStatus},
-    executor::{ExecutionContext, ExecutionRequest, Executor},
+    executor::{
+        ExecutionContext, ExecutionRequest, Executor, tool_result_is_error, tool_result_summary,
+    },
     history::HistoryStore,
     tools::ToolDef,
 };
@@ -180,21 +182,34 @@ pub async fn run_agent(
                         {
                             Ok(result) => {
                                 let duration_ms = start.elapsed().as_millis() as u64;
-                                history.log(&exec_context.session_id, &request, &result, "ok")?;
+                                let tool_failed = tool_result_is_error(&result.output);
+                                history.log(
+                                    &exec_context.session_id,
+                                    &request,
+                                    &result,
+                                    if tool_failed { "error" } else { "ok" },
+                                )?;
                                 send_agent_event(
                                     &events,
                                     AgentEvent::ToolResult {
                                         id: call.id.clone(),
                                         result: result.output.clone(),
-                                        status: ToolStatus::Ok,
+                                        status: if tool_failed {
+                                            ToolStatus::Error
+                                        } else {
+                                            ToolStatus::Ok
+                                        },
                                         duration_ms,
                                     },
                                 )
                                 .await;
+                                let tool_content = format_tool_result_message(&result.output)
+                                    .map_err(|e| {
+                                        anyhow::anyhow!("failed to serialize tool output: {e}")
+                                    })?;
                                 messages.push(Message {
                                     role: "tool".to_string(),
-                                    content: serde_json::to_string(&result.output)
-                                        .map_err(|e| anyhow::anyhow!(e))?,
+                                    content: tool_content,
                                     tool_calls: Vec::new(),
                                     tool_call_id: Some(call.id),
                                     tool_name: Some(call.name),
@@ -251,8 +266,21 @@ Response style rules:
 - Do not volunteer unrelated information the user did not ask for.
 - Keep answers concise and task-focused.
 - Do not end every response with "let me know..." style filler.
-- If a follow-up question is required, ask at most one short follow-up sentence."#
+- If a follow-up question is required, ask at most one short follow-up sentence.
+- Tool results may include `status`, `classification`, and `summary`. Treat the summary as the best appctl diagnosis.
+- Do not infer permissions, admin access, or login state from `405 Method Not Allowed` alone. A 405 can mean wrong HTTP method, route mismatch, or backend policy."#
         .to_string()
+}
+
+fn format_tool_result_message(output: &Value) -> Result<String> {
+    let raw = serde_json::to_string(output)?;
+    if let Some(summary) = tool_result_summary(output) {
+        Ok(format!(
+            "appctl tool summary: {summary}\nraw_tool_result_json: {raw}"
+        ))
+    } else {
+        Ok(raw)
+    }
 }
 
 fn build_turn_messages(prior_messages: &[Message], prompt: &str) -> Vec<Message> {

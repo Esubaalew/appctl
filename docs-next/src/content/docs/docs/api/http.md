@@ -74,11 +74,14 @@ Request:
 }
 ```
 
+Optional: `"session_id": "<uuid or opaque id>"` — omit on the first message in a thread, then send the value from the last response so the agent receives the same in-memory history as a multi-turn [`appctl chat`](/docs/cli/chat/) session (up to the provider’s `history_limit`). New ids are created server-side when omitted.
+
 Response:
 
 ```json
 {
   "result": "Created widget #1",
+  "session_id": "2d7e9a1c-1f3a-4c9e-8b2a-0e6f1a2b3c4d",
   "events": [
     { "kind": "user_prompt", "text": "create a widget named Demo" },
     { "kind": "tool_call", "id": "call_01", "name": "create_widget", "arguments": {"name":"Demo"} },
