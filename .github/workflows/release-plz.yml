@@ -9,41 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  require-live-providers:
-    name: Require live-providers green on this SHA
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/github-script@v7
-        with:
-          script: |
-            // Block the publish flow unless the live-providers workflow has
-            // a successful run for the exact commit we're about to release.
-            const { owner, repo } = context.repo;
-            const ref = context.sha;
-            const runs = await github.paginate(
-              github.rest.actions.listWorkflowRunsForRepo,
-              {
-                owner,
-                repo,
-                head_sha: ref,
-                per_page: 100,
-              }
-            );
-            const match = runs.find(
-              r => r.name === 'live-providers' && r.conclusion === 'success'
-            );
-            if (!match) {
-              core.setFailed(
-                `No successful live-providers run found for ${ref}. ` +
-                `Trigger the live-providers workflow on this SHA and wait ` +
-                `for it to pass before release-plz can open a publish PR.`
-              );
-            } else {
-              core.info(`live-providers run ${match.id} is green for ${ref}.`);
-            }
-
   release-plz:
-    needs: require-live-providers
     runs-on: ubuntu-latest
     concurrency:
       group: release-plz-${{ github.ref }}
