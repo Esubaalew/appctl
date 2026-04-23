@@ -4,6 +4,12 @@ All notable changes to `appctl-plugin-sdk` are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/Esubaalew/appctl/compare/appctl-plugin-sdk-v0.6.0...appctl-plugin-sdk-v0.7.0) - 2026-04-23
+
+### Added
+
+- add watch sync, named sessions, runtime tool policy, and new datastore support
+
 ## [0.6.0](https://github.com/Esubaalew/appctl/compare/appctl-plugin-sdk-v0.5.0...appctl-plugin-sdk-v0.6.0) - 2026-04-23
 
 ### Fixed
