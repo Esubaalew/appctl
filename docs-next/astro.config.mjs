@@ -90,6 +90,7 @@ export default defineConfig({
       sidebar: [
         { label: 'Introduction', slug: 'docs/introduction' },
         { label: 'Installation', slug: 'docs/installation' },
+        { label: 'Init', slug: 'docs/init' },
         { label: 'Provider matrix', slug: 'docs/provider-matrix' },
         { label: 'Quickstart', slug: 'docs/quickstart' },
         {
@@ -129,6 +130,7 @@ export default defineConfig({
             { label: 'mcp', slug: 'docs/cli/mcp' },
             { label: 'history', slug: 'docs/cli/history' },
             { label: 'config', slug: 'docs/cli/config' },
+            { label: 'app', slug: 'docs/cli/app' },
             { label: 'plugin', slug: 'docs/cli/plugin' },
             { label: 'auth', slug: 'docs/cli/auth' },
           ],

@@ -5,14 +5,17 @@ description: What appctl is, what it is not, and why you might want it.
 
 `appctl` is a Rust CLI that turns an existing application into a set of typed tools an LLM can call. One command gets you an agent that understands your app, uses your endpoints, and logs every action.
 
-## The three commands you actually use
+## The commands you actually use
 
-1. [`appctl sync`](/docs/cli/sync/) — point it at your app. It reads your
+1. [`appctl init`](/docs/init/) — one-time setup. Picks a provider, runs the
+   real auth flow, stores the secret in your OS keychain, and verifies the
+   connection with a live call.
+2. [`appctl sync`](/docs/cli/sync/) — point it at your app. It reads your
    routes or schema and writes a local contract to `.appctl/schema.json` plus
    a flattened `.appctl/tools.json`.
-2. [`appctl chat`](/docs/cli/chat/) — talk to the agent in plain English. It
+3. [`appctl chat`](/docs/cli/chat/) — talk to the agent in plain English. It
    picks the right tool, runs it, and logs the result.
-3. [`appctl serve`](/docs/cli/serve/) — run it as an HTTP + WebSocket daemon
+4. [`appctl serve`](/docs/cli/serve/) — run it as an HTTP + WebSocket daemon
    with the embedded web console for teammates, IDE plugins, or custom
    frontends.
 

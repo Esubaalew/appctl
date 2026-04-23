@@ -65,13 +65,25 @@ Or grab them from the [Releases page](https://github.com/Esubaalew/appctl/releas
 ## Configure a provider
 
 `appctl` needs at least one language-model provider to run `chat`, `run`, or
-`serve`. The simplest path is:
+`serve`. The blessed path is the interactive wizard:
 
 ```bash
-# Initialize the config file
+appctl init
+```
+
+It walks you through picking a provider, runs the real auth flow (browser
+OAuth, device code, or API-key prompt), stores the secret in the OS keychain,
+and verifies the connection with a tiny live call before printing `done`. See
+[`appctl init`](/docs/init/) for everything it touches.
+
+If you prefer to skip the wizard and write the config by hand, the lower-level
+building blocks are still available:
+
+```bash
+# Initialize an empty config file
 appctl config init
 
-# Append a preset for the provider you want
+# Append a preset for a specific provider
 appctl config provider-sample --preset openai >> .appctl/config.toml
 ```
 
@@ -102,6 +114,20 @@ gcloud auth application-default login && appctl auth provider login vertex
 Secrets are written to the OS keychain (macOS Keychain, Windows Credential
 Manager, GNOME Keyring / libsecret on Linux). Environment variables with the
 same name override at runtime.
+
+## Register as a named app (optional)
+
+If you are going to juggle more than one `.appctl/` directory across
+projects, register this one so you can switch contexts by name:
+
+```bash
+appctl app add backend     # name defaults to the parent folder
+appctl app list            # shows all registered apps and the active one
+appctl app use backend     # set the globally active app
+```
+
+See [`appctl app`](/docs/cli/app/) for the full resolution rules (explicit
+flag → auto-detect from cwd → global active app).
 
 ## Supported LLM providers
 

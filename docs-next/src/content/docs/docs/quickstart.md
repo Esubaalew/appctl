@@ -9,7 +9,14 @@ Five minutes, one real app, real output. We will use the FastAPI demo in the rep
 
 - [`appctl` installed](/docs/installation/).
 - Python 3.11 or newer.
-- A configured LLM provider (see [Installation → Configure a provider](/docs/installation/#configure-a-provider)).
+- A configured LLM provider. The fastest way is the interactive wizard:
+
+  ```bash
+  appctl init
+  ```
+
+  See [`appctl init`](/docs/init/) for the full walkthrough of what it writes
+  and where secrets are stored.
 
 ## 1. Clone and start the demo
 

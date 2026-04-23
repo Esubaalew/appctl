@@ -12,9 +12,10 @@ use crate::{
         provider::ProviderAuthConfig,
     },
     chat::{ChatOptions, run_chat},
-    config::{AppConfig, ConfigPaths, load_secret},
-    doctor::{DoctorRunArgs, run_doctor},
+    config::{AppConfig, AppRegistry, ConfigPaths, app_name_from_dir, load_secret},
+    doctor::{DoctorRunArgs, run_doctor, run_doctor_models},
     history::{HistoryCommand, run_history_command},
+    init::run_init,
     mcp_server::{McpServeOptions, run_mcp_server},
     plugins,
     run::{RunOptions, run_once},
@@ -42,16 +43,30 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
+    /// Set up a `.appctl` directory (models, auth, and provider) interactively.
+    Init,
+    /// Introspect your stack and (re)build schema and OpenAPI tool definitions.
     Sync(SyncArgs),
+    /// Interactive session with the AI for this app's tools.
     Chat(ChatArgs),
+    /// Run a single prompt and exit (non-interactive).
     Run(RunArgs),
+    /// Check connectivity, config, and which HTTP routes are verified.
     Doctor(DoctorArgsCli),
+    /// Inspect and undo tool runs stored in the local history database.
     History(HistoryArgs),
+    /// Expose the agent and tools over HTTP (MCP- and AI-friendly).
     Serve(ServeArgs),
+    /// Inspect config, TOML samples, and keychain secrets.
     Config(ConfigArgs),
+    /// List, install, and load appctl extension plugins.
     Plugin(PluginArgs),
+    /// Log in to a target, cloud provider, or direct API.
     Auth(AuthArgs),
+    /// Run a built-in MCP (Model Context Protocol) stdio server for this app.
     Mcp(McpArgs),
+    /// Manage known app contexts and the global active app.
+    App(AppArgs),
 }
 
 #[derive(Debug, Args)]
@@ -61,6 +76,42 @@ pub struct DoctorArgsCli {
     pub write: bool,
     #[arg(long, default_value_t = 10)]
     pub timeout_secs: u64,
+    #[command(subcommand)]
+    pub command: Option<DoctorSubcommand>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DoctorSubcommand {
+    /// List models available to the active or selected provider.
+    Models {
+        /// Name of a provider entry from `.appctl/config.toml` (defaults to the configured default).
+        #[arg(long)]
+        provider: Option<String>,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct AppArgs {
+    #[command(subcommand)]
+    pub command: AppSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AppSubcommand {
+    /// Register an app directory (defaults to detected local `.appctl`) and activate it.
+    Add {
+        /// Name to register. Defaults to the parent directory name.
+        name: Option<String>,
+        /// App directory to register. Defaults to the resolved `--app-dir`.
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// List all registered apps and show the active one.
+    List,
+    /// Set the global active app by name.
+    Use { name: String },
+    /// Remove a registered app by name.
+    Remove { name: String },
 }
 
 #[derive(Debug, Args)]
@@ -333,6 +384,12 @@ impl Cli {
         let paths = ConfigPaths::new(self.app_dir.clone());
 
         match self.command {
+            Command::Init => {
+                run_init(&paths).await?;
+            }
+            Command::App(args) => {
+                run_app_command(&paths, args.command)?;
+            }
             Command::Sync(args) => {
                 if let Some(name) = args.plugin.as_deref() {
                     run_dynamic_sync(paths, name, args.base_url.as_deref())?;
@@ -395,16 +452,22 @@ impl Cli {
                 )
                 .await?;
             }
-            Command::Doctor(args) => {
-                run_doctor(
-                    &paths,
-                    DoctorRunArgs {
-                        write: args.write,
-                        timeout_secs: args.timeout_secs,
-                    },
-                )
-                .await?;
-            }
+            Command::Doctor(args) => match args.command {
+                Some(DoctorSubcommand::Models { provider }) => {
+                    let config = AppConfig::load_or_init(&paths)?;
+                    run_doctor_models(&paths, &config, provider.as_deref()).await?;
+                }
+                None => {
+                    run_doctor(
+                        &paths,
+                        DoctorRunArgs {
+                            write: args.write,
+                            timeout_secs: args.timeout_secs,
+                        },
+                    )
+                    .await?;
+                }
+            },
             Command::History(args) => {
                 run_history_command(
                     &paths,
@@ -437,9 +500,7 @@ impl Cli {
             }
             Command::Config(args) => match args.command {
                 ConfigSubcommand::Init => {
-                    let config = AppConfig::default();
-                    config.save(&paths)?;
-                    println!("Initialized {}", paths.config.display());
+                    run_init(&paths).await?;
                 }
                 ConfigSubcommand::Show => {
                     let config = AppConfig::load_or_init(&paths)?;
@@ -1102,6 +1163,96 @@ fn init_tracing(log_level: &str) -> Result<()> {
         .with_target(false)
         .try_init()
         .ok();
+
+    Ok(())
+}
+
+fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
+    use crate::term::{
+        print_flow_header, print_section_title, print_status_error, print_status_success,
+        print_tip,
+    };
+
+    let mut registry = AppRegistry::load_or_default()?;
+
+    match command {
+        AppSubcommand::Add { name, path } => {
+            let app_dir = path
+                .map(|p| {
+                    std::fs::canonicalize(&p)
+                        .with_context(|| format!("failed to canonicalize {}", p.display()))
+                })
+                .unwrap_or_else(|| {
+                    std::fs::canonicalize(&paths.root).with_context(|| {
+                        format!("failed to canonicalize {}", paths.root.display())
+                    })
+                })?;
+
+            if !app_dir.exists() {
+                bail!(
+                    "app directory {} does not exist — run `appctl init` first",
+                    app_dir.display()
+                );
+            }
+
+            let chosen = name.unwrap_or_else(|| app_name_from_dir(&app_dir));
+            print_flow_header("app add", Some("Register an app and set it active"));
+            registry.register_and_activate(chosen.clone(), app_dir.clone());
+            registry.save()?;
+            print_status_success(&format!(
+                "Registered '{}' -> {}",
+                chosen,
+                app_dir.display()
+            ));
+            print_tip("Use `appctl app use <name>` later to switch the global active app.");
+        }
+        AppSubcommand::List => {
+            print_flow_header(
+                "app list",
+                Some("Global app contexts (~/.appctl/apps.toml)"),
+            );
+            if registry.apps.is_empty() {
+                print_tip("No apps registered yet. Run `appctl app add` in an `.appctl` directory.");
+                return Ok(());
+            }
+            let active = registry.active.clone();
+            print_section_title("Registered apps");
+            for (name, path) in &registry.apps {
+                let marker = if active.as_deref() == Some(name) {
+                    "*"
+                } else {
+                    " "
+                };
+                println!("  {marker} {name} -> {}", path.display());
+            }
+        }
+        AppSubcommand::Use { name } => {
+            if !registry.apps.contains_key(&name) {
+                print_status_error(&format!(
+                    "No registered app named '{name}'. Run `appctl app list` to see known apps."
+                ));
+                bail!("unknown app '{}'", name);
+            }
+            registry.active = Some(name.clone());
+            registry.save()?;
+            print_status_success(&format!("Active app set to '{name}'"));
+        }
+        AppSubcommand::Remove { name } => {
+            match registry.remove(&name) {
+                Some(path) => {
+                    registry.save()?;
+                    print_status_success(&format!(
+                        "Removed '{name}' (directory untouched: {})",
+                        path.display()
+                    ));
+                }
+                None => {
+                    print_status_error(&format!("No registered app named '{name}'"));
+                    bail!("unknown app '{}'", name);
+                }
+            }
+        }
+    }
 
     Ok(())
 }
