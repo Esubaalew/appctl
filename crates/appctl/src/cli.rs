@@ -1169,8 +1169,7 @@ fn init_tracing(log_level: &str) -> Result<()> {
 
 fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
     use crate::term::{
-        print_flow_header, print_section_title, print_status_error, print_status_success,
-        print_tip,
+        print_flow_header, print_section_title, print_status_error, print_status_success, print_tip,
     };
 
     let mut registry = AppRegistry::load_or_default()?;
@@ -1183,9 +1182,8 @@ fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
                         .with_context(|| format!("failed to canonicalize {}", p.display()))
                 })
                 .unwrap_or_else(|| {
-                    std::fs::canonicalize(&paths.root).with_context(|| {
-                        format!("failed to canonicalize {}", paths.root.display())
-                    })
+                    std::fs::canonicalize(&paths.root)
+                        .with_context(|| format!("failed to canonicalize {}", paths.root.display()))
                 })?;
 
             if !app_dir.exists() {
@@ -1199,11 +1197,7 @@ fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
             print_flow_header("app add", Some("Register an app and set it active"));
             registry.register_and_activate(chosen.clone(), app_dir.clone());
             registry.save()?;
-            print_status_success(&format!(
-                "Registered '{}' -> {}",
-                chosen,
-                app_dir.display()
-            ));
+            print_status_success(&format!("Registered '{}' -> {}", chosen, app_dir.display()));
             print_tip("Use `appctl app use <name>` later to switch the global active app.");
         }
         AppSubcommand::List => {
@@ -1212,7 +1206,9 @@ fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
                 Some("Global app contexts (~/.appctl/apps.toml)"),
             );
             if registry.apps.is_empty() {
-                print_tip("No apps registered yet. Run `appctl app add` in an `.appctl` directory.");
+                print_tip(
+                    "No apps registered yet. Run `appctl app add` in an `.appctl` directory.",
+                );
                 return Ok(());
             }
             let active = registry.active.clone();
@@ -1237,21 +1233,19 @@ fn run_app_command(paths: &ConfigPaths, command: AppSubcommand) -> Result<()> {
             registry.save()?;
             print_status_success(&format!("Active app set to '{name}'"));
         }
-        AppSubcommand::Remove { name } => {
-            match registry.remove(&name) {
-                Some(path) => {
-                    registry.save()?;
-                    print_status_success(&format!(
-                        "Removed '{name}' (directory untouched: {})",
-                        path.display()
-                    ));
-                }
-                None => {
-                    print_status_error(&format!("No registered app named '{name}'"));
-                    bail!("unknown app '{}'", name);
-                }
+        AppSubcommand::Remove { name } => match registry.remove(&name) {
+            Some(path) => {
+                registry.save()?;
+                print_status_success(&format!(
+                    "Removed '{name}' (directory untouched: {})",
+                    path.display()
+                ));
             }
-        }
+            None => {
+                print_status_error(&format!("No registered app named '{name}'"));
+                bail!("unknown app '{}'", name);
+            }
+        },
     }
 
     Ok(())
