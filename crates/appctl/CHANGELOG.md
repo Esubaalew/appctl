@@ -4,6 +4,12 @@ All notable changes to `appctl` are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.4.0...appctl-v0.5.0) - 2026-04-23
+
+### Added
+
+- *(cli)* wire `init`, `app`, and `doctor models` commands
+
 ## [0.4.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.3.0...appctl-v0.4.0) - 2026-04-23
 
 ### Fixed
