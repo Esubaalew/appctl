@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      # `docs-next` reads the displayed version from the workspace `Cargo.toml`
+      - "Cargo.toml"
       - "docs-next/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
