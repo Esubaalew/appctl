@@ -1,5 +1,9 @@
 [workspace]
 # Both crates share a single version line at [workspace.package].
+# `release-plz.yml` builds `web/dist` and copies it into `crates/appctl/embedded-web/dist`
+# before running release-plz, so the tree is dirty with fresh hashed bundle names.
+allow_dirty = true
+publish_allow_dirty = true
 dependencies_update = true
 changelog_update = true
 git_release_enable = true

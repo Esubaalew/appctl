@@ -341,9 +341,8 @@ fn flask_field_type(args: &str) -> FieldType {
 }
 
 fn to_resource_name(name: &str) -> String {
-    let mut chars = name.chars().peekable();
     let mut out = String::new();
-    while let Some(ch) = chars.next() {
+    for ch in name.chars() {
         if ch.is_uppercase() && !out.is_empty() {
             out.push('_');
         }

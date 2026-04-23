@@ -6,7 +6,7 @@ use futures::TryStreamExt;
 use mongodb::bson::{Document, doc, oid::ObjectId};
 use redis::AsyncCommands;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
-use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
+use reqwest_cookie_store::CookieStoreMutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sqlx::{Column, Row};
@@ -693,7 +693,7 @@ fn runtime_cookie_store(paths: &ConfigPaths, config: &AppConfig) -> Option<Arc<C
         .map(std::io::BufReader::new)
         .ok()
         .and_then(|reader| cookie_store::serde::json::load(reader).ok())
-        .unwrap_or_else(CookieStore::new);
+        .unwrap_or_default();
     Some(Arc::new(CookieStoreMutex::new(store)))
 }
 
@@ -1483,7 +1483,7 @@ fn firestore_project(source: &str) -> Result<String> {
                 .and_then(|mut segments| segments.next().map(str::to_string))
         })
         .filter(|value| !value.is_empty())
-        .or_else(|| gcloud::detect_project())
+        .or_else(gcloud::detect_project)
         .context("firestore connection string must include a project id or gcloud project")
 }
 

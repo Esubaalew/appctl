@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use reqwest::Client;
-use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
+use reqwest_cookie_store::CookieStoreMutex;
 use scraper::{Html, Selector};
 use serde_json::Map;
 
@@ -253,7 +253,7 @@ fn load_jar(path: &std::path::Path) -> CookieStoreMutex {
         .map(BufReader::new)
         .ok()
         .and_then(|reader| cookie_store::serde::json::load(reader).ok())
-        .unwrap_or_else(CookieStore::new);
+        .unwrap_or_default();
     CookieStoreMutex::new(store)
 }
 

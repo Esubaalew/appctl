@@ -7,23 +7,25 @@ Mirrors [`CHANGELOG.md`](https://github.com/Esubaalew/appctl/blob/main/CHANGELOG
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-23
+
 ### Added
 
 - `appctl sync --watch` for OpenAPI sources, plus `--doctor-write` to verify routes immediately after a successful sync.
-- Named chat sessions via `appctl chat --session <name>`, with session labels carried into history and the web audit UI.
+- Named chat sessions via `appctl chat --session <name>`, with session labels carried into history and the web Activity panel.
 - `appctl run --json` for machine-readable one-shot output.
 - `appctl app add --openapi ...` so registration and first sync can happen in one command.
 - Native `appctl sync --flask .` support.
-- Additional datastore support for MongoDB, Redis, Firestore, and DynamoDB under `sync --db`.
+- Additional datastore support for MongoDB, Redis, Firestore, and DynamoDB under `sync --db` (and SQLite for SQL workflows).
 - Tool pinning and aliasing in app config.
 - `appctl serve --identity-header` and `--tunnel`.
 
 ### Changed
 
-- Cookie/session auth from URL-login syncs is now persisted and reused across later invocations.
+- Cookie/session auth from URL-login syncs is persisted and reused across later invocations.
 - Runtime target resolution can read the base URL from config or environment (`target.base_url_env` / `APPCTL_BASE_URL`).
-- The web history panel now shows session labels alongside session ids.
-- CI is being updated to remove older Node 20 assumptions from the main workflow.
+- The web history panel shows session labels alongside session ids.
+- CI and release automation use current Node.js (24) and action major versions aligned with the main workflow.
 
 ## [0.5.0] — 2026-04-23
 

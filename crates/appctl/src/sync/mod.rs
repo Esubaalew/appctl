@@ -90,7 +90,7 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
             .introspect()
             .await?
     } else if let Some(source_url) = &request.url {
-        url::UrlSync::new(source_url.clone(), &paths, &request)?
+        url::UrlSync::new(source_url.clone(), &paths, request)?
             .introspect()
             .await?
     } else if let Some(server_url) = &request.mcp {
