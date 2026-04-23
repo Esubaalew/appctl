@@ -53,7 +53,11 @@ fn load_tokens_for(namespace: OAuthTokenNamespace, key: &str) -> Option<StoredTo
     serde_json::from_str(&raw).ok()
 }
 
-fn save_tokens_for(namespace: OAuthTokenNamespace, key: &str, tokens: &StoredTokens) -> Result<()> {
+pub fn save_tokens_for(
+    namespace: OAuthTokenNamespace,
+    key: &str,
+    tokens: &StoredTokens,
+) -> Result<()> {
     let encoded = serde_json::to_string(tokens)?;
     save_secret(&secret_key(namespace, key), &encoded)
 }
@@ -276,7 +280,7 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
-fn webbrowser_open(url: &str) -> Result<()> {
+pub fn webbrowser_open(url: &str) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open").arg(url).spawn()?;

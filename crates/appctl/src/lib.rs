@@ -8,6 +8,7 @@ pub mod doctor;
 pub mod events;
 pub mod executor;
 pub mod history;
+pub mod init;
 pub mod mcp_server;
 pub mod plugins;
 pub mod run;

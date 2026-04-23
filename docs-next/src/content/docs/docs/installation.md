@@ -3,7 +3,17 @@ title: Installation
 description: Install appctl and configure at least one language model provider.
 ---
 
-`appctl` is a single Rust binary. Install it from crates.io, from source, or grab a prebuilt release.
+`appctl` is a single Rust binary. Install it from crates.io, from source, or
+pull a prebuilt release. The embedded web UI is bundled into the binary at
+build time — there is nothing extra to install for [`appctl serve`](/docs/cli/serve/).
+
+## Supported platforms
+
+`appctl` is tested in CI on:
+
+- macOS (arm64, x86_64)
+- Linux (x86_64, aarch64, glibc ≥ 2.31)
+- Windows (x86_64, MSVC toolchain)
 
 ## From crates.io
 
@@ -15,101 +25,127 @@ Verify:
 
 ```bash
 appctl --version
-# appctl 0.3.0
 ```
+
+Output matches the version in this repo's `Cargo.toml` (currently `0.3.0`).
 
 ## From source
 
-Clone the repo and install in place. This is the fastest way to track `main`:
+Tracking `main` is the fastest path for new features. The embedded web UI
+must be built before you `cargo install`, because `appctl` is compiled against
+the `web/dist/` output.
 
 ```bash
 git clone https://github.com/Esubaalew/appctl.git
 cd appctl
-cargo install --locked --path crates/appctl
-```
 
-To build the embedded web UI the same way CI does (required for a clean install from a working tree):
-
-```bash
+# Build the web UI bundle (Node 20+ required, matches CI)
 cd web && npm ci && npm run build && cd ..
+
+# Install the binary
 cargo install --locked --path crates/appctl
 ```
+
+If you skip the `web` build step, `cargo install` will still succeed but the
+`appctl serve` web console will 404 on `/`.
 
 ## From a prebuilt release
 
-Each GitHub Release ships binaries for macOS (Intel, Apple Silicon), Linux (x86_64, aarch64), and Windows (x86_64). Download with `gh`:
+Each GitHub Release ships self-contained binaries for macOS (Intel + Apple
+Silicon), Linux (x86_64 + aarch64), and Windows (x86_64):
 
 ```bash
-gh release download -R Esubaalew/appctl
+gh release download -R Esubaalew/appctl --pattern '*-apple-darwin*'
+tar -xzf appctl-*-apple-darwin*.tar.gz
+mv appctl /usr/local/bin/
 ```
 
-Or from the [Releases page](https://github.com/Esubaalew/appctl/releases).
+Or grab them from the [Releases page](https://github.com/Esubaalew/appctl/releases).
 
 ## Configure a provider
 
-`appctl` needs at least one language model provider. Create the default config:
+`appctl` needs at least one language-model provider to run `chat`, `run`, or
+`serve`. The simplest path is:
 
 ```bash
+# Initialize the config file
 appctl config init
+
+# Append a preset for the provider you want
+appctl config provider-sample --preset openai >> .appctl/config.toml
 ```
 
-Open `.appctl/config.toml` and uncomment the provider you want, or start from the sample:
+Currently-supported presets:
+
+- `openai` — OpenAI (API key)
+- `claude` — Anthropic (API key)
+- `gemini` — Google Gemini (OAuth2)
+- `vertex` — Vertex AI (Google ADC)
+- `qwen` — Qwen DashScope (API key, OpenAI-compatible transport)
+- `ollama` — local Ollama (no auth)
+- `default` — a multi-provider scaffold
+
+Then either set the API key:
 
 ```bash
-appctl config provider-sample --preset gemini
+appctl config set-secret OPENAI_API_KEY
+# prompts you, no echo
 ```
 
-Output:
-
-```toml
-default = "gemini"
-
-[[provider]]
-name = "gemini"
-kind = "google_genai"
-base_url = "https://generativelanguage.googleapis.com"
-model = "gemini-2.5-pro"
-auth = { kind = "oauth2", profile = "gemini-default", scopes = ["https://www.googleapis.com/auth/generative-language"] }
-```
-
-### Complete provider auth
-
-For Gemini OAuth:
+Or run the OAuth / ADC flow:
 
 ```bash
-appctl auth provider login gemini
+appctl auth provider login gemini         # OAuth2 (real browser)
+gcloud auth application-default login && appctl auth provider login vertex
 ```
 
-For API-key providers such as Claude or Qwen:
-
-```bash
-appctl config set-secret anthropic --value "$ANTHROPIC_API_KEY"
-```
-
-Secrets never leave your machine. An environment variable of the same name still overrides at runtime.
+Secrets are written to the OS keychain (macOS Keychain, Windows Credential
+Manager, GNOME Keyring / libsecret on Linux). Environment variables with the
+same name override at runtime.
 
 ## Supported LLM providers
 
-Any OpenAI-compatible endpoint works out of the box:
+Native transports:
 
-- OpenAI, OpenRouter, NVIDIA NIM, Groq, Together, Fireworks
-- Ollama, LM Studio, vLLM, LiteLLM (local or self-hosted)
-- Anthropic Claude (native `kind = "anthropic"`)
-- Google Gemini (native `kind = "google_genai"`)
-- Qwen via DashScope / Coding Plan (OpenAI-compatible transport)
+- **OpenAI-compatible** (`kind = "open_ai_compatible"`) — OpenAI, OpenRouter,
+  Groq, Together, Fireworks, NVIDIA NIM, Mistral's OpenAI endpoint, LiteLLM,
+  Ollama, LM Studio, vLLM, llama.cpp server, DashScope (Qwen), anything that
+  speaks `/chat/completions`.
+- **Anthropic** (`kind = "anthropic"`) — Claude with the native API shape.
+- **Google GenAI** (`kind = "google_genai"`) — Gemini via the
+  `generativelanguage.googleapis.com` endpoint.
+- **Vertex AI** (`kind = "vertex_ai"`) — Gemini via Google Vertex, using
+  Google ADC.
+- **Azure OpenAI** (`kind = "azure_openai"`) — Azure deployments with AAD or
+  key auth.
 
-See [Provider matrix](/docs/provider-matrix/) for the supported auth path and billing expectations for each provider.
+See [Provider matrix](/docs/provider-matrix/) for the exact `auth` shape and
+billing expectations for each one.
 
-## Verify install
+## Verify the install
 
 ```bash
 appctl --help
 ```
 
-You should see a list of subcommands: `sync`, `chat`, `run`, `doctor`, `history`, `serve`, `config`, `plugin`, `auth`.
+You should see every subcommand:
+
+```text
+Commands:
+  sync      Introspect your app and regenerate the tool schema.
+  chat      Interactive REPL against the synced schema.
+  run       One-shot prompt against the synced schema.
+  doctor    Probe HTTP tools for reachability and verify provenance.
+  history   Print the audit log of every tool call.
+  serve     Start the HTTP + WebSocket server and embedded web UI.
+  config    View and edit .appctl/config.toml and keychain secrets.
+  plugin    Manage dynamic sync plugins.
+  auth      Authenticate the target app and the LLM provider.
+  mcp       Run appctl itself as an MCP server.
+```
 
 ## Next
 
-- [Quickstart](/docs/quickstart/): run through a demo app end-to-end.
-- [Provider matrix](/docs/provider-matrix/): choose the right auth and billing path.
-- [Sources](/docs/sources/openapi/): pick a sync source for your app.
+- [Quickstart](/docs/quickstart/) — run a demo app end-to-end.
+- [Provider matrix](/docs/provider-matrix/) — choose the right auth path.
+- [Sources](/docs/sources/openapi/) — pick a sync source for your app.

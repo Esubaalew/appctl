@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,8 +15,10 @@ use crate::{
 };
 
 pub mod anthropic;
+pub mod azure_openai;
 pub mod google_genai;
 pub mod openai_compat;
+pub mod vertex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -50,6 +52,12 @@ pub trait LlmProvider: Send + Sync {
     async fn chat(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentStep>;
 }
 
+#[derive(Debug, Clone)]
+pub struct AgentRunOutcome {
+    pub response: Value,
+    pub transcript: Vec<Message>,
+}
+
 pub fn provider_from_config(resolved: ResolvedProvider) -> Box<dyn LlmProvider> {
     match resolved.kind {
         ProviderKind::Anthropic => Box::new(anthropic::AnthropicProvider::new(resolved)),
@@ -57,6 +65,8 @@ pub fn provider_from_config(resolved: ResolvedProvider) -> Box<dyn LlmProvider> 
             Box::new(openai_compat::OpenAiCompatProvider::new(resolved))
         }
         ProviderKind::GoogleGenai => Box::new(google_genai::GoogleGenaiProvider::new(resolved)),
+        ProviderKind::Vertex => Box::new(vertex::VertexProvider::new(resolved)),
+        ProviderKind::AzureOpenAi => Box::new(azure_openai::AzureOpenAiProvider::new(resolved)),
     }
 }
 
@@ -73,11 +83,12 @@ pub async fn run_agent(
     provider_name: Option<&str>,
     model_override: Option<&str>,
     prompt: &str,
+    prior_messages: &[Message],
     tools: &[ToolDef],
     schema: &crate::schema::Schema,
     exec_context: ExecutionContext,
     events: Option<mpsc::Sender<AgentEvent>>,
-) -> Result<Value> {
+) -> Result<AgentRunOutcome> {
     send_agent_event(
         &events,
         AgentEvent::UserPrompt {
@@ -93,27 +104,13 @@ pub async fn run_agent(
     )?);
     let executor = Executor::new(paths)?;
     let history = HistoryStore::open(paths)?;
-    let mut messages = vec![
-        Message {
-            role: "system".to_string(),
-            content: system_prompt(),
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-            tool_name: None,
-        },
-        Message {
-            role: "user".to_string(),
-            content: prompt.to_string(),
-            tool_calls: Vec::new(),
-            tool_call_id: None,
-            tool_name: None,
-        },
-    ];
+    let mut messages = build_turn_messages(prior_messages, prompt);
 
     let mut final_response = Value::Null;
 
     let loop_result: Result<()> = 'agent: {
         for _ in 0..config.behavior.max_iterations {
+            trim_transcript(&mut messages, config.behavior.history_limit);
             match provider.chat(&messages, tools).await? {
                 AgentStep::Message { content } => {
                     final_response = Value::String(content.clone());
@@ -131,6 +128,10 @@ pub async fn run_agent(
                         tool_call_id: None,
                         tool_name: None,
                     });
+                    // One user turn: a plain assistant reply ends this LLM round-trip.
+                    // Do not call the model again until the next user message (avoids
+                    // duplicate assistant blocks and extra provider calls).
+                    break;
                 }
                 AgentStep::ToolCalls { calls } => {
                     messages.push(Message {
@@ -142,6 +143,24 @@ pub async fn run_agent(
                     });
 
                     for call in calls {
+                        let action = schema
+                            .action(&call.name)
+                            .with_context(|| format!("tool '{}' not found", call.name))?;
+                        send_agent_event(&events, AgentEvent::AwaitingInput).await;
+                        // Let the printer task clear spinner frames before dialoguer asks
+                        // for blocking confirmation on mutating actions.
+                        tokio::task::yield_now().await;
+                        if let Err(e) = exec_context.safety.check(action, &call.arguments) {
+                            send_agent_event(
+                                &events,
+                                AgentEvent::Error {
+                                    message: e.to_string(),
+                                },
+                            )
+                            .await;
+                            break 'agent Err(e);
+                        }
+
                         send_agent_event(
                             &events,
                             AgentEvent::ToolCall {
@@ -212,14 +231,132 @@ pub async fn run_agent(
     if final_response.is_null() {
         bail!("agent finished without a response")
     } else {
-        Ok(final_response)
+        Ok(AgentRunOutcome {
+            response: final_response,
+            transcript: messages,
+        })
     }
 }
 
 pub fn load_provider(paths: &ConfigPaths) -> Result<AppConfig> {
-    AppConfig::load_or_init(paths)
+    AppConfig::load_for_runtime(paths, "run")
 }
 
 fn system_prompt() -> String {
-    "You are appctl, an operations agent for a synced application. Prefer direct tool use. Never invent parameters. Summarize your result succinctly after using tools.".to_string()
+    r#"Critical identity: you are only "appctl" (the end-user’s application operations agent). You must not name or imply Gemini, Google, OpenAI, Anthropic, a model name, a vendor, a cloud, or a subscription product. If asked who/what you are, answer exactly: I am appctl, your application operations agent. One short reply; do not add a second self-introduction paragraph.
+
+You help users with synced OpenAPI tools and project operations. Prefer direct tool use. Never invent parameters.
+
+Response style rules:
+- Do not volunteer unrelated information the user did not ask for.
+- Keep answers concise and task-focused.
+- Do not end every response with "let me know..." style filler.
+- If a follow-up question is required, ask at most one short follow-up sentence."#
+        .to_string()
+}
+
+fn build_turn_messages(prior_messages: &[Message], prompt: &str) -> Vec<Message> {
+    let mut messages = if prior_messages.is_empty() {
+        vec![Message {
+            role: "system".to_string(),
+            content: system_prompt(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            tool_name: None,
+        }]
+    } else {
+        prior_messages.to_vec()
+    };
+
+    if !messages.iter().any(|message| message.role == "system") {
+        messages.insert(
+            0,
+            Message {
+                role: "system".to_string(),
+                content: system_prompt(),
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+                tool_name: None,
+            },
+        );
+    }
+
+    messages.push(Message {
+        role: "user".to_string(),
+        content: prompt.to_string(),
+        tool_calls: Vec::new(),
+        tool_call_id: None,
+        tool_name: None,
+    });
+    messages
+}
+
+fn trim_transcript(messages: &mut Vec<Message>, history_limit: usize) {
+    if history_limit == 0 {
+        return;
+    }
+    let system = messages
+        .iter()
+        .find(|message| message.role == "system")
+        .cloned();
+    let non_system: Vec<_> = messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .cloned()
+        .collect();
+    if non_system.len() <= history_limit {
+        return;
+    }
+    let start = non_system.len().saturating_sub(history_limit);
+    let mut trimmed = Vec::with_capacity(history_limit + usize::from(system.is_some()));
+    if let Some(system) = system {
+        trimmed.push(system);
+    }
+    trimmed.extend(non_system.into_iter().skip(start));
+    *messages = trimmed;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Message, build_turn_messages, trim_transcript};
+
+    fn msg(role: &str, content: &str) -> Message {
+        Message {
+            role: role.to_string(),
+            content: content.to_string(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            tool_name: None,
+        }
+    }
+
+    #[test]
+    fn build_turn_messages_keeps_prior_transcript() {
+        let prior = vec![
+            msg("system", "sys"),
+            msg("user", "first"),
+            msg("assistant", "reply"),
+        ];
+        let messages = build_turn_messages(&prior, "second");
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[1].content, "first");
+        assert_eq!(messages[2].content, "reply");
+        assert_eq!(messages[3].content, "second");
+    }
+
+    #[test]
+    fn trim_transcript_keeps_system_and_latest_messages() {
+        let mut messages = vec![
+            msg("system", "sys"),
+            msg("user", "u1"),
+            msg("assistant", "a1"),
+            msg("user", "u2"),
+            msg("assistant", "a2"),
+        ];
+        trim_transcript(&mut messages, 2);
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].role, "system");
+        assert_eq!(messages[1].content, "u2");
+        assert_eq!(messages[2].content, "a2");
+    }
 }

@@ -1,48 +1,67 @@
 ---
 title: appctl history
-description: Inspect or undo past tool calls stored in .appctl/history.db.
+description: Replay the agent's audit log — every plan, call, and observation.
 ---
 
-Inspect or undo past tool calls recorded in `.appctl/history.db`.
+`appctl history` prints the audit log stored in `.appctl/history.db` (SQLite). Every
+tool call ever issued by `appctl chat`, `appctl run`, or `appctl serve` against
+the current app directory is there with full arguments, response, and status.
 
 ## Usage
 
-```
+```bash
 appctl history [OPTIONS]
 ```
 
 ## Options
 
-- `--last <N>` — print the last `N` entries (default `20`).
-- `--undo <ID>` — attempt to reverse tool call with the given id.
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--last <N>` | `20` | Print the most recent N entries. |
+| `--undo <ID>` | — | Attempt to reverse the mutation with this history id, if the original tool declared an inverse. |
+
+## What an entry looks like
+
+Each row of the SQLite table is rendered as a block with:
+
+- timestamp (UTC, ISO-8601)
+- tool name and `op` (`http`, `sql`, `mcp`, `plugin`, ...)
+- safety mode that was active (`read_only`, `dry_run`, `confirm`, `strict`)
+- status (`success` / `error`)
+- full JSON arguments
+- truncated JSON response (up to the executor's cap)
+
+The same table is what the Web UI's **History** tab reads and what the VS Code
+extension replays.
+
+## Undo
+
+`--undo <ID>` only works when the original tool declared an inverse during
+sync. For example, the Django source emits `users.create` with an inverse
+pointing at `users.delete`. Sources that do not declare inverses will error out
+on undo. Most mutating tools today do **not** declare inverses.
 
 ## Examples
 
-List recent calls:
-
 ```bash
+# Last 10 tool calls
 appctl history --last 10
+
+# Print everything in the last session (use your app's real N)
+appctl history --last 500
+
+# Undo a specific mutation (requires an inverse)
+appctl history --undo 42
 ```
 
-Undo a specific call:
+## Reading history from code
 
-```bash
-appctl history --undo 47
-```
-
-`--undo` works only when the original tool has a reversible counterpart the runtime can derive (for example, a `create_*` call writes the created id into history, and the undo issues a matching `delete_*`). If there is no inverse, `--undo` reports `not_reversible` and makes no changes.
-
-## Direct SQLite access
-
-The store is plain SQLite:
-
-```bash
-sqlite3 .appctl/history.db 'select ts, tool, status from tool_calls order by ts desc limit 5;'
-```
-
-Rows include the prompt, the chosen tool, arguments, HTTP status, and which provider/model produced the response.
+`appctl serve` exposes the same log at `GET /history?limit=<N>`. See
+[HTTP endpoints](/docs/api/http/).
 
 ## Related
 
-- [Agent loop](/docs/concepts/agent-loop/)
-- [AgentEvent stream](/docs/api/agent-events/)
+- [`appctl serve`](/docs/cli/serve/) — view history in the Web UI.
+- [Agent loop](/docs/concepts/agent-loop/) — what each row represents.
+- [Provenance and safety](/docs/concepts/provenance-and-safety/) — safety
+  flags recorded per call.

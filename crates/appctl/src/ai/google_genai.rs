@@ -4,6 +4,10 @@ use serde_json::{Map, Value, json};
 use crate::{
     ai::{AgentStep, LlmProvider, Message, ToolCall},
     config::ResolvedProvider,
+    term::{
+        format_api_error_summary, format_google_error_detail_line,
+        user_message_google_genai_http_error,
+    },
     tools::ToolDef,
 };
 
@@ -61,22 +65,30 @@ impl LlmProvider for GoogleGenaiProvider {
             .context("failed to read Google GenAI response body")?;
         if !status.is_success() {
             bail!(
-                "Google GenAI API returned {}: {}",
-                status,
-                summarize_body(&body)
+                "{}",
+                user_message_google_genai_http_error(status.as_u16(), &body, &self.config.model)
             );
         }
         let response: Value = serde_json::from_str(&body).with_context(|| {
             format!(
                 "failed to parse Google GenAI response as JSON: {}",
-                summarize_body(&body)
+                format_api_error_summary(&body)
             )
         })?;
 
-        let candidate = response
+        let Some(candidate) = response
             .pointer("/candidates/0/content/parts")
             .and_then(Value::as_array)
-            .context("Google GenAI response missing candidates[0].content.parts")?;
+        else {
+            let feedback = response
+                .get("promptFeedback")
+                .map(|value| format_google_error_detail_line(&value.to_string()))
+                .unwrap_or_else(|| format_google_error_detail_line(&body));
+            bail!(
+                "appctl could not read a normal model reply (blocked, safety, or empty output). {}",
+                feedback
+            );
+        };
 
         let mut tool_calls = Vec::new();
         let mut text = String::new();
@@ -164,17 +176,25 @@ fn serialize_tool(tool: &ToolDef) -> Value {
     json!({
         "name": tool.name,
         "description": tool.description,
-        "parameters": tool.input_schema,
+        "parameters": sanitize_genai_schema(tool.input_schema.clone()),
     })
 }
 
-fn summarize_body(body: &str) -> String {
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        return "<empty body>".to_string();
+fn sanitize_genai_schema(value: Value) -> Value {
+    match value {
+        Value::Object(mut map) => {
+            map.remove("additionalProperties");
+            let keys = map.keys().cloned().collect::<Vec<_>>();
+            for key in keys {
+                if let Some(child) = map.remove(&key) {
+                    map.insert(key, sanitize_genai_schema(child));
+                }
+            }
+            Value::Object(map)
+        }
+        Value::Array(values) => {
+            Value::Array(values.into_iter().map(sanitize_genai_schema).collect())
+        }
+        other => other,
     }
-
-    let mut compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
-    compact.truncate(280);
-    compact
 }

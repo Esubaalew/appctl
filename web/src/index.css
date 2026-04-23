@@ -2,16 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Mirrors docs/design-tokens.css */
 :root {
-  --bg: #0b0d10;
-  --fg: #e7ecf2;
-  --muted: #8a94a4;
-  --accent: #7cc4ff;
-  --accent-2: #a8ff9a;
-  --panel: #141820;
-  --border: #222833;
-  --code-bg: #0f1319;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --panel: #121212;
+  --panel-2: #171717;
+  --elev: #1e1e1e;
+  --border: #262626;
+  --border-strong: #3f3f46;
+  --fg: #ffffff;
+  --fg-dim: #a1a1aa;
+  --muted: #71717a;
+  --accent: #ffffff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 html {
@@ -20,11 +28,10 @@ html {
 
 body {
   margin: 0;
-  min-height: 100vh;
   background: var(--bg);
   color: var(--fg);
+  overflow: hidden;
   font-family:
-    "IBM Plex Sans",
     "Inter",
     ui-sans-serif,
     system-ui,
@@ -32,24 +39,21 @@ body {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  min-height: 100vh;
-}
-
-::selection {
-  background: rgba(124, 196, 255, 0.3);
-  color: var(--fg);
-}
-
-* {
-  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 pre,
 code,
-textarea {
+textarea,
+kbd {
   font-family:
     "JetBrains Mono",
     ui-monospace,
@@ -58,5 +62,190 @@ textarea {
     Monaco,
     Consolas,
     "Liberation Mono",
+    "Courier New",
     monospace;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+.app-bg {
+  background: var(--bg);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.card-muted {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-live {
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+}
+.dot-idle {
+  background: #fbbf24;
+}
+.dot-off {
+  background: #71717a;
+}
+.dot-err {
+  background: #f87171;
+}
+
+.streaming-dot::after {
+  content: "▍";
+  animation: blink 1s step-end infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  color: var(--muted);
+  transition: all 0.1s;
+}
+
+.rail-btn:hover {
+  color: var(--fg);
+  background: var(--panel);
+}
+
+.rail-btn.active {
+  color: var(--fg);
+  background: var(--elev);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+.msg-user {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.msg-assistant {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.tool-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tool-tile .tool-head {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown {
+  word-break: break-word;
+}
+.markdown p {
+  margin-bottom: 1em;
+}
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+.markdown pre {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 1em 0;
+  font-size: 13px;
+}
+.markdown code {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 0.9em;
+}
+.markdown pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.markdown ul {
+  list-style-type: disc;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+.markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.5em;
+  margin-bottom: 1em;
+}
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+.markdown th {
+  background: var(--panel);
+  font-weight: 600;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 1em;
+  color: var(--muted);
+  margin: 1em 0;
+}
+.markdown a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 2px;
+}
+.markdown a:hover {
+  text-decoration-color: var(--fg);
 }

@@ -17,24 +17,28 @@ const tabs = [
     border: 1px solid var(--appctl-border);
     color: var(--appctl-muted);
     font-family: inherit;
-    font-size: 13px;
-    padding: 6px 12px;
-    border-radius: 6px;
+    font-size: 12px;
+    padding: 5px 11px;
+    border-radius: 4px;
     cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .tab:hover {
+    color: var(--appctl-fg);
   }
   .tab[data-active='true'] {
     color: var(--appctl-fg);
-    border-color: var(--appctl-accent);
-    background: rgba(124, 196, 255, 0.08);
+    border-color: var(--appctl-border-strong);
+    background: var(--appctl-surface);
   }
   .cmd {
     position: relative;
     background: var(--appctl-code-bg);
     border: 1px solid var(--appctl-border);
-    border-radius: 8px;
-    padding: 12px 44px 12px 14px;
+    border-radius: 6px;
+    padding: 12px 56px 12px 14px;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 13.5px;
+    font-size: 13px;
     color: var(--appctl-fg);
     overflow-x: auto;
   }
@@ -43,19 +47,19 @@ const tabs = [
   }
   .copy {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 7px;
+    right: 7px;
     background: transparent;
     border: 1px solid var(--appctl-border);
     color: var(--appctl-muted);
-    border-radius: 6px;
-    padding: 3px 8px;
+    border-radius: 4px;
+    padding: 3px 9px;
     font-size: 11px;
     cursor: pointer;
   }
   .copy:hover {
     color: var(--appctl-fg);
-    border-color: var(--appctl-accent);
+    border-color: var(--appctl-border-strong);
   }
 </style>
 

@@ -365,6 +365,7 @@ impl Cli {
                 run_chat(
                     &paths,
                     &config,
+                    "app",
                     ChatOptions {
                         provider: args.provider,
                         model: args.model,
@@ -381,6 +382,7 @@ impl Cli {
                 run_once(
                     &paths,
                     &config,
+                    "app",
                     RunOptions {
                         prompt: args.prompt,
                         provider: args.provider,
@@ -416,6 +418,7 @@ impl Cli {
             Command::Serve(args) => {
                 let config = AppConfig::load_or_init(&paths)?;
                 run_server(
+                    "app".to_string(),
                     paths,
                     config,
                     ServeOptions {
@@ -781,7 +784,7 @@ async fn login_provider_auth(
             );
             Ok(())
         }
-        Some(ProviderAuthConfig::ApiKey { secret_ref }) => {
+        Some(ProviderAuthConfig::ApiKey { secret_ref, .. }) => {
             let secret = match value {
                 Some(value) => value,
                 None => dialoguer::Password::new()
@@ -865,7 +868,10 @@ async fn login_provider_auth(
             );
             Ok(())
         }
-        Some(ProviderAuthConfig::GoogleAdc { .. }) => {
+        Some(ProviderAuthConfig::GoogleAdc { .. })
+        | Some(ProviderAuthConfig::QwenOAuth { .. })
+        | Some(ProviderAuthConfig::AzureAd { .. })
+        | Some(ProviderAuthConfig::McpBridge { .. }) => {
             let status = config
                 .provider_statuses()
                 .into_iter()
@@ -1070,16 +1076,17 @@ fn provider_auth_preset(provider_name: &str) -> Option<ProviderAuthConfig> {
         }),
         "qwen" => Some(ProviderAuthConfig::ApiKey {
             secret_ref: "DASHSCOPE_API_KEY".to_string(),
+            help_url: None,
         }),
         "claude" => Some(ProviderAuthConfig::ApiKey {
             secret_ref: "anthropic".to_string(),
+            help_url: None,
         }),
         "openai" => Some(ProviderAuthConfig::ApiKey {
             secret_ref: "OPENAI_API_KEY".to_string(),
+            help_url: None,
         }),
-        "vertex" => Some(ProviderAuthConfig::GoogleAdc {
-            profile: Some("vertex-default".to_string()),
-        }),
+        "vertex" => Some(ProviderAuthConfig::GoogleAdc { project: None }),
         "ollama" => Some(ProviderAuthConfig::None),
         _ => None,
     }

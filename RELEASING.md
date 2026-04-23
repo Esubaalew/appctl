@@ -33,13 +33,35 @@ by opening a PR whenever the `main` branch has unreleased commits.
 ## Cutting a release
 
 1. Merge all release-worthy PRs into `main`.
-2. Let `release-plz` open its release PR. Review and merge it.
-3. `release-plz` will tag the commit (e.g. `v0.2.0`) and publish both crates to
-   crates.io in the correct order (`appctl-plugin-sdk` first, then `appctl`).
-4. The tag triggers `.github/workflows/release.yml`, which runs `cargo-dist`
+2. **Before release-plz will open its PR**, the `live-providers` workflow
+   must be green on the same `main` SHA that release-plz wants to publish.
+   Trigger it manually from the Actions tab (or wait for the nightly run)
+   and make sure every non-skipped case passes.
+3. Once `live-providers` is green, `release-plz` opens its PR. Review and
+   merge it.
+4. `release-plz` will tag the commit (e.g. `v0.2.0`) and publish both crates
+   to crates.io in the correct order (`appctl-plugin-sdk` first, then
+   `appctl`).
+5. The tag triggers `.github/workflows/release.yml`, which runs `cargo-dist`
    to produce cross-platform binaries and a GitHub Release.
-5. The `vscode.yml` workflow builds and uploads the `.vsix` extension as a
+6. The `vscode.yml` workflow builds and uploads the `.vsix` extension as a
    release asset.
+
+### Required branch-protection rules
+
+These must be configured in GitHub branch protection for `main`
+(Settings → Branches → Branch protection rules):
+
+- Required status checks:
+  - `CI / all-ok`
+  - `live-providers / verify-matrix`
+- Require branches to be up to date before merging.
+- Restrict who can push to matching branches (release-plz PRs excluded).
+
+The `require-live-providers` job in `release-plz.yml` is a belt-and-braces
+guard inside CI: even if branch protection is accidentally weakened, the
+publish job will refuse to run unless a successful `live-providers` run
+exists for the exact commit being released.
 
 ## Manual release (fallback)
 

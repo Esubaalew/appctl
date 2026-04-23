@@ -44,6 +44,7 @@ pub struct ServeOptions {
 
 #[derive(Clone)]
 struct AppState {
+    app_name: String,
     paths: ConfigPaths,
     config: AppConfig,
     options: ServeOptions,
@@ -73,11 +74,13 @@ struct WsAuthQuery {
 }
 
 pub async fn run_server(
+    app_name: String,
     paths: ConfigPaths,
     config: AppConfig,
     options: ServeOptions,
 ) -> Result<()> {
     let state = Arc::new(AppState {
+        app_name,
         paths,
         config,
         options,
@@ -184,6 +187,7 @@ async fn get_config_public(
         .clone()
         .unwrap_or_else(|| state.config.default.clone());
     Ok(Json(json!({
+        "app_name": state.app_name,
         "default_provider": state.config.default,
         "active_provider": active_provider,
         "provider_statuses": state.config.provider_statuses_with_paths(&state.paths),
@@ -241,6 +245,7 @@ async fn post_run(
             prov.as_deref(),
             model.as_deref(),
             &msg,
+            &[],
             &tools,
             &schema,
             ExecutionContext {
@@ -263,7 +268,7 @@ async fn post_run(
         Ok(r) => r,
         Err(e) => return Err(internal_error(e)),
     };
-    let response = inner.map_err(internal_error)?;
+    let response = inner.map_err(internal_error)?.response;
 
     Ok(Json(json!({ "result": response, "events": events })))
 }
@@ -308,6 +313,7 @@ async fn handle_socket(socket: axum::extract::ws::WebSocket, state: Arc<AppState
                 prov.as_deref(),
                 model.as_deref(),
                 &message,
+                &[],
                 &tools,
                 &schema,
                 ExecutionContext {

@@ -29,8 +29,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
     position: sticky;
     top: 0;
     z-index: 10;
-    backdrop-filter: saturate(140%) blur(8px);
-    background: color-mix(in oklab, var(--appctl-bg) 85%, transparent);
+    background: #050505;
     border-bottom: 1px solid var(--appctl-border);
   }
   .nav-inner {
@@ -58,7 +57,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
     gap: 20px;
     align-items: center;
     font-size: 14px;
-    color: var(--appctl-muted);
+    color: var(--appctl-fg-dim);
   }
   .nav-links a {
     text-decoration: none;
@@ -70,7 +69,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
   .hero {
     max-width: 1120px;
     margin: 0 auto;
-    padding: 72px 24px 40px;
+    padding: 80px 24px 48px;
     display: grid;
     grid-template-columns: 1.1fr 1fr;
     gap: 56px;
@@ -86,52 +85,55 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
   .eyebrow {
     display: inline-block;
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-size: 12px;
-    letter-spacing: 0.04em;
-    color: var(--appctl-accent);
-    background: color-mix(in oklab, var(--appctl-accent) 12%, transparent);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--appctl-muted);
+    background: var(--appctl-surface);
     padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in oklab, var(--appctl-accent) 25%, transparent);
+    border-radius: 4px;
+    border: 1px solid var(--appctl-border);
   }
   h1 {
     font-size: clamp(36px, 5vw, 56px);
     line-height: 1.05;
     letter-spacing: -0.02em;
-    margin: 18px 0 16px;
-    font-weight: 700;
+    margin: 20px 0 16px;
+    font-weight: 600;
+    color: var(--appctl-fg);
   }
   .lede {
-    color: var(--appctl-muted);
-    font-size: 18px;
-    max-width: 52ch;
-    margin: 0 0 24px;
+    color: var(--appctl-fg-dim);
+    font-size: 17px;
+    max-width: 54ch;
+    margin: 0 0 28px;
+    line-height: 1.55;
   }
   .cta-row {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
-    margin-bottom: 20px;
+    margin-bottom: 24px;
   }
   .btn {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 18px;
-    border-radius: 8px;
+    padding: 9px 16px;
+    border-radius: 6px;
     font-weight: 500;
     text-decoration: none;
-    font-size: 15px;
+    font-size: 14px;
     transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
   }
   .btn-primary {
-    background: var(--appctl-accent);
-    color: #001423;
-    border: 1px solid var(--appctl-accent);
+    background: var(--appctl-fg);
+    color: #000000;
+    border: 1px solid var(--appctl-fg);
   }
   .btn-primary:hover {
-    background: #9ed5ff;
-    border-color: #9ed5ff;
+    background: #e4e4e7;
+    border-color: #e4e4e7;
   }
   .btn-ghost {
     background: transparent;
@@ -139,38 +141,36 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
     border: 1px solid var(--appctl-border);
   }
   .btn-ghost:hover {
-    border-color: var(--appctl-accent);
-    color: var(--appctl-accent);
+    border-color: var(--appctl-border-strong);
+    background: var(--appctl-surface);
   }
 
   .install {
-    margin-top: 12px;
+    margin-top: 8px;
     max-width: 560px;
   }
 
   section.values {
     max-width: 1120px;
     margin: 0 auto;
-    padding: 48px 24px 24px;
+    padding: 56px 24px 24px;
   }
   .section-title {
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 500;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--appctl-muted);
-    margin: 0 0 20px;
+    margin: 0 0 18px;
   }
 
   .cta-strip {
     max-width: 1120px;
-    margin: 40px auto 64px;
-    padding: 28px 24px;
+    margin: 48px auto 72px;
+    padding: 28px 28px;
     border: 1px solid var(--appctl-border);
-    border-radius: 14px;
-    background:
-      radial-gradient(800px 200px at 20% 0%, color-mix(in oklab, var(--appctl-accent) 14%, transparent), transparent),
-      var(--appctl-panel);
+    border-radius: 8px;
+    background: var(--appctl-surface);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -179,13 +179,14 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
   }
   .cta-strip h2 {
     margin: 0;
-    font-size: 22px;
+    font-size: 20px;
+    font-weight: 600;
     letter-spacing: -0.01em;
   }
   .cta-strip p {
     margin: 6px 0 0;
-    color: var(--appctl-muted);
-    font-size: 15px;
+    color: var(--appctl-fg-dim);
+    font-size: 14px;
   }
 
   footer {
@@ -199,7 +200,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
     flex-wrap: wrap;
     gap: 12px;
     color: var(--appctl-muted);
-    font-size: 14px;
+    font-size: 13px;
   }
   footer a {
     color: var(--appctl-muted);
@@ -214,9 +215,9 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
   <div class="nav-inner">
     <a class="brand" href={base}>
       <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="6" fill="#0b0d10"/>
-        <path d="M8 22 L14 16 L8 10" stroke="#a8ff9a" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        <line x1="16" y1="22" x2="24" y2="22" stroke="#7cc4ff" stroke-width="2.5" stroke-linecap="round"/>
+        <rect width="32" height="32" rx="6" fill="#ffffff"/>
+        <path d="M8 22 L14 16 L8 10" stroke="#000000" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="16" y1="22" x2="24" y2="22" stroke="#000000" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
       <span>appctl</span>
     </a>
@@ -231,7 +232,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
 
 <section class="hero">
   <div>
-    <span class="eyebrow">v0.2 · Rust · MIT</span>
+    <span class="eyebrow">v0.3 · Rust · MIT</span>
     <h1>Talk to your app. In plain English.</h1>
     <p class="lede">
       appctl points at your existing app, reads its routes or schema, and turns them into
@@ -266,7 +267,7 @@ const githubHref = 'https://github.com/Esubaalew/appctl';
 </section>
 
 <footer>
-  <div>© {new Date().getFullYear()} appctl contributors. MIT licensed.</div>
+  <div>© {new Date().getFullYear()} appctl contributors · MIT licensed</div>
   <div style="display:flex; gap:18px;">
     <a href={githubHref} target="_blank" rel="noopener">GitHub</a>
     <a href="https://crates.io/crates/appctl" target="_blank" rel="noopener">crates.io</a>

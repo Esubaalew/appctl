@@ -2,9 +2,10 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +25,14 @@ pub struct ConfigPaths {
     pub provider_connections: PathBuf,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppRegistry {
+    #[serde(default)]
+    pub active: Option<String>,
+    #[serde(default)]
+    pub apps: BTreeMap<String, PathBuf>,
+}
+
 impl ConfigPaths {
     pub fn new(root: PathBuf) -> Self {
         Self {
@@ -40,10 +49,68 @@ impl ConfigPaths {
         fs::create_dir_all(&self.root)
             .with_context(|| format!("failed to create {}", self.root.display()))
     }
+
+    pub fn has_synced_artifacts(&self) -> bool {
+        self.schema.exists() || self.tools.exists()
+    }
+
+    fn runtime_setup_message(&self, command: &str) -> String {
+        format!(
+            "No provider configured for app dir {}.\n\
+This app dir already has synced schema/tools, but it does not have a usable {}.\n\
+Run `appctl --app-dir {} init` to configure a provider, or copy a working config.toml into this folder, then retry `appctl --app-dir {} {}`.",
+            self.root.display(),
+            self.config.display(),
+            self.root.display(),
+            self.root.display(),
+            command
+        )
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl AppRegistry {
+    pub fn file_path() -> Result<PathBuf> {
+        let home = dirs::home_dir().context("failed to locate home directory")?;
+        Ok(home.join(".appctl").join("apps.toml"))
+    }
+
+    pub fn load_or_default() -> Result<Self> {
+        let path = Self::file_path()?;
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        let raw = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read app registry {}", path.display()))?;
+        toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let path = Self::file_path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        let raw = toml::to_string_pretty(self)?;
+        fs::write(&path, raw).with_context(|| format!("failed to write {}", path.display()))
+    }
+
+    pub fn register_and_activate(&mut self, name: String, app_dir: PathBuf) {
+        self.apps.insert(name.clone(), app_dir);
+        self.active = Some(name);
+    }
+
+    pub fn remove(&mut self, name: &str) -> Option<PathBuf> {
+        let removed = self.apps.remove(name);
+        if self.active.as_deref() == Some(name) {
+            self.active = None;
+        }
+        removed
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
+    #[serde(default)]
     pub default: String,
     #[serde(default, rename = "provider")]
     pub providers: Vec<ProviderConfig>,
@@ -61,6 +128,8 @@ pub struct ProviderConfig {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
+    #[serde(default = "default_provider_verified")]
+    pub verified: bool,
     #[serde(default)]
     pub auth: Option<ProviderAuthConfig>,
     #[serde(default)]
@@ -69,12 +138,18 @@ pub struct ProviderConfig {
     pub extra_headers: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn default_provider_verified() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     Anthropic,
     OpenAiCompatible,
     GoogleGenai,
+    Vertex,
+    AzureOpenAi,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -135,37 +210,6 @@ impl Default for BehaviorConfig {
     }
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            default: "ollama".to_string(),
-            providers: vec![
-                ProviderConfig {
-                    name: "claude".to_string(),
-                    kind: ProviderKind::Anthropic,
-                    base_url: "https://api.anthropic.com".to_string(),
-                    model: "claude-sonnet-4".to_string(),
-                    auth: None,
-                    api_key_ref: Some("anthropic".to_string()),
-                    extra_headers: BTreeMap::new(),
-                },
-                ProviderConfig {
-                    name: "ollama".to_string(),
-                    kind: ProviderKind::OpenAiCompatible,
-                    base_url: "http://localhost:11434/v1".to_string(),
-                    model: "llama3.1".to_string(),
-                    auth: Some(ProviderAuthConfig::None),
-                    api_key_ref: None,
-                    extra_headers: BTreeMap::new(),
-                },
-            ],
-            target: TargetConfig::default(),
-            cloud: CloudConfig::default(),
-            behavior: BehaviorConfig::default(),
-        }
-    }
-}
-
 impl AppConfig {
     pub fn load_or_init(paths: &ConfigPaths) -> Result<Self> {
         paths.ensure()?;
@@ -175,6 +219,24 @@ impl AppConfig {
             return Ok(config);
         }
         Self::load(paths)
+    }
+
+    pub fn load_for_runtime(paths: &ConfigPaths, command: &str) -> Result<Self> {
+        paths.ensure()?;
+        if !paths.config.exists() {
+            if paths.has_synced_artifacts() {
+                bail!(paths.runtime_setup_message(command));
+            }
+            let config = Self::default();
+            config.save(paths)?;
+            return Ok(config);
+        }
+
+        let config = Self::load(paths)?;
+        if config.providers.is_empty() && paths.has_synced_artifacts() {
+            bail!(paths.runtime_setup_message(command));
+        }
+        Ok(config)
     }
 
     pub fn load(paths: &ConfigPaths) -> Result<Self> {
@@ -199,9 +261,10 @@ impl AppConfig {
             .iter()
             .map(|provider| ResolvedProviderSummary {
                 name: provider.name.clone(),
-                kind: provider.kind.clone(),
+                kind: provider.kind,
                 base_url: provider.base_url.clone(),
                 model: provider.model.clone(),
+                verified: provider.verified,
                 auth_status: inspect_provider_auth(&provider.name, provider, None),
             })
             .collect()
@@ -225,9 +288,10 @@ impl AppConfig {
 
                 ResolvedProviderSummary {
                     name: provider.name.clone(),
-                    kind: provider.kind.clone(),
+                    kind: provider.kind,
                     base_url: provider.base_url.clone(),
                     model: provider.model.clone(),
+                    verified: provider.verified,
                     auth_status: inspect_provider_auth(
                         &provider.name,
                         provider,
@@ -252,7 +316,13 @@ impl AppConfig {
         provider_name: Option<&str>,
         model_override: Option<&str>,
     ) -> Result<ResolvedProvider> {
+        if self.providers.is_empty() {
+            bail!("No provider configured. Run `appctl init`.")
+        }
         let provider_name = provider_name.unwrap_or(&self.default);
+        if provider_name.is_empty() {
+            bail!("No provider configured. Run `appctl init`.")
+        }
         let provider = self
             .providers
             .iter()
@@ -268,10 +338,16 @@ impl AppConfig {
         };
         let auth = resolve_provider_auth(provider_name, provider, cloud_auth.as_ref())?;
         let auth_status = inspect_provider_auth(provider_name, provider, cloud_auth.as_ref());
+        if matches!(auth, ResolvedProviderAuth::McpBridge { .. }) {
+            bail!(
+                "Provider '{}' is configured as an MCP bridge. Launch the external client instead, or run `appctl init` to pick a direct API provider.",
+                provider_name
+            )
+        }
 
         Ok(ResolvedProvider {
             name: provider.name.clone(),
-            kind: provider.kind.clone(),
+            kind: provider.kind,
             base_url: provider.base_url.clone(),
             model: model_override.unwrap_or(&provider.model).to_string(),
             auth,
@@ -287,25 +363,54 @@ pub struct ResolvedProviderSummary {
     pub kind: ProviderKind,
     pub base_url: String,
     pub model: String,
+    pub verified: bool,
     pub auth_status: ProviderAuthStatus,
 }
 
 pub fn load_secret(name: &str) -> Result<String> {
-    Entry::new("appctl", name)?
+    if let Some(value) = secret_cache()
+        .lock()
+        .expect("secret cache poisoned")
+        .get(name)
+        .cloned()
+    {
+        return Ok(value);
+    }
+    let value = Entry::new("appctl", name)?
         .get_password()
-        .with_context(|| format!("failed to load secret '{}' from keychain", name))
+        .with_context(|| format!("failed to load secret '{}' from keychain", name))?;
+    secret_cache()
+        .lock()
+        .expect("secret cache poisoned")
+        .insert(name.to_string(), value.clone());
+    Ok(value)
 }
 
 pub fn save_secret(name: &str, value: &str) -> Result<()> {
     Entry::new("appctl", name)?
         .set_password(value)
-        .with_context(|| format!("failed to save secret '{}' to keychain", name))
+        .with_context(|| format!("failed to save secret '{}' to keychain", name))?;
+    secret_cache()
+        .lock()
+        .expect("secret cache poisoned")
+        .insert(name.to_string(), value.to_string());
+    Ok(())
 }
 
 pub fn delete_secret(name: &str) -> Result<()> {
     Entry::new("appctl", name)?
         .delete_credential()
-        .with_context(|| format!("failed to delete secret '{}' from keychain", name))
+        .with_context(|| format!("failed to delete secret '{}' from keychain", name))?;
+    secret_cache()
+        .lock()
+        .expect("secret cache poisoned")
+        .remove(name);
+    Ok(())
+}
+
+fn secret_cache() -> &'static Mutex<BTreeMap<String, String>> {
+    static SECRET_CACHE: OnceLock<Mutex<BTreeMap<String, String>>> = OnceLock::new();
+    SECRET_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
@@ -317,4 +422,84 @@ pub fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
     let payload =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     serde_json::from_str(&payload).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+pub fn normalize_app_dir(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+pub fn app_name_from_dir(app_dir: &Path) -> String {
+    app_dir
+        .parent()
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "app".to_string())
+}
+
+pub fn find_registered_app_name(registry: &AppRegistry, app_dir: &Path) -> Option<String> {
+    let normalized = normalize_app_dir(app_dir);
+    registry.apps.iter().find_map(|(name, registered)| {
+        if normalize_app_dir(registered) == normalized {
+            Some(name.clone())
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AppConfig, AppRegistry, ConfigPaths, app_name_from_dir, find_registered_app_name,
+        normalize_app_dir, write_json,
+    };
+    use serde_json::json;
+    use std::path::{Path, PathBuf};
+    use tempfile::tempdir;
+
+    #[test]
+    fn load_for_runtime_explains_missing_provider_for_synced_app_dir() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+        paths.ensure().unwrap();
+        write_json(&paths.schema, &json!({"resources": []})).unwrap();
+
+        let err = AppConfig::load_for_runtime(&paths, "chat").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("No provider configured for app dir"));
+        assert!(msg.contains("appctl --app-dir"));
+        assert!(msg.contains("init"));
+        assert!(msg.contains("chat"));
+    }
+
+    #[test]
+    fn load_for_runtime_rejects_empty_config_for_synced_app_dir() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+        paths.ensure().unwrap();
+        write_json(&paths.tools, &json!([])).unwrap();
+        AppConfig::default().save(&paths).unwrap();
+
+        let err = AppConfig::load_for_runtime(&paths, "run").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("No provider configured for app dir"));
+        assert!(msg.contains("run"));
+    }
+
+    #[test]
+    fn app_name_from_dir_uses_parent_folder() {
+        let app_dir = PathBuf::from("/tmp/botlink/.appctl");
+        assert_eq!(app_name_from_dir(&app_dir), "botlink");
+    }
+
+    #[test]
+    fn find_registered_app_name_matches_normalized_paths() {
+        let mut registry = AppRegistry::default();
+        registry
+            .apps
+            .insert("playground".to_string(), PathBuf::from("./.appctl"));
+        let found = find_registered_app_name(&registry, &normalize_app_dir(Path::new("./.appctl")));
+        assert_eq!(found.as_deref(), Some("playground"));
+    }
 }

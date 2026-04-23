@@ -1,115 +1,128 @@
 ---
 title: appctl auth
-description: Manage target-app auth and LLM provider auth from explicit CLI subcommands.
+description: OAuth and credential management for target apps and LLM providers.
 ---
 
-`appctl auth` is now split into two surfaces:
+`appctl auth` splits into two independent namespaces:
 
-- `appctl auth target ...` for the synced app you call through tools
-- `appctl auth provider ...` for the LLM provider that powers `chat`, `run`, and `serve`
+- `appctl auth target ...` — OAuth flows for the application you are *managing*
+  (e.g. a GitHub or Stripe account behind your OpenAPI spec). Tokens are stored
+  under the `appctl_oauth::<name>` keychain entry.
+- `appctl auth provider ...` — credentials for the LLM provider that powers
+  `chat`, `run`, and `serve`. Handles API keys, OAuth2, Google ADC, Azure AD,
+  Qwen device flow, and MCP bridge clients.
 
-## Usage
+Top-level shortcuts (`appctl auth login <provider>`, `appctl auth status
+<provider>`) are kept as aliases for `appctl auth target login / status`.
 
-```
-appctl auth <COMMAND>
-```
-
-Commands:
-
-- `target login <provider>`
-- `target status <provider>`
-- `provider login <name>`
-- `provider status [name]`
-- `provider logout <name>`
-- `provider list`
-
-The older `appctl auth login ...` and `appctl auth status ...` commands remain as deprecated aliases for `target`.
-
-## `appctl auth target login`
-
-```
-appctl auth target login [OPTIONS] <PROVIDER>
-```
-
-### Options
-
-- `--client-id <ID>`
-- `--client-secret <SECRET>`
-- `--auth-url <URL>` — authorization endpoint.
-- `--token-url <URL>` — token exchange endpoint.
-- `--scope <SCOPE>` — OAuth scope (provider-specific).
-- `--redirect-port <PORT>` — local port for the redirect listener (default `8421`).
-
-### Example
+## Target auth
 
 ```bash
-appctl auth target login github \
-  --client-id "$GH_CLIENT_ID" \
-  --client-secret "$GH_CLIENT_SECRET" \
-  --auth-url https://github.com/login/oauth/authorize \
-  --token-url https://github.com/login/oauth/access_token \
-  --scope "repo read:user"
+appctl auth target login <name> \
+    --client-id <id> \
+    --auth-url <URL> \
+    --token-url <URL> \
+    [--client-secret <secret>] \
+    [--scope <scope>]... \
+    [--redirect-port 8421]
+
+appctl auth target status <name>
 ```
 
-`appctl` opens the browser, waits for the callback on `localhost:<redirect-port>`, exchanges the code for a token, and stores it in the target-auth namespace in the keychain.
+`login` runs a real OAuth 2.0 Authorization-Code-with-PKCE flow against the
+URLs you pass. A local listener on `--redirect-port` catches the callback.
+Missing values fall back to environment variables named `<NAME>_CLIENT_ID`
+and `<NAME>_CLIENT_SECRET`.
 
-## `appctl auth provider login`
+The resulting token payload is stored in the OS keychain under
+`appctl_oauth::<name>`.
 
-Use this when the model provider itself needs OAuth or local ADC discovery.
-
-### Gemini OAuth
-
-```bash
-appctl auth provider login gemini
-```
-
-If the provider config already declares OAuth2, `appctl` reuses that profile and scope list. For Gemini, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are used automatically when present.
-
-### Qwen / DashScope
+## Provider auth
 
 ```bash
-appctl auth provider login qwen
-```
-
-For API-key providers, the login command stores the configured secret in the keychain instead of opening a browser flow.
-
-## `appctl auth provider status`
-
-```bash
-appctl auth provider status
-```
-
-This prints the auth kind, whether credentials are configured, expiry when known, and recovery hints.
-
-## `appctl auth provider list`
-
-```bash
+appctl auth provider login <name>   [--profile <str>] [--value <str>] [--client-id ...] [--client-secret ...] [--auth-url ...] [--token-url ...] [--scope ...] [--redirect-port 8421]
+appctl auth provider status [name]
+appctl auth provider logout <name>
 appctl auth provider list
 ```
 
-List every configured provider and its redacted auth status.
+`provider login` inspects the `auth` block on the provider (or a built-in
+preset if the provider is not yet in `.appctl/config.toml`) and runs the
+matching flow:
 
-## `appctl auth provider logout`
+| `auth.kind` | What happens |
+| --- | --- |
+| `none` | Nothing to do — "no credentials required". |
+| `api_key` | Prompt for the key (or read `--value`), write it to the keychain under `secret_ref`. No browser. |
+| `oauth2` | Authorization-Code + PKCE flow using the configured `auth_url`, `token_url`, scopes, and client id/secret. Opens a real browser. |
+| `google_adc` | Requires that `gcloud auth application-default login` has already been run. Prints the project hint and recovery command if the ADC credentials are missing. |
+| `qwen_oauth` | Same detection flow — prints a recovery hint when the token file is missing. |
+| `azure_ad` | Same — the Azure AD device-code flow is triggered by the verify path, not by `login`. |
+| `mcp_bridge` | Prints the recovery hint for the external client (Codex CLI, Claude Code, Qwen Code, Gemini CLI). |
+
+`provider status` prints a one-line summary per provider:
+
+```text
+gemini       kind=google_genai     auth=api_key         configured
+claude       kind=anthropic        auth=api_key         missing GOOGLE_API_KEY
+openai       kind=open_ai_compat   auth=api_key         configured
+```
+
+`provider logout` deletes the stored credentials for a named provider.
+`provider list` is an alias for `provider status` without a filter.
+
+## Presets for uncofigured providers
+
+Calling `provider login <name>` with no `[[provider]]` block in
+`.appctl/config.toml` uses a built-in preset so you can bootstrap quickly:
+
+| Name | Kind | Auth | Secret name |
+| --- | --- | --- | --- |
+| `gemini` | `google_genai` | OAuth2 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` |
+| `qwen` | `open_ai_compat` | `api_key` | `DASHSCOPE_API_KEY` |
+| `claude` | `anthropic` | `api_key` | `anthropic` |
+| `openai` | `open_ai_compat` | `api_key` | `OPENAI_API_KEY` |
+| `vertex` | `google_genai` | Google ADC | — |
+| `ollama` | `open_ai_compat` | `none` | — |
+
+To make the provider available for `chat` and `run`, also add the matching
+`[[provider]]` block to `.appctl/config.toml` (use `appctl config
+provider-sample --preset <name>` for a scaffold).
+
+## Examples
 
 ```bash
-appctl auth provider logout gemini
+# API key: store it in the keychain, no browser
+appctl auth provider login openai
+# → Enter API key for `openai`: ************
+
+# OAuth2: real browser flow
+GOOGLE_CLIENT_ID=xxx GOOGLE_CLIENT_SECRET=yyy appctl auth provider login gemini
+
+# Google ADC (run gcloud first)
+gcloud auth application-default login
+appctl auth provider login vertex
+
+# Verify the current state of everything
+appctl auth provider status
+
+# Remove a stored credential
+appctl auth provider logout openai
 ```
 
-Deletes the stored provider OAuth token for that provider's configured profile.
+## What is not there
 
-## Using target OAuth in sync
-
-Reference the provider in your schema's `auth` block:
-
-```json
-"auth": { "kind": "oauth_flow", "provider": "github" }
-```
-
-`appctl` fetches the target token at call time and sets `Authorization: Bearer <token>` on every HTTP tool.
+- There is **no** built-in "login with ChatGPT subscription" or "login with
+  Claude subscription" flow inside this command. The MCP bridge entries that
+  appear under `kind = "mcp_bridge"` depend on the external client already
+  being installed (Codex CLI, Claude Code, Qwen Code, Gemini CLI).
+- There is no Azure CLI wrapper here. The Azure AD path currently expects the
+  access token to be retrieved by the runtime verify logic, not by `login`.
 
 ## Related
 
-- [Provider matrix](/docs/provider-matrix/)
-- [`appctl config`](/docs/cli/config/)
-- [Secrets and keys](/docs/deploy/secrets-and-keys/)
-- [Security](/docs/security/)
+- [`appctl config`](/docs/cli/config/) — where the provider entry lives.
+- [Provider matrix](/docs/provider-matrix/) — authoritative list of what each
+  provider accepts.
+- [Secrets and keys](/docs/deploy/secrets-and-keys/) — runtime precedence
+  (env var > keychain) and CI recipes.

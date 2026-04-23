@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use crate::{
     config::{ConfigPaths, read_json, write_json},
     schema::{Schema, SyncSource},
+    term::{print_path_row, print_section_title, print_status_success, print_tip},
     tools::{ToolDef, schema_to_tools},
 };
 
@@ -117,13 +118,21 @@ pub async fn run_sync(paths: ConfigPaths, request: SyncRequest) -> Result<()> {
     write_json(&paths.schema, &schema)?;
     write_json(&paths.tools, &tools)?;
 
-    println!(
-        "Synced {:?}: {} resources, {} tools written to {}",
+    print_section_title("Sync complete");
+    print_path_row("app directory", &paths.root);
+    print_status_success(&format!(
+        "{:?}: {} resources, {} tools written under .appctl",
         schema.source,
         schema.resources.len(),
-        tools.len(),
-        paths.root.display()
-    );
+        tools.len()
+    ));
+    if !paths.config.exists() {
+        print_tip(&format!(
+            "No provider config at {} yet — run `appctl init` (or `appctl --app-dir {} init`) before chat/run.",
+            paths.config.display(),
+            paths.root.display()
+        ));
+    }
 
     Ok(())
 }

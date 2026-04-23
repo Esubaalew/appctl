@@ -112,17 +112,32 @@ async fn handle_mcp_request(
                 .unwrap_or(Value::Object(Default::default()));
             match serde_json::from_value::<ToolCallParams>(params) {
                 Ok(params) => {
+                    let safety = SafetyMode {
+                        read_only: options.read_only,
+                        dry_run: options.dry_run,
+                        confirm: options.confirm,
+                        strict: options.strict,
+                    };
+                    let Some(action) = schema.action(&params.name) else {
+                        return Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32602, "message": format!("unknown tool '{}'", params.name) }
+                        }));
+                    };
+                    if let Err(e) = safety.check(action, &params.arguments) {
+                        return Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32000, "message": e.to_string() }
+                        }));
+                    }
                     let execution = executor
                         .execute(
                             schema,
                             ExecutionContext {
                                 session_id: Uuid::new_v4().to_string(),
-                                safety: SafetyMode {
-                                    read_only: options.read_only,
-                                    dry_run: options.dry_run,
-                                    confirm: options.confirm,
-                                    strict: options.strict,
-                                },
+                                safety,
                             },
                             ExecutionRequest::new(params.name, params.arguments),
                         )

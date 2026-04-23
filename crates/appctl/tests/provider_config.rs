@@ -17,8 +17,10 @@ fn resolve_provider_requires_configured_secret() {
             kind: ProviderKind::GoogleGenai,
             base_url: "https://example.com".to_string(),
             model: "gemini-2.5-flash".to_string(),
+            verified: true,
             auth: Some(ProviderAuthConfig::ApiKey {
                 secret_ref: "APPCTL_TEST_MISSING_SECRET".to_string(),
+                help_url: None,
             }),
             api_key_ref: Some("APPCTL_TEST_MISSING_SECRET".to_string()),
             extra_headers: Default::default(),
@@ -69,6 +71,7 @@ fn resolve_provider_uses_cloud_connection_when_enabled() {
             kind: ProviderKind::GoogleGenai,
             base_url: "https://generativelanguage.googleapis.com".to_string(),
             model: "gemini-2.5-pro".to_string(),
+            verified: true,
             auth: None,
             api_key_ref: None,
             extra_headers: Default::default(),
@@ -89,6 +92,7 @@ fn resolve_provider_uses_cloud_connection_when_enabled() {
                 provider: "gemini".to_string(),
                 auth: ProviderAuthConfig::ApiKey {
                     secret_ref: "APPCTL_TEST_MISSING_SECRET".to_string(),
+                    help_url: None,
                 },
                 synced_at: None,
             }],

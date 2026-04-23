@@ -7,9 +7,14 @@ description: What appctl is, what it is not, and why you might want it.
 
 ## The three commands you actually use
 
-1. `appctl sync` — point it at your app. It reads your routes or schema and writes a local contract to `.appctl/schema.json`.
-2. `appctl chat` — talk to the agent in plain English. It picks the right tool.
-3. `appctl serve` — run it as a background daemon for the VS Code panel, a web UI, or your own frontend.
+1. [`appctl sync`](/docs/cli/sync/) — point it at your app. It reads your
+   routes or schema and writes a local contract to `.appctl/schema.json` plus
+   a flattened `.appctl/tools.json`.
+2. [`appctl chat`](/docs/cli/chat/) — talk to the agent in plain English. It
+   picks the right tool, runs it, and logs the result.
+3. [`appctl serve`](/docs/cli/serve/) — run it as an HTTP + WebSocket daemon
+   with the embedded web console for teammates, IDE plugins, or custom
+   frontends.
 
 ## What it is not
 

@@ -1,0 +1,93 @@
+name: live-providers
+
+# Live, end-to-end provider verification.
+#
+# This workflow is THE release gate. If it does not pass on the same SHA
+# that release-plz wants to publish, no new appctl version is cut.
+#
+# It runs only when real credentials are available, so PRs from forks
+# cannot abuse it. For safety, secrets are mapped into env vars for the
+# verify step only.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *" # nightly 06:17 UTC
+  pull_request:
+    branches: [main]
+    paths:
+      - "release-plz.toml"
+      - ".release-plz.toml"
+      - "Cargo.toml"
+      - "crates/appctl/Cargo.toml"
+      - ".github/workflows/live-providers.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-providers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify-matrix
+    runs-on: ubuntu-latest
+    environment: live-providers
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Materialize Google service account JSON
+        if: ${{ env.GCP_SA_JSON != '' }}
+        env:
+          GCP_SA_JSON: ${{ secrets.GCP_SA_JSON }}
+        run: |
+          printf '%s' "$GCP_SA_JSON" > "$RUNNER_TEMP/gcp-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-sa.json" >> "$GITHUB_ENV"
+
+      - name: Build appctl
+        run: cargo build -p appctl --release
+
+      - name: Unit tests (including mock OAuth)
+        run: cargo test -p appctl --release --test mock_oauth
+
+      - name: Run verify matrix
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          VERTEX_PROJECT: ${{ secrets.VERTEX_PROJECT }}
+          GCP_SA_JSON: ${{ secrets.GCP_SA_JSON }}
+          # AZURE_AAD_REFRESH_TOKEN is consumed by the device-flow headless helper
+          AZURE_AAD_REFRESH_TOKEN: ${{ secrets.AZURE_AAD_REFRESH_TOKEN }}
+        run: |
+          ./scripts/verify-all.sh --report verify-report.json
+          cat verify-report.json
+
+      - name: Upload verify report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-report-${{ github.run_id }}
+          path: verify-report.json

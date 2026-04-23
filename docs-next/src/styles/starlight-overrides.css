@@ -1,52 +1,118 @@
-/* Dark-first Starlight theme tuned to the appctl palette. */
+/* Starlight theme — pitch-black monochrome, matches the appctl operator console. */
 :root {
   --sl-font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --sl-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  --sl-text-code: 0.92em;
 }
 
 :root[data-theme='dark'] {
+  /* Surfaces */
   --sl-color-bg: var(--appctl-bg);
-  --sl-color-bg-sidebar: #0a0c10;
-  --sl-color-bg-nav: #0a0c10;
-  --sl-color-bg-inline-code: var(--appctl-code-bg);
-  --sl-color-bg-accent: rgba(124, 196, 255, 0.08);
+  --sl-color-bg-sidebar: #050505;
+  --sl-color-bg-nav: #050505;
+  --sl-color-bg-inline-code: var(--appctl-surface);
+  --sl-color-bg-accent: rgba(255, 255, 255, 0.04);
+
+  /* Text */
   --sl-color-text: var(--appctl-fg);
-  --sl-color-text-accent: var(--appctl-accent);
-  --sl-color-accent: var(--appctl-accent);
-  --sl-color-accent-high: #9ed5ff;
-  --sl-color-accent-low: rgba(124, 196, 255, 0.15);
-  --sl-color-gray-1: #e7ecf2;
-  --sl-color-gray-2: #c8d1dd;
-  --sl-color-gray-3: #8a94a4;
-  --sl-color-gray-4: #565f6e;
-  --sl-color-gray-5: #2a313c;
+  --sl-color-text-accent: var(--appctl-fg);
+  --sl-color-accent: var(--appctl-fg);
+  --sl-color-accent-high: #ffffff;
+  --sl-color-accent-low: rgba(255, 255, 255, 0.08);
+
+  /* Gray ramp (Starlight uses gray-1 brightest → gray-7 darkest) */
+  --sl-color-gray-1: #ffffff;
+  --sl-color-gray-2: #e4e4e7;
+  --sl-color-gray-3: #a1a1aa;
+  --sl-color-gray-4: #71717a;
+  --sl-color-gray-5: #3f3f46;
   --sl-color-gray-6: var(--appctl-border);
-  --sl-color-gray-7: #14181f;
+  --sl-color-gray-7: #0a0a0a;
+
   --sl-color-hairline: var(--appctl-border);
-  --sl-color-hairline-light: #1a1f27;
-  --sl-color-hairline-shade: #0e1218;
+  --sl-color-hairline-light: #1a1a1a;
+  --sl-color-hairline-shade: #080808;
 }
 
 :root[data-theme='light'] {
-  --sl-color-accent: #0067c7;
-  --sl-color-accent-high: #00529e;
+  --sl-color-accent: #000000;
+  --sl-color-accent-high: #000000;
 }
 
+/* Selected sidebar link: reverse video for strong contrast */
 .sidebar-content a[aria-current='page'],
 .sidebar-content a[aria-current='page']:hover,
 .sidebar-content a[aria-current='page']:focus {
-  color: #081018;
+  color: #000000;
   background-color: var(--appctl-accent);
+  font-weight: 500;
 }
 
+/* Sidebar chrome: thinner hairlines, tighter type */
+.sidebar-content {
+  font-size: 14px;
+}
+.sidebar-content details > summary,
+.sidebar-content a {
+  border-radius: 4px;
+}
+
+/* Content */
 .content h1,
 .content h2,
 .content h3 {
   letter-spacing: -0.01em;
+  font-weight: 600;
+}
+.content h1 { font-size: 2.1rem; }
+.content h2 { margin-top: 2.4rem; }
+
+.content a {
+  text-underline-offset: 0.2em;
 }
 
+/* Code blocks — flatter, sharper */
 .content pre {
   border: 1px solid var(--sl-color-hairline);
+  border-radius: 6px;
+  background: var(--appctl-code-bg) !important;
+}
+
+:not(pre) > code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.88em;
+  border: 1px solid var(--sl-color-hairline-light);
+  background: var(--appctl-surface);
+}
+
+/* Tables — crisp hairlines */
+.content table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.content th,
+.content td {
+  border-color: var(--sl-color-hairline);
+  padding: 0.55rem 0.8rem;
+}
+.content th {
+  background: var(--appctl-surface);
+  font-weight: 600;
+}
+
+/* Blockquotes */
+.content blockquote {
+  border-left: 2px solid var(--appctl-border-strong);
+  color: var(--appctl-fg-dim);
+  padding: 0.25rem 0 0.25rem 1rem;
+  margin-left: 0;
+}
+
+/* Expressive code — traffic-light header, neutral frame */
+.expressive-code .frame {
+  border-radius: 6px;
+  border-color: var(--sl-color-hairline);
 }
 
 .expressive-code .frame.is-terminal .header {
@@ -56,31 +122,48 @@
   gap: 0.75rem;
   min-height: 2.25rem;
   padding-inline: 0.9rem;
+  background: var(--appctl-surface);
 }
 
 .expressive-code .frame.is-terminal .header::before {
   content: '';
   position: static;
-  width: 0.7rem;
-  height: 0.7rem;
+  width: 0.62rem;
+  height: 0.62rem;
   border-radius: 999px;
   background: #ff5f56;
   opacity: 1;
   -webkit-mask-image: none;
   mask-image: none;
   box-shadow:
-    1rem 0 0 #ffbd2e,
-    2rem 0 0 #27c93f;
+    0.9rem 0 0 #ffbd2e,
+    1.8rem 0 0 #27c93f;
   flex: none;
 }
 
 .expressive-code .frame.is-terminal .header .title {
   margin-left: 0;
+  color: var(--appctl-muted);
+  font-size: 12px;
 }
 
-/* Tighter, modern inline code */
-:not(pre) > code {
-  padding: 0.1rem 0.35rem;
+/* Header / top nav */
+header.header {
+  border-bottom: 1px solid var(--appctl-border);
+  background: #050505;
+}
+
+/* Cards in rendered markdown (<Card> component not used — this covers borders-of-aside) */
+starlight-aside,
+.starlight-aside {
+  border-radius: 6px;
+  border: 1px solid var(--appctl-border);
+  background: var(--appctl-surface);
+}
+
+/* Search */
+site-search button {
   border-radius: 4px;
-  font-size: 0.9em;
+  border-color: var(--appctl-border);
+  background: var(--appctl-surface);
 }

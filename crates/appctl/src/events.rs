@@ -16,6 +16,7 @@ pub enum AgentEvent {
     UserPrompt {
         text: String,
     },
+    AwaitingInput,
     /// Incremental assistant text (unused until LLM streaming is wired).
     AssistantDelta {
         text: String,

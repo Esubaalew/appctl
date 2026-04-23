@@ -14,6 +14,9 @@ appctl_spec.docx
 tmp/
 samples/
 
+# Local-only FastAPI playground (not tracked)
+haq/
+
 # Frontend (built in CI; dist is committed for rust-embed / offline cargo)
 web/node_modules/
 

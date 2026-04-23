@@ -79,6 +79,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
             kind: ProviderKind::OpenAiCompatible,
             base_url: format!("{}/", llm.uri()),
             model: "mock-model".to_string(),
+            verified: true,
             auth: Some(ProviderAuthConfig::None),
             api_key_ref: None,
             extra_headers: BTreeMap::new(),
@@ -128,12 +129,13 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
     };
     let tools = schema_to_tools(&schema);
 
-    let response = run_agent(
+    let outcome = run_agent(
         &paths,
         &config,
         Some("mock"),
         None,
         "Create a pet named Rex",
+        &[],
         &tools,
         &schema,
         ExecutionContext {
@@ -150,5 +152,5 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
     .await
     .unwrap();
 
-    assert_eq!(response, json!("Created pet Rex"));
+    assert_eq!(outcome.response, json!("Created pet Rex"));
 }

@@ -43,13 +43,14 @@ appctl sync --openapi http://127.0.0.1:8000/openapi.json \
   --base-url http://127.0.0.1:8000 --force
 ```
 
-Real output with `appctl 0.2.0`:
+Real output with `appctl 0.3.0`:
 
 ```
 Synced Openapi: 1 resources, 1 tools written to .appctl
 ```
 
-A new `.appctl/schema.json` describes the generated tool.
+A new `.appctl/schema.json` describes the generated tool and `.appctl/tools.json`
+holds the flattened tool list the model sees.
 
 ## 3. Verify the tool is reachable
 
@@ -66,11 +67,21 @@ create_widget_widgets_post       POST   /widgets      200  reachable
 
 ## 4. Talk to it
 
+For a one-shot answer:
+
 ```bash
-appctl chat "create a widget named Demo"
+appctl run "create a widget named Demo"
 ```
 
-The agent picks `create_widget_widgets_post`, calls it, and prints the response. Every call is logged.
+Or open the interactive REPL:
+
+```bash
+appctl chat
+# appctl[app · openai]▶ create a widget named Demo
+```
+
+The agent picks `create_widget_widgets_post`, calls it, and prints the
+response. Every call is logged to `.appctl/history.db`.
 
 ```bash
 appctl history --last 5

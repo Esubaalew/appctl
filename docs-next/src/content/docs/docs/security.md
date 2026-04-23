@@ -22,10 +22,10 @@ For any `appctl serve` reachable beyond `127.0.0.1`, always set `--token`. Clien
 
 | Flag | Effect |
 | --- | --- |
-| `--read-only` | every mutation tool removed from the loop |
-| `--dry-run` | tool calls simulated; no real requests made |
-| `--confirm` | CLI prompts y/n before each mutation |
-| `--strict` | blocks `provenance=inferred` tools until verified |
+| `--read-only` | Every mutating tool is rejected before the HTTP call. |
+| `--dry-run` | The agent plans the call, the executor short-circuits before real I/O. |
+| `--confirm` | Auto-approves mutations (default on `chat` / `run` is to prompt interactively; default on `serve` is **on**). |
+| `--strict` | Blocks `provenance = "inferred"` tools until `appctl doctor --write` promotes them to `verified`. |
 
 Pick the tightest combination that still gets the job done.
 
@@ -49,9 +49,9 @@ API keys and OAuth tokens live in the OS keychain. Environment variables overrid
 
 ## Recommended posture
 
-- Dev laptop: `appctl chat` with default prompting for mutations.
-- Team-internal `serve`: `--token`, `--strict`, `--confirm`.
-- Production `serve` behind TLS: `--token`, `--strict`, `--confirm`; a separate instance with `--read-only` for viewers.
+- Dev laptop: `appctl chat` with default prompting for mutations (do **not** pass `--confirm`).
+- Team-internal `serve`: `--token`, `--strict`, `--confirm=false` if you want every mutation to wait for an explicit client approval.
+- Production `serve` behind TLS: `--token`, `--strict`; run a separate `--read-only` instance for viewers.
 - Embedding in a customer-facing product: `--token`, `--strict`, `--read-only`; do not expose a write endpoint without a second authorization layer.
 
 ## Reporting vulnerabilities

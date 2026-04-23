@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result, bail};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -37,10 +39,12 @@ pub struct Executor {
 impl Executor {
     pub fn new(paths: &ConfigPaths) -> Result<Self> {
         let config = AppConfig::load_or_init(paths)?;
-        Ok(Self {
-            client: reqwest::Client::new(),
-            config,
-        })
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .context("failed to build HTTP client")?;
+        Ok(Self { client, config })
     }
 
     pub async fn execute(
@@ -52,7 +56,9 @@ impl Executor {
         let action = schema
             .action(&request.tool_name)
             .with_context(|| format!("tool '{}' not found", request.tool_name))?;
-        context.safety.check(action, &request.arguments)?;
+        // Safety / confirmation is enforced at the call site (e.g. `run_agent`, MCP) so
+        // interactive prompts are not interleaved with terminal spinners. Callers that
+        // need checks must run `SafetyMode::check` before `execute`.
 
         request.request_snapshot = self
             .snapshot_before(schema, action, &request.arguments)

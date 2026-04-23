@@ -1,11 +1,23 @@
-/* appctl palette tokens shared with the VS Code webview and web UI. */
+/* appctl palette tokens — shared with the embedded web UI operator console.
+ * Pure black surfaces, monochrome foreground, single white accent.
+ */
 :root {
-  --appctl-bg: #0b0d10;
-  --appctl-fg: #e7ecf2;
-  --appctl-muted: #8a94a4;
-  --appctl-accent: #7cc4ff;
-  --appctl-accent-2: #a8ff9a;
-  --appctl-panel: #141820;
-  --appctl-border: #222833;
-  --appctl-code-bg: #0f1319;
+  --appctl-bg: #000000;
+  --appctl-surface: #0a0a0a;
+  --appctl-panel: #121212;
+  --appctl-panel-2: #171717;
+  --appctl-elev: #1e1e1e;
+
+  --appctl-fg: #ffffff;
+  --appctl-fg-dim: #a1a1aa;
+  --appctl-muted: #71717a;
+  --appctl-muted-2: #52525b;
+
+  --appctl-border: #262626;
+  --appctl-border-strong: #3f3f46;
+
+  --appctl-accent: #ffffff;
+  --appctl-accent-2: #a1a1aa;
+
+  --appctl-code-bg: #0a0a0a;
 }

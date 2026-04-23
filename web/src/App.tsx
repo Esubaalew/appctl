@@ -1,4 +1,14 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const TOKEN_KEY = "appctl_token";
 
@@ -19,14 +29,28 @@ type AgentEvent =
   | { kind: "error"; message: string }
   | { kind: "done" };
 
-type ChatEntry = {
-  role: "you" | "assistant" | "tool" | "error";
-  title: string;
-  body: string;
-  tone?: "default" | "accent" | "success" | "danger";
-};
+type ChatEntry =
+  | { kind: "user"; id: string; body: string }
+  | {
+      kind: "assistant";
+      id: string;
+      body: string;
+      streaming?: boolean;
+    }
+  | {
+      kind: "tool_call";
+      id: string;
+      name: string;
+      args: unknown;
+      resultId?: string;
+      status?: "pending" | "ok" | "error";
+      duration_ms?: number;
+      result?: unknown;
+    }
+  | { kind: "error"; id: string; body: string };
 
 type PublicConfig = {
+  app_name?: string;
   default_provider?: string;
   active_provider?: string;
   provider_statuses?: ProviderRuntimeStatus[];
@@ -43,6 +67,7 @@ type ProviderRuntimeStatus = {
   kind: string;
   base_url: string;
   model: string;
+  verified: boolean;
   auth_status: {
     kind: "none" | "api_key" | "oauth2" | "google_adc";
     origin: "explicit" | "cloud" | "legacy_api_key_ref";
@@ -115,6 +140,8 @@ type HistoryEntry = {
   undone: boolean;
 };
 
+/* ---------- helpers ---------- */
+
 function authHeaders(token: string): HeadersInit {
   const headers: Record<string, string> = {};
   if (token) {
@@ -140,6 +167,7 @@ function previewJson(value: unknown, max = 260): string {
   return `${rendered.slice(0, max - 1)}…`;
 }
 
+
 function formatTs(ts: string): string {
   const date = new Date(ts);
   if (Number.isNaN(date.getTime())) return ts;
@@ -152,7 +180,7 @@ function formatTs(ts: string): string {
 }
 
 function sourceLabel(source?: string | null): string {
-  if (!source) return "Not synced";
+  if (!source) return "not synced";
   return source.replace(/_/g, " ");
 }
 
@@ -171,9 +199,9 @@ function authKindLabel(kind?: ProviderRuntimeStatus["auth_status"]["kind"]): str
 }
 
 function formatExpiry(expiresAt?: number | null): string {
-  if (!expiresAt) return "No expiry reported";
+  if (!expiresAt) return "no expiry reported";
   const date = new Date(expiresAt * 1000);
-  if (Number.isNaN(date.getTime())) return "No expiry reported";
+  if (Number.isNaN(date.getTime())) return "no expiry reported";
   return date.toLocaleString();
 }
 
@@ -192,44 +220,73 @@ function transportLabel(transport: Transport): string {
   }
 }
 
-function toneForSafety(safety: Action["safety"]): string {
+function safetyTone(safety: Action["safety"]): {
+  label: string;
+  cls: string;
+} {
   switch (safety) {
     case "read_only":
-      return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
+      return {
+        label: "read-only",
+        cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+      };
     case "mutating":
-      return "border-sky-400/30 bg-sky-400/10 text-sky-100";
+      return {
+        label: "mutating",
+        cls: "border-sky-400/30 bg-sky-400/10 text-sky-100",
+      };
     case "destructive":
-      return "border-rose-400/30 bg-rose-400/10 text-rose-100";
+      return {
+        label: "destructive",
+        cls: "border-rose-400/30 bg-rose-400/10 text-rose-100",
+      };
     default:
-      return "border-border bg-panel text-fg";
+      return { label: String(safety), cls: "border-border bg-panel text-fg" };
   }
 }
 
-function toneForProvenance(provenance?: Action["provenance"]): string {
+function provenanceTone(provenance?: Action["provenance"]): {
+  label: string;
+  cls: string;
+} {
   switch (provenance) {
     case "verified":
-      return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200";
+      return {
+        label: "verified",
+        cls: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+      };
     case "declared":
-      return "border-sky-400/30 bg-sky-400/10 text-sky-100";
+      return {
+        label: "declared",
+        cls: "border-sky-400/30 bg-sky-400/10 text-sky-100",
+      };
     default:
-      return "border-amber-400/30 bg-amber-400/10 text-amber-100";
+      return {
+        label: "inferred",
+        cls: "border-amber-400/30 bg-amber-400/10 text-amber-100",
+      };
   }
 }
 
-function promptSuggestions(schema: SchemaShape | null): string[] {
-  const firstResource = schema?.resources[0]?.name;
-  if (!firstResource) {
+function promptSuggestions(schema: SchemaShape | null, appName?: string): string[] {
+  const resources = schema?.resources?.slice(0, 3).map((r) => r.name) || [];
+  const app = appName ?? "this app";
+
+  if (resources.length === 0) {
     return [
-      "Summarize the synced app and tell me which write actions are available.",
-      "Show me the riskiest mutating tools and explain when to enable strict mode.",
-      "List a few safe example prompts I can use with this app.",
+      `Summarize ${app} and tell me which actions are safe to try first.`,
+      "Show me the riskiest mutating tools and when I should use strict mode.",
+      "List a few starter prompts I can run safely.",
     ];
   }
 
+  const first = resources[0];
+  const second = resources.length > 1 ? resources[1] : first;
+
   return [
-    `List the available ${firstResource} records and summarize what matters.`,
-    `Create a realistic ${firstResource} example, but explain the exact tool call before acting.`,
-    `Audit the ${firstResource} tools and tell me which ones can write or delete data.`,
+    `List the available ${first} records and summarize what matters.`,
+    `Create a realistic ${second} example, but explain the tool call before acting.`,
+    `Which actions in ${app} can write or delete data?`,
   ];
 }
 
@@ -242,91 +299,308 @@ function matchesAssistantResult(result: unknown, events: unknown[] | undefined):
   });
 }
 
-function TabButton({
-  id,
+const randId = () => Math.random().toString(36).slice(2, 10);
+
+/* ---------- small UI atoms ---------- */
+
+function Pill({
+  children,
+  tone = "muted",
+  className = "",
+}: {
+  children: ReactNode;
+  tone?: "muted" | "accent" | "success" | "warn" | "danger";
+  className?: string;
+}) {
+  const map: Record<string, string> = {
+    muted: "border-border bg-surface text-muted",
+    accent: "border-border-strong bg-panel text-fg",
+    success: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+    warn: "border-amber-500/20 bg-amber-500/10 text-amber-400",
+    danger: "border-rose-500/20 bg-rose-500/10 text-rose-400",
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${map[tone]} ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function KV({ k, v, mono = false }: { k: string; v: ReactNode; mono?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-2">
+        {k}
+      </span>
+      <span className={`text-[13px] ${mono ? "font-mono text-fg" : "text-fg-dim"}`}>{v}</span>
+    </div>
+  );
+}
+
+function IconChat() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6A8.4 8.4 0 0 1 12.5 3h.5a8.5 8.5 0 0 1 8 8v.5Z" />
+    </svg>
+  );
+}
+function IconTools() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a4 4 0 0 0 5 5L17 14l-7 7-3-3 7-7 2.7-2.7Z" />
+      <path d="M7 14l-4 4" />
+      <path d="M17 3l4 4" />
+    </svg>
+  );
+}
+function IconHistory() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 3v6h6" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+function IconSettings() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.2.47.7.8 1.24.85L21 10a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
+/* ---------- chat cards ---------- */
+
+function Markdown({ source }: { source: string }) {
+  return (
+    <div className="markdown text-[14px] leading-relaxed text-fg">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline decoration-dotted underline-offset-2 hover:decoration-solid"
+            >
+              {children}
+            </a>
+          ),
+          code: ({ inline, className, children, ...rest }: {
+            inline?: boolean;
+            className?: string;
+            children?: ReactNode;
+          }) => {
+            if (inline) {
+              return (
+                <code
+                  className="rounded bg-elev/80 px-1.5 py-0.5 font-mono text-[12.5px] text-[#c7e3ff]"
+                  {...rest}
+                >
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className={`${className ?? ""} font-mono text-[12.5px]`} {...rest}>
+                {children}
+              </code>
+            );
+          },
+          pre: ({ children }) => (
+            <pre className="my-3 overflow-x-auto rounded-xl border border-border bg-elev/60 p-3 font-mono text-[12.5px] leading-relaxed text-fg-dim">
+              {children}
+            </pre>
+          ),
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto rounded-xl border border-border">
+              <table className="w-full border-collapse text-[13px]">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead className="bg-elev/50 text-left text-[12px] uppercase tracking-[0.08em] text-muted">
+              {children}
+            </thead>
+          ),
+          th: ({ children }) => (
+            <th className="border-b border-border px-3 py-2 font-semibold">{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className="border-b border-border/60 px-3 py-2 align-top text-fg-dim">
+              {children}
+            </td>
+          ),
+          tr: ({ children }) => <tr className="even:bg-white/[0.015]">{children}</tr>,
+          ul: ({ children }) => (
+            <ul className="my-2 list-disc space-y-1 pl-5 marker:text-muted-2">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="my-2 list-decimal space-y-1 pl-5 marker:text-muted-2">{children}</ol>
+          ),
+          li: ({ children }) => <li className="text-fg-dim">{children}</li>,
+          h1: ({ children }) => (
+            <h1 className="mt-3 mb-1 text-[17px] font-semibold text-fg">{children}</h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="mt-3 mb-1 text-[15px] font-semibold text-fg">{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="mt-3 mb-1 text-[14px] font-semibold text-fg">{children}</h3>
+          ),
+          p: ({ children }) => <p className="my-1.5 text-fg">{children}</p>,
+          strong: ({ children }) => <strong className="font-semibold text-fg">{children}</strong>,
+          em: ({ children }) => <em className="text-fg">{children}</em>,
+          blockquote: ({ children }) => (
+            <blockquote className="my-2 border-l-2 border-accent/40 pl-3 text-muted">
+              {children}
+            </blockquote>
+          ),
+          hr: () => <hr className="my-3 border-border" />,
+        }}
+      >
+        {source}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function UserMessage({ body }: { body: string }) {
+  return (
+    <div className="flex justify-end mb-2">
+      <div className="max-w-[82%] rounded-lg bg-panel px-4 py-2.5 msg-user">
+        <div className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-fg">
+          {body}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AssistantMessage({ body, streaming }: { body: string; streaming?: boolean }) {
+  const trimmed = body ?? "";
+  return (
+    <div className="flex items-start gap-4 mb-4">
+      <div className="mt-1 flex h-6 w-6 flex-none items-center justify-center rounded bg-fg text-[10px] font-bold text-bg">
+        ap
+      </div>
+      <div className="min-w-0 flex-1 pt-0.5 msg-assistant">
+        {trimmed ? (
+          <Markdown source={trimmed} />
+        ) : streaming ? (
+          <div className="streaming-dot text-[14px] text-fg"> </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ToolCard({
+  name,
+  args,
+  status,
+  duration_ms,
+  result,
+}: {
+  name: string;
+  args: unknown;
+  status?: "pending" | "ok" | "error";
+  duration_ms?: number;
+  result?: unknown;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const statusIcon =
+    status === "ok" ? (
+      <span className="text-emerald-400">✓</span>
+    ) : status === "error" ? (
+      <span className="text-rose-400">✗</span>
+    ) : (
+      <span className="animate-pulse text-muted">...</span>
+    );
+
+  return (
+    <div className="mb-4 ml-10 flex items-start gap-3">
+      <div className="min-w-0 flex-1 rounded-md border border-border bg-surface">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-panel transition"
+        >
+          <span className="font-mono text-[12px] text-fg-dim">{name}</span>
+          <span className="ml-auto flex items-center gap-2 text-[11px]">
+            {typeof duration_ms === "number" && (
+              <span className="text-muted">{duration_ms}ms</span>
+            )}
+            {statusIcon}
+          </span>
+        </button>
+        {open && (
+          <div className="border-t border-border p-3 font-mono text-[11px] text-muted overflow-x-auto">
+            <div className="mb-2 text-fg-dim">Arguments:</div>
+            <pre>{formatJson(args)}</pre>
+            {result !== undefined && (
+              <>
+                <div className="mt-3 mb-2 text-fg-dim">Result:</div>
+                <pre>{formatJson(result)}</pre>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ErrorMessage({ body }: { body: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-xl border border-rose-400/30 bg-rose-400/10 text-rose-200">
+        !
+      </div>
+      <div className="min-w-0 flex-1 rounded-2xl border px-4 py-3 msg-error">
+        <div className="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-rose-200">
+          runtime error
+        </div>
+        <div className="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-rose-50">
+          {body}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- nav rail & chrome ---------- */
+
+function RailButton({
   active,
   onClick,
   children,
+  label,
 }: {
-  id: Tab;
-  active: Tab;
-  onClick: (tab: Tab) => void;
-  children: string;
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  label: string;
 }) {
-  const selected = id === active;
   return (
     <button
       type="button"
-      onClick={() => onClick(id)}
-      className={`rounded-full border px-3 py-1.5 text-sm transition ${
-        selected
-          ? "border-accent bg-accent/15 text-fg shadow-[0_0_0_1px_rgba(124,196,255,0.12)]"
-          : "border-border bg-panel/60 text-muted hover:border-accent/40 hover:text-fg"
-      }`}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`rail-btn ${active ? "active" : ""}`}
     >
       {children}
     </button>
   );
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div className="rounded-2xl border border-border bg-panel/80 p-4 shadow-[0_16px_48px_-28px_rgba(0,0,0,0.85)]">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-fg">{value}</p>
-      <p className="mt-1 text-sm text-muted">{hint}</p>
-    </div>
-  );
-}
-
-function SectionShell({
-  eyebrow,
-  title,
-  description,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-[28px] border border-border bg-panel/80 p-5 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.95)]">
-      <p className="text-xs uppercase tracking-[0.18em] text-muted">{eyebrow}</p>
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-fg">{title}</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted">{description}</p>
-        </div>
-      </div>
-      <div className="mt-4">{children}</div>
-    </section>
-  );
-}
-
-function StatusChip({
-  label,
-  value,
-  on,
-}: {
-  label: string;
-  value: string;
-  on?: boolean;
-}) {
-  return (
-    <span
-      className={`rounded-full border px-3 py-1 text-xs ${
-        on
-          ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-          : "border-border bg-panel text-muted"
-      }`}
-    >
-      <span className="text-muted">{label}</span> {value}
-    </span>
-  );
-}
-
-function SafetyToggle({
+function Toggle({
   label,
   hint,
   checked,
@@ -335,23 +609,36 @@ function SafetyToggle({
   label: string;
   hint: string;
   checked: boolean;
-  onChange: (value: boolean) => void;
+  onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="group flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-panel/50 p-4 transition hover:border-accent/40">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 h-4 w-4 rounded border-border bg-bg text-accent focus:ring-accent"
-      />
-      <span>
-        <span className="block text-sm font-medium text-fg">{label}</span>
-        <span className="mt-1 block text-sm text-muted">{hint}</span>
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      title={hint}
+      className={`group flex items-center gap-2 rounded-md border px-2 py-1 text-[12px] transition ${
+        checked
+          ? "border-border-strong bg-panel text-fg"
+          : "border-border bg-surface text-muted hover:border-border-strong hover:text-fg-dim"
+      }`}
+    >
+      <span
+        className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition ${
+          checked ? "bg-fg" : "bg-border-strong"
+        }`}
+      >
+        <span
+          className={`inline-block h-2.5 w-2.5 transform rounded-full bg-bg shadow transition ${
+            checked ? "translate-x-3" : "translate-x-0.5"
+          }`}
+        />
       </span>
-    </label>
+      <span className="font-medium">{label}</span>
+    </button>
   );
 }
+
+/* ---------- main component ---------- */
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("chat");
@@ -366,11 +653,13 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [chatLog, setChatLog] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
   const [wsStatus, setWsStatus] = useState<"idle" | "connecting" | "open" | "closed" | "err">(
     "idle",
   );
   const [lastError, setLastError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const saveToken = useCallback((value: string) => {
     setToken(value);
@@ -441,36 +730,34 @@ export default function App() {
     if (event.kind === "assistant_delta") {
       setChatLog((rows) => {
         const last = rows[rows.length - 1];
-        if (last?.role === "assistant") {
+        if (last?.kind === "assistant" && last.streaming) {
           return [
             ...rows.slice(0, -1),
-            {
-              ...last,
-              body: `${last.body}${event.text}`,
-            },
+            { ...last, body: `${last.body}${event.text}` },
           ];
         }
         return [
           ...rows,
-          {
-            role: "assistant",
-            title: "Assistant",
-            body: event.text,
-          },
+          { kind: "assistant", id: randId(), body: event.text, streaming: true },
         ];
       });
       return;
     }
 
     if (event.kind === "assistant_message") {
-      setChatLog((rows) => [
-        ...rows,
-        {
-          role: "assistant",
-          title: "Assistant",
-          body: event.text,
-        },
-      ]);
+      setChatLog((rows) => {
+        const last = rows[rows.length - 1];
+        if (last?.kind === "assistant" && last.streaming) {
+          return [
+            ...rows.slice(0, -1),
+            { ...last, body: event.text, streaming: false },
+          ];
+        }
+        return [
+          ...rows,
+          { kind: "assistant", id: randId(), body: event.text, streaming: false },
+        ];
+      });
       return;
     }
 
@@ -478,25 +765,41 @@ export default function App() {
       setChatLog((rows) => [
         ...rows,
         {
-          role: "tool",
-          title: event.name,
-          body: formatJson(event.arguments),
-          tone: "accent",
+          kind: "tool_call",
+          id: event.id,
+          name: event.name,
+          args: event.arguments,
+          status: "pending",
         },
       ]);
       return;
     }
 
     if (event.kind === "tool_result") {
-      setChatLog((rows) => [
-        ...rows,
-        {
-          role: "tool",
-          title: `${event.status.toUpperCase()}${event.duration_ms ? ` · ${event.duration_ms}ms` : ""}`,
-          body: formatJson(event.result),
-          tone: event.status === "ok" ? "success" : "danger",
-        },
-      ]);
+      setChatLog((rows) =>
+        rows.map((row) =>
+          row.kind === "tool_call" && row.id === event.id
+            ? {
+                ...row,
+                status: event.status,
+                duration_ms: event.duration_ms,
+                result: event.result,
+              }
+            : row,
+        ),
+      );
+      return;
+    }
+
+    if (event.kind === "done") {
+      setChatLog((rows) => {
+        const last = rows[rows.length - 1];
+        if (last?.kind === "assistant" && last.streaming) {
+          return [...rows.slice(0, -1), { ...last, streaming: false }];
+        }
+        return rows;
+      });
+      setSending(false);
       return;
     }
 
@@ -504,13 +807,9 @@ export default function App() {
       setLastError(event.message);
       setChatLog((rows) => [
         ...rows,
-        {
-          role: "error",
-          title: "Runtime error",
-          body: event.message,
-          tone: "danger",
-        },
+        { kind: "error", id: randId(), body: event.message },
       ]);
+      setSending(false);
     }
   }, []);
 
@@ -537,12 +836,7 @@ export default function App() {
           setLastError(message);
           setChatLog((rows) => [
             ...rows,
-            {
-              role: "error",
-              title: "Unparsed event",
-              body: message,
-              tone: "danger",
-            },
+            { kind: "error", id: randId(), body: message },
           ]);
         }
       };
@@ -557,19 +851,18 @@ export default function App() {
     return () => wsRef.current?.close();
   }, [connectWs]);
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [chatLog]);
+
   const sendChat = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text || sending) return;
 
     setLastError(null);
-    setChatLog((rows) => [
-      ...rows,
-      {
-        role: "you",
-        title: "You",
-        body: text,
-      },
-    ]);
+    setSending(true);
+    setChatLog((rows) => [...rows, { kind: "user", id: randId(), body: text }]);
 
     const payload = JSON.stringify({
       message: text,
@@ -606,13 +899,9 @@ export default function App() {
         setLastError(message);
         setChatLog((rows) => [
           ...rows,
-          {
-            role: "error",
-            title: "Request failed",
-            body: message,
-            tone: "danger",
-          },
+          { kind: "error", id: randId(), body: message },
         ]);
+        setSending(false);
         return;
       }
 
@@ -629,28 +918,25 @@ export default function App() {
         setChatLog((rows) => [
           ...rows,
           {
-            role: "assistant",
-            title: "Assistant",
+            kind: "assistant",
+            id: randId(),
             body: formatJson(body.result),
           },
         ]);
       }
 
+      setSending(false);
       void fetchHistory();
     } catch (error) {
       const message = String(error);
       setLastError(message);
       setChatLog((rows) => [
         ...rows,
-        {
-          role: "error",
-          title: "Network failure",
-          body: message,
-          tone: "danger",
-        },
+        { kind: "error", id: randId(), body: message },
       ]);
+      setSending(false);
     }
-  }, [dryRun, fetchHistory, handleAgentEvent, input, readOnly, strictMode, token]);
+  }, [dryRun, fetchHistory, handleAgentEvent, input, readOnly, sending, strictMode, token]);
 
   const actions = useMemo(
     () =>
@@ -671,607 +957,757 @@ export default function App() {
     return { resources, actionCount, writes, destructive };
   }, [actions, schema]);
 
-  const suggestions = useMemo(() => promptSuggestions(schema), [schema]);
+  const suggestions = useMemo(() => promptSuggestions(schema, publicCfg?.app_name), [schema, publicCfg?.app_name]);
+
+  const activeProviderName =
+    publicCfg?.active_provider ?? publicCfg?.default_provider ?? "not configured";
+  const activeProvider = publicCfg?.provider_statuses?.find(
+    (p) => p.name === activeProviderName,
+  );
+
+
+  /* ---------- render ---------- */
+
+  const refreshAll = useCallback(() => {
+    void fetchCfg();
+    void fetchSchema();
+    void fetchTools();
+    void fetchHistory();
+    connectWs();
+  }, [fetchCfg, fetchSchema, fetchTools, fetchHistory, connectWs]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(124,196,255,0.12),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(168,255,154,0.08),_transparent_28%),linear-gradient(180deg,_rgba(11,13,16,0.98),_rgba(9,11,14,1))]">
-      <div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col px-4 py-5 sm:px-6 lg:px-8">
-        <header className="rounded-[28px] border border-border bg-panel/80 px-5 py-5 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.95)]">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-lg font-semibold text-accent">
-                  &gt;_
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-muted">
-                    Operator Console
-                  </p>
-                  <h1 className="text-3xl font-semibold tracking-tight text-fg">appctl</h1>
-                </div>
-              </div>
-              <p className="max-w-3xl text-sm text-muted sm:text-base">
-                Drive the synced app with natural language, keep safety modes explicit, and inspect
-                every available action before the model touches live data.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <StatusChip label="WS" value={wsStatus} on={wsStatus === "open"} />
-                <StatusChip
-                  label="Provider"
-                  value={publicCfg?.active_provider ?? publicCfg?.default_provider ?? "not configured"}
-                  on={Boolean(publicCfg?.active_provider ?? publicCfg?.default_provider)}
-                />
-                <StatusChip
-                  label="Source"
-                  value={sourceLabel(publicCfg?.sync_source ?? schema?.source)}
-                  on={Boolean(publicCfg?.sync_source ?? schema?.source)}
-                />
-                <StatusChip
-                  label="Writes"
-                  value={publicCfg?.confirm_default ? "auto-confirm on" : "review defaults"}
-                  on={Boolean(publicCfg?.confirm_default)}
-                />
-              </div>
-            </div>
-            <nav className="flex flex-wrap gap-2">
-              <TabButton id="chat" active={tab} onClick={setTab}>
-                Chat
-              </TabButton>
-              <TabButton id="tools" active={tab} onClick={setTab}>
-                Tools
-              </TabButton>
-              <TabButton id="history" active={tab} onClick={setTab}>
-                History
-              </TabButton>
-              <TabButton id="settings" active={tab} onClick={setTab}>
-                Settings
-              </TabButton>
-            </nav>
+    <div className="app-bg flex h-full min-h-0 text-fg">
+      {/* left rail */}
+      <aside className="flex w-[60px] flex-none flex-col items-center border-r border-border bg-surface py-3">
+        <div className="mb-4 flex h-8 w-8 items-center justify-center rounded-md bg-fg text-[11px] font-bold text-bg">
+          ap
+        </div>
+        <div className="flex flex-1 flex-col gap-2">
+          <RailButton active={tab === "chat"} onClick={() => setTab("chat")} label="Chat">
+            <IconChat />
+          </RailButton>
+          <RailButton active={tab === "tools"} onClick={() => setTab("tools")} label="Tools">
+            <IconTools />
+          </RailButton>
+          <RailButton
+            active={tab === "history"}
+            onClick={() => setTab("history")}
+            label="History"
+          >
+            <IconHistory />
+          </RailButton>
+          <RailButton
+            active={tab === "settings"}
+            onClick={() => setTab("settings")}
+            label="Settings"
+          >
+            <IconSettings />
+          </RailButton>
+        </div>
+        <div className="pb-1" title={`socket ${wsStatus}`}>
+          <span className={`dot dot-${wsStatus === "open" ? "live" : wsStatus === "err" ? "err" : "idle"}`} />
+        </div>
+      </aside>
+
+      {/* main workspace */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* top bar: slim, real */}
+        <header className="flex flex-none items-center gap-3 border-b border-border bg-surface px-4 py-2">
+          <h1 className="text-[13px] font-semibold text-fg">
+            appctl <span className="text-muted font-normal ml-1">/ {publicCfg?.app_name ?? "app"}</span>
+          </h1>
+          <span className="hidden text-[12px] text-muted sm:inline">
+            {sourceLabel(publicCfg?.sync_source ?? schema?.source)}
+            {(publicCfg?.base_url ?? schema?.base_url) && (
+              <>
+                {" · "}
+                <span className="font-mono text-fg-dim">
+                  {publicCfg?.base_url ?? schema?.base_url}
+                </span>
+              </>
+            )}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            {activeProvider ? (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-muted">
+                <span className="font-medium text-fg">{activeProviderName}</span>
+                <span>·</span>
+                <span className="font-mono text-[11px]">{activeProvider.model}</span>
+                {!activeProvider.verified && (
+                  <span className="rounded bg-amber-500/10 px-1 text-[10px] text-amber-400">
+                    unconfirmed
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-400">
+                no provider
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={refreshAll}
+              title="Refresh"
+              aria-label="Refresh"
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-border-strong hover:text-fg"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-3-6.7" />
+                <path d="M21 4v5h-5" />
+              </svg>
+            </button>
           </div>
         </header>
 
         {lastError && (
-          <div className="mt-4 rounded-2xl border border-rose-400/30 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-            <span className="font-medium">Attention:</span> {lastError}
+          <div className="flex flex-none items-center gap-2 border-b border-rose-400/20 bg-rose-400/5 px-4 py-1.5 text-[12px] text-rose-100">
+            <span className="font-semibold">error</span>
+            <span className="flex-1 truncate">{lastError}</span>
+            <button
+              type="button"
+              onClick={() => setLastError(null)}
+              className="text-rose-200 hover:text-rose-100"
+            >
+              dismiss
+            </button>
           </div>
         )}
 
-        <main className="mt-4 flex flex-1 flex-col gap-4">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Resources"
-              value={String(summary.resources)}
-              hint="Distinct entities in the synced contract."
-            />
-            <StatCard
-              label="Actions"
-              value={String(summary.actionCount)}
-              hint="Callable operations available to the agent."
-            />
-            <StatCard
-              label="Write Paths"
-              value={String(summary.writes)}
-              hint="Mutating actions that can change real data."
-            />
-            <StatCard
-              label="History"
-              value={String(history.length)}
-              hint="Most recent actions loaded from the audit log."
-            />
-          </div>
-
+        {/* body */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {tab === "chat" && (
-            <div className="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1.65fr)_360px]">
-              <SectionShell
-                eyebrow="Conversation"
-                title="Operate the synced app"
-                description="Use live chat when the socket is open. If the stream drops, the console falls back to HTTP requests so you can keep working."
-              >
-                <div className="flex flex-wrap gap-3">
-                  <SafetyToggle
-                    label="Read-only"
-                    hint="Blocks any write or delete path. Useful for discovery and audits."
-                    checked={readOnly}
-                    onChange={setReadOnly}
-                  />
-                  <SafetyToggle
-                    label="Dry-run"
-                    hint="Shows the intended action without executing it against the target system."
-                    checked={dryRun}
-                    onChange={setDryRun}
-                  />
-                  <SafetyToggle
-                    label="Strict"
-                    hint="Blocks inferred HTTP tools until doctor has verified them."
-                    checked={strictMode}
-                    onChange={setStrictMode}
-                  />
-                </div>
-
-                <div className="mt-4 overflow-hidden rounded-[24px] border border-border bg-code shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-                  <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                    <div>
-                      <p className="text-sm font-medium text-fg">Session stream</p>
-                      <p className="text-xs text-muted">
-                        {wsStatus === "open"
-                          ? "Live events are streaming over WebSocket."
-                          : "Socket offline; prompts will use POST /run until the stream reconnects."}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-full border border-border bg-panel px-3 py-1.5 text-sm text-fg transition hover:border-accent/40 hover:text-accent"
-                      onClick={connectWs}
-                    >
-                      Reconnect
-                    </button>
-                  </div>
-
-                  <div className="max-h-[520px] min-h-[420px] overflow-y-auto p-4">
-                    {chatLog.length === 0 ? (
-                      <div className="grid h-full place-items-center rounded-[20px] border border-dashed border-border bg-panel/40 px-6 py-10 text-center">
-                        <div className="max-w-xl">
-                          <p className="text-xs uppercase tracking-[0.2em] text-muted">
-                            First run
-                          </p>
-                          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-fg">
-                            Start with a safe prompt.
-                          </h3>
-                          <p className="mt-3 text-sm leading-7 text-muted">
-                            Ask for a summary first, then move into writes once the contract looks
-                            right. The chat log will show tool calls and results inline.
-                          </p>
-                          <div className="mt-6 flex flex-wrap justify-center gap-2">
-                            {suggestions.map((prompt) => (
-                              <button
-                                key={prompt}
-                                type="button"
-                                className="rounded-full border border-border bg-panel px-3 py-2 text-sm text-fg transition hover:border-accent/40 hover:text-accent"
-                                onClick={() => setInput(prompt)}
-                              >
-                                {prompt}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {chatLog.map((entry, index) => (
-                          <article
-                            key={`${entry.title}-${index}`}
-                            className={`rounded-[20px] border px-4 py-3 ${
-                              entry.role === "you"
-                                ? "border-accent/30 bg-accent/10"
-                                : entry.role === "error"
-                                  ? "border-rose-400/30 bg-rose-400/10"
-                                  : entry.role === "tool"
-                                    ? entry.tone === "success"
-                                      ? "border-emerald-400/25 bg-emerald-400/8"
-                                      : entry.tone === "danger"
-                                        ? "border-rose-400/25 bg-rose-400/8"
-                                        : "border-sky-400/25 bg-sky-400/8"
-                                    : "border-border bg-panel/60"
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-medium text-fg">{entry.title}</p>
-                              <span className="text-xs uppercase tracking-[0.18em] text-muted">
-                                {entry.role}
-                              </span>
-                            </div>
-                            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-sm leading-6 text-fg">
-                              {entry.body}
-                            </pre>
-                          </article>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="border-t border-border bg-panel/70 p-3">
-                    <div className="flex flex-col gap-3 md:flex-row">
-                      <textarea
-                        className="min-h-[92px] flex-1 rounded-[20px] border border-border bg-bg px-4 py-3 text-sm text-fg outline-none transition placeholder:text-muted focus:border-accent/60"
-                        placeholder="Ask in plain English. Enter sends, Shift+Enter adds a new line."
-                        value={input}
-                        onChange={(event) => setInput(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" && !event.shiftKey) {
-                            event.preventDefault();
-                            void sendChat();
-                          }
-                        }}
-                      />
-                      <div className="flex flex-col gap-2 md:w-44">
-                        <button
-                          type="button"
-                          className="rounded-[18px] bg-accent px-4 py-3 text-sm font-semibold text-bg transition hover:bg-[#97d4ff]"
-                          onClick={() => void sendChat()}
-                        >
-                          Send prompt
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-[18px] border border-border bg-panel px-4 py-3 text-sm text-fg transition hover:border-accent/40 hover:text-accent"
-                          onClick={() => setInput("Summarize this app and tell me the safest next prompt.")}
-                        >
-                          Insert starter
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </SectionShell>
-
-              <div className="space-y-4">
-                <SectionShell
-                  eyebrow="Runtime"
-                  title="Current target"
-                  description="Everything here comes from the synced schema and the live daemon config."
-                >
-                  <dl className="space-y-3 text-sm">
-                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                      <dt className="text-xs uppercase tracking-[0.18em] text-muted">Base URL</dt>
-                      <dd className="mt-2 break-all font-mono text-fg">
-                        {publicCfg?.base_url ?? schema?.base_url ?? "Not configured"}
-                      </dd>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                      <dt className="text-xs uppercase tracking-[0.18em] text-muted">Auth strategy</dt>
-                      <dd className="mt-2 font-mono text-fg">{schema?.auth?.kind ?? "unknown"}</dd>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                      <dt className="text-xs uppercase tracking-[0.18em] text-muted">
-                        Server defaults
-                      </dt>
-                      <dd className="mt-2 text-muted">
-                        Read-only {publicCfg?.read_only ? "on" : "off"} · Dry-run{" "}
-                        {publicCfg?.dry_run ? "on" : "off"} · Strict{" "}
-                        {publicCfg?.strict ? "on" : "off"}
-                      </dd>
-                    </div>
-                  </dl>
-                </SectionShell>
-
-                <SectionShell
-                  eyebrow="Prompts"
-                  title="Safe starters"
-                  description="Load one into the composer, then adjust the safety toggles before sending."
-                >
-                  <div className="space-y-2">
-                    {suggestions.map((prompt) => (
-                      <button
-                        key={prompt}
-                        type="button"
-                        className="w-full rounded-2xl border border-border bg-panel/50 px-4 py-3 text-left text-sm text-fg transition hover:border-accent/40 hover:text-accent"
-                        onClick={() => setInput(prompt)}
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                </SectionShell>
-              </div>
-            </div>
+            <ChatWorkspace
+              chatLog={chatLog}
+              scrollRef={scrollRef}
+              input={input}
+              setInput={setInput}
+              sending={sending}
+              sendChat={sendChat}
+              readOnly={readOnly}
+              dryRun={dryRun}
+              strictMode={strictMode}
+              setReadOnly={setReadOnly}
+              setDryRun={setDryRun}
+              setStrictMode={setStrictMode}
+              suggestions={suggestions}
+              wsStatus={wsStatus}
+              connectWs={connectWs}
+            />
           )}
-
-          {tab === "tools" && (
-            <SectionShell
-              eyebrow="Tools"
-              title="Agent-callable actions"
-              description="Review the exact actions the model can call, including transport, safety level, and required parameters."
-            >
-              <div className="grid gap-4 xl:grid-cols-2">
-                {actions.length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-border bg-panel/40 px-6 py-10 text-sm text-muted">
-                    No schema loaded yet. Run <code className="text-fg">appctl sync ...</code> and
-                    refresh this page.
-                  </div>
-                ) : (
-                  actions.map((action) => {
-                    const tool = tools.find((item) => item.name === action.name);
-                    const required =
-                      tool?.input_schema?.required ??
-                      action.parameters.filter((field) => field.required).map((field) => field.name);
-                    return (
-                      <article
-                        key={action.name}
-                        className="rounded-[24px] border border-border bg-code/80 p-5"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                              {action.resourceName}
-                            </p>
-                            <h3 className="mt-1 text-lg font-semibold tracking-tight text-fg">
-                              {action.name}
-                            </h3>
-                            <p className="mt-2 text-sm text-muted">
-                              {action.description ?? tool?.description ?? "No description."}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <span
-                              className={`rounded-full border px-3 py-1 text-xs ${toneForSafety(action.safety)}`}
-                            >
-                              {action.safety}
-                            </span>
-                            <span
-                              className={`rounded-full border px-3 py-1 text-xs ${toneForProvenance(
-                                action.provenance,
-                              )}`}
-                            >
-                              {action.provenance ?? "inferred"}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 rounded-2xl border border-border bg-panel/50 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                            Transport
-                          </p>
-                          <p className="mt-2 font-mono text-sm text-fg">
-                            {transportLabel(action.transport)}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                            <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                              Required params
-                            </p>
-                            <p className="mt-2 text-sm text-fg">
-                              {required.length > 0 ? required.join(", ") : "None"}
-                            </p>
-                          </div>
-                          <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                            <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                              Parameter count
-                            </p>
-                            <p className="mt-2 text-sm text-fg">{action.parameters.length}</p>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })
-                )}
-              </div>
-            </SectionShell>
-          )}
-
-          {tab === "history" && (
-            <SectionShell
-              eyebrow="Audit log"
-              title="Recent actions"
-              description="This is the same local history that powers inspection and undo. Use it to spot risky writes, bad defaults, or drift."
-            >
-              <div className="space-y-3">
-                {history.length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-border bg-panel/40 px-6 py-10 text-sm text-muted">
-                    No history entries yet. Once the agent executes tools, they will appear here.
-                  </div>
-                ) : (
-                  history.map((entry) => (
-                    <article
-                      key={entry.id}
-                      className="rounded-[24px] border border-border bg-code/80 p-5"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                            #{entry.id} · {formatTs(entry.ts)}
-                          </p>
-                          <h3 className="mt-1 text-lg font-semibold tracking-tight text-fg">
-                            {entry.tool}
-                          </h3>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <span
-                            className={`rounded-full border px-3 py-1 text-xs ${
-                              entry.status === "ok"
-                                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-                                : "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                            }`}
-                          >
-                            {entry.status}
-                          </span>
-                          {entry.undone && (
-                            <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs text-amber-100">
-                              undone
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                        <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                            Session
-                          </p>
-                          <p className="mt-2 break-all font-mono text-xs text-fg">
-                            {entry.session_id}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-panel/50 p-4 lg:col-span-2">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                            Arguments
-                          </p>
-                          <p className="mt-2 font-mono text-xs text-fg">
-                            {previewJson(entry.arguments_json)}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-panel/50 p-4 lg:col-span-3">
-                          <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                            Response preview
-                          </p>
-                          <p className="mt-2 font-mono text-xs text-fg">
-                            {previewJson(entry.response_json)}
-                          </p>
-                        </div>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-            </SectionShell>
-          )}
-
+          {tab === "tools" && <ToolsPanel actions={actions} tools={tools} />}
+          {tab === "history" && <HistoryPanel history={history} />}
           {tab === "settings" && (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-              <SectionShell
-                eyebrow="Connection"
-                title="Daemon access"
-                description="Use a bearer token if you started appctl serve with --token. Refresh pulls config, tools, schema, and history again."
-              >
-                <div className="space-y-4">
-                  <label className="block">
-                    <span className="text-sm text-muted">Token</span>
-                    <input
-                      type="password"
-                      className="mt-2 w-full rounded-[18px] border border-border bg-bg px-4 py-3 text-fg outline-none transition focus:border-accent/60"
-                      value={token}
-                      onChange={(event) => saveToken(event.target.value)}
-                      placeholder="optional"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      className="rounded-[18px] bg-accent px-4 py-3 text-sm font-semibold text-bg transition hover:bg-[#97d4ff]"
-                      onClick={() => {
-                        void fetchCfg();
-                        void fetchSchema();
-                        void fetchTools();
-                        void fetchHistory();
-                        connectWs();
-                      }}
-                    >
-                      Refresh runtime
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-[18px] border border-border bg-panel px-4 py-3 text-sm text-fg transition hover:border-accent/40 hover:text-accent"
-                      onClick={() => saveToken("")}
-                    >
-                      Clear token
-                    </button>
-                  </div>
-                  <div className="rounded-[24px] border border-border bg-code p-4">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted">Runtime JSON</p>
-                    <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs text-fg">
-                      {formatJson(publicCfg ?? {})}
-                    </pre>
-                  </div>
-                </div>
-              </SectionShell>
-
-              <div className="space-y-4">
-                <SectionShell
-                  eyebrow="Providers"
-                  title="Provider onboarding"
-                  description="Provider auth is local-first. Configure the provider in .appctl/config.toml, then use the matching auth command or secret reference on the host running appctl."
-                >
-                  <div className="space-y-3">
-                    {(publicCfg?.provider_statuses?.length ?? 0) === 0 ? (
-                      <div className="rounded-2xl border border-border bg-panel/50 p-4 text-sm text-muted">
-                        No providers are configured yet. Add one to <code className="text-fg">.appctl/config.toml</code> or run{" "}
-                        <code className="text-fg">appctl config provider-sample --preset gemini</code>.
-                      </div>
-                    ) : (
-                      publicCfg?.provider_statuses?.map((provider) => (
-                        <article
-                          key={provider.name}
-                          className="rounded-2xl border border-border bg-panel/50 p-4"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-semibold text-fg">{provider.name}</p>
-                              <p className="mt-1 text-xs text-muted">
-                                {provider.model} · {provider.kind} · {authKindLabel(provider.auth_status.kind)}
-                              </p>
-                            </div>
-                            <StatusChip
-                              label="Status"
-                              value={provider.auth_status.configured ? "ready" : "action needed"}
-                              on={provider.auth_status.configured}
-                            />
-                          </div>
-                          <div className="mt-4 grid gap-3 text-sm text-muted">
-                            <div>
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted">Base URL</p>
-                              <p className="mt-1 break-all font-mono text-xs text-fg">{provider.base_url}</p>
-                            </div>
-                            {provider.auth_status.secret_ref && (
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.18em] text-muted">Secret ref</p>
-                                <p className="mt-1 font-mono text-xs text-fg">{provider.auth_status.secret_ref}</p>
-                              </div>
-                            )}
-                            {provider.auth_status.profile && (
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.18em] text-muted">Profile</p>
-                                <p className="mt-1 font-mono text-xs text-fg">{provider.auth_status.profile}</p>
-                              </div>
-                            )}
-                            <div>
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted">Origin</p>
-                              <p className="mt-1 text-fg">{provider.auth_status.origin.replace(/_/g, " ")}</p>
-                            </div>
-                            {provider.auth_status.project_id && (
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.18em] text-muted">Project</p>
-                                <p className="mt-1 font-mono text-xs text-fg">{provider.auth_status.project_id}</p>
-                              </div>
-                            )}
-                            <div>
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted">Expiry</p>
-                              <p className="mt-1 text-fg">{formatExpiry(provider.auth_status.expires_at)}</p>
-                            </div>
-                            {!provider.auth_status.configured && provider.auth_status.recovery_hint && (
-                              <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-3 text-amber-100">
-                                {provider.auth_status.recovery_hint}
-                              </div>
-                            )}
-                          </div>
-                        </article>
-                      ))
-                    )}
-                  </div>
-                </SectionShell>
-
-                <SectionShell
-                  eyebrow="Project"
-                  title="What this daemon knows"
-                  description="Helpful when you’re debugging sync output or handing the project off to someone else."
-                >
-                  <div className="space-y-3 text-sm text-muted">
-                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted">Schema source</p>
-                      <p className="mt-2 text-fg">{sourceLabel(schema?.source ?? publicCfg?.sync_source)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted">Target URL</p>
-                      <p className="mt-2 break-all font-mono text-xs text-fg">
-                        {schema?.base_url ?? publicCfg?.base_url ?? "Not set"}
-                      </p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-panel/50 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted">Local files</p>
-                      <p className="mt-2">
-                        <code className="text-fg">.appctl/config.toml</code>,{" "}
-                        <code className="text-fg">.appctl/schema.json</code>,{" "}
-                        <code className="text-fg">.appctl/tools.json</code>, and{" "}
-                        <code className="text-fg">.appctl/history.db</code>
-                      </p>
-                    </div>
-                  </div>
-                </SectionShell>
-              </div>
-            </div>
+            <SettingsPanel
+              token={token}
+              saveToken={saveToken}
+              publicCfg={publicCfg}
+              schema={schema}
+              summary={summary}
+              refreshAll={refreshAll}
+            />
           )}
         </main>
       </div>
     </div>
+  );
+}
+
+/* ---------- chat workspace ---------- */
+
+function ChatWorkspace({
+  chatLog,
+  scrollRef,
+  input,
+  setInput,
+  sending,
+  sendChat,
+  readOnly,
+  dryRun,
+  strictMode,
+  setReadOnly,
+  setDryRun,
+  setStrictMode,
+  suggestions,
+  wsStatus,
+  connectWs,
+}: {
+  chatLog: ChatEntry[];
+  scrollRef: React.MutableRefObject<HTMLDivElement | null>;
+  input: string;
+  setInput: (v: string) => void;
+  sending: boolean;
+  sendChat: () => void;
+  readOnly: boolean;
+  dryRun: boolean;
+  strictMode: boolean;
+  setReadOnly: (v: boolean) => void;
+  setDryRun: (v: boolean) => void;
+  setStrictMode: (v: boolean) => void;
+  suggestions: string[];
+  wsStatus: string;
+  connectWs: () => void;
+}) {
+  const isEmpty = chatLog.length === 0;
+  return (
+    <section className="flex min-h-0 flex-1 flex-col">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[860px] space-y-5 px-6 py-6">
+          {isEmpty ? (
+            <EmptyHero />
+          ) : (
+            chatLog.map((entry) => {
+              if (entry.kind === "user") {
+                return <UserMessage key={entry.id} body={entry.body} />;
+              }
+              if (entry.kind === "assistant") {
+                return (
+                  <AssistantMessage
+                    key={entry.id}
+                    body={entry.body}
+                    streaming={entry.streaming}
+                  />
+                );
+              }
+              if (entry.kind === "tool_call") {
+                return (
+                  <ToolCard
+                    key={entry.id}
+                    name={entry.name}
+                    args={entry.args}
+                    status={entry.status}
+                    duration_ms={entry.duration_ms}
+                    result={entry.result}
+                  />
+                );
+              }
+              return <ErrorMessage key={entry.id} body={entry.body} />;
+            })
+          )}
+          {sending && !isEmpty && (
+            <div className="flex items-center gap-2 pl-10 text-[12px] text-muted">
+              <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-fg" />
+              thinking…
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* composer pinned to viewport bottom */}
+      <div className="flex-none bg-bg px-4 pb-6 pt-4">
+        <div className="mx-auto w-full max-w-[860px]">
+          {isEmpty && suggestions.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {suggestions.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setInput(p)}
+                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-left text-[12px] text-muted transition hover:border-border-strong hover:text-fg"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-border bg-surface shadow-sm transition focus-within:border-border-strong focus-within:ring-1 focus-within:ring-border-strong">
+            <textarea
+              className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14px] leading-relaxed text-fg outline-none placeholder:text-muted"
+              rows={2}
+              placeholder="Message appctl…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendChat();
+                }
+              }}
+            />
+            <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+              <Toggle
+                label="Read-only"
+                hint="Blocks any write or delete action."
+                checked={readOnly}
+                onChange={setReadOnly}
+              />
+              <Toggle
+                label="Dry-run"
+                hint="Shows what would happen without executing."
+                checked={dryRun}
+                onChange={setDryRun}
+              />
+              <Toggle
+                label="Strict"
+                hint="Blocks inferred HTTP tools until verified by doctor."
+                checked={strictMode}
+                onChange={setStrictMode}
+              />
+              <div className="ml-auto flex items-center gap-3 text-[12px] text-muted">
+                {wsStatus !== "open" && (
+                  <button
+                    type="button"
+                    onClick={connectWs}
+                    className="hover:text-fg underline decoration-dotted underline-offset-2"
+                  >
+                    reconnect
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={sendChat}
+                  disabled={sending || !input.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 font-medium text-bg transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-border-strong disabled:text-muted"
+                >
+                  {sending ? "..." : "Send"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-muted">
+            <span>appctl operator console</span>
+            <span className="flex items-center gap-1.5">
+              <span className={`dot dot-${wsStatus === "open" ? "live" : "err"}`} />
+              {wsStatus}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EmptyHero() {
+  return (
+    <div className="pt-12 pb-4 text-center">
+      <h2 className="text-[14px] font-medium text-fg">How can I help?</h2>
+      <p className="mt-2 text-[13px] text-muted">
+        Ask appctl to run tools or summarize data.
+      </p>
+    </div>
+  );
+}
+
+function StatMini({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "warn" | "danger";
+}) {
+  const color =
+    tone === "warn" ? "text-amber-400" : tone === "danger" ? "text-rose-400" : "text-fg";
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="text-[12px] font-medium text-muted">
+        {label}
+      </div>
+      <div className={`mt-1 text-2xl font-semibold tracking-tight ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+/* ---------- tools panel ---------- */
+
+function ToolsPanel({
+  actions,
+  tools,
+}: {
+  actions: (Action & { resourceName: string })[];
+  tools: ToolDef[];
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return actions;
+    return actions.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.resourceName.toLowerCase().includes(q) ||
+        (a.description ?? "").toLowerCase().includes(q),
+    );
+  }, [actions, query]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-6">
+      <div className="mx-auto w-full max-w-[1200px]">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-[18px] font-semibold text-fg">Agent tools</h2>
+            <p className="mt-1 text-[13px] text-muted">
+              Every action the model can call, with its safety level and transport.
+            </p>
+          </div>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search tools…"
+            className="w-[280px] rounded-md border border-border bg-surface px-3 py-1.5 text-[13px] text-fg outline-none placeholder:text-muted focus:border-border-strong"
+          />
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface p-10 text-center text-[13px] text-muted">
+            No tools match your search. Try another term or run{" "}
+            <code className="font-mono text-fg">appctl sync</code>.
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-2">
+            {filtered.map((action) => {
+              const tool = tools.find((item) => item.name === action.name);
+              const required =
+                tool?.input_schema?.required ??
+                action.parameters.filter((f) => f.required).map((f) => f.name);
+              const st = safetyTone(action.safety);
+              const pt = provenanceTone(action.provenance);
+              return (
+                <article key={action.name} className="rounded-lg border border-border bg-surface p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-medium text-muted">
+                        {action.resourceName}
+                      </div>
+                      <h3 className="mt-1 truncate font-mono text-[14px] text-fg">
+                        {action.name}
+                      </h3>
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                        {action.description ?? tool?.description ?? "No description."}
+                      </p>
+                    </div>
+                    <div className="flex flex-none flex-wrap gap-1.5">
+                      <span className={`rounded-md border px-2 py-0.5 text-[11px] ${st.cls}`}>
+                        {st.label}
+                      </span>
+                      <span className={`rounded-md border px-2 py-0.5 text-[11px] ${pt.cls}`}>
+                        {pt.label}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-md border border-border bg-panel p-3 font-mono text-[12px] text-fg-dim">
+                    {transportLabel(action.transport)}
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-[12px]">
+                    <KV
+                      k="Required"
+                      v={required.length > 0 ? required.join(", ") : "none"}
+                      mono={required.length > 0}
+                    />
+                    <KV k="Params" v={String(action.parameters.length)} />
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- history panel ---------- */
+
+function HistoryPanel({ history }: { history: HistoryEntry[] }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-8">
+      <div className="mx-auto w-full max-w-[1200px]">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h2 className="text-[20px] font-semibold text-fg">Audit Log</h2>
+            <p className="mt-1 text-[13px] text-muted">
+              A complete history of tool executions and side effects.
+            </p>
+          </div>
+        </div>
+
+        {history.length === 0 ? (
+          <div className="rounded-lg border border-border bg-surface p-12 text-center text-[13px] text-muted">
+            No executions recorded yet.
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border bg-surface overflow-hidden">
+            <table className="w-full text-left text-[13px]">
+              <thead className="border-b border-border bg-panel text-[11px] uppercase tracking-wider text-muted">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Tool</th>
+                  <th className="px-4 py-3 font-medium">Timestamp</th>
+                  <th className="px-4 py-3 font-medium text-right">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {history.map((h) => {
+                  const isExpanded = expanded[h.id];
+                  return (
+                    <Fragment key={h.id}>
+                      <tr className="hover:bg-panel/50 transition group">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`h-2 w-2 rounded-full ${h.status === "ok" ? "bg-emerald-400" : "bg-rose-400"}`}
+                            />
+                            <span className="text-fg-dim">{h.status === "ok" ? "Success" : "Error"}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-fg">{h.tool}</td>
+                        <td className="px-4 py-3 text-muted font-mono text-[12px]">{formatTs(h.ts)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => setExpanded((prev) => ({ ...prev, [h.id]: !isExpanded }))}
+                            className="text-[12px] font-medium text-muted hover:text-fg transition"
+                          >
+                            {isExpanded ? "Hide" : "View"}
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-panel border-t-0">
+                          <td colSpan={4} className="p-4">
+                            <div className="grid gap-4 lg:grid-cols-2">
+                              <div>
+                                <div className="mb-2 text-[11px] font-medium text-muted uppercase tracking-wider">Arguments</div>
+                                <pre className="whitespace-pre-wrap break-words rounded border border-border bg-surface p-3 font-mono text-[11px] leading-relaxed text-fg-dim">
+                                  {previewJson(h.arguments_json, 1000)}
+                                </pre>
+                              </div>
+                              <div>
+                                <div className="mb-2 text-[11px] font-medium text-muted uppercase tracking-wider">Response</div>
+                                <pre className="whitespace-pre-wrap break-words rounded border border-border bg-surface p-3 font-mono text-[11px] leading-relaxed text-fg-dim">
+                                  {previewJson(h.response_json, 1000)}
+                                </pre>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- settings panel ---------- */
+
+function SettingsPanel({
+  token,
+  saveToken,
+  publicCfg,
+  schema,
+  summary,
+  refreshAll,
+}: {
+  token: string;
+  saveToken: (v: string) => void;
+  publicCfg: PublicConfig | null;
+  schema: SchemaShape | null;
+  summary: { resources: number; actionCount: number; writes: number; destructive: number };
+  refreshAll: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-6">
+      <div className="mx-auto w-full max-w-[1000px]">
+        <div className="mb-8">
+          <h2 className="text-[18px] font-semibold text-fg">Settings</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            Manage daemon configuration, providers, and project sync state.
+          </p>
+        </div>
+
+        <div className="divide-y divide-border border-t border-border">
+          {/* Usage & Limits */}
+          <section className="grid gap-6 py-8 md:grid-cols-[240px_1fr]">
+            <div>
+              <h3 className="text-[14px] font-semibold text-fg">Usage & Limits</h3>
+              <p className="mt-1 text-[13px] text-muted">
+                Overview of the tools and resources available to the agent.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatMini label="Resources" value={summary.resources} />
+              <StatMini label="Actions" value={summary.actionCount} />
+              <StatMini label="Writes" value={summary.writes} tone="warn" />
+              <StatMini label="Destructive" value={summary.destructive} tone="danger" />
+            </div>
+          </section>
+
+          {/* Providers */}
+          <section className="grid gap-6 py-8 md:grid-cols-[240px_1fr]">
+            <div>
+              <h3 className="text-[14px] font-semibold text-fg">AI Providers</h3>
+              <p className="mt-1 text-[13px] text-muted">
+                Configured models and their connection status.
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {(publicCfg?.provider_statuses?.length ?? 0) === 0 ? (
+                <div className="rounded-md border border-border bg-surface col-span-full p-5 text-[13px] text-muted">
+                  No providers configured yet. Run <code className="font-mono text-fg">appctl init</code> to add one.
+                </div>
+              ) : (
+                publicCfg?.provider_statuses?.map((provider) => (
+                  <ProviderCard
+                    key={provider.name}
+                    provider={provider}
+                    isActive={provider.name === publicCfg.active_provider}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* Authentication */}
+          <section className="grid gap-6 py-8 md:grid-cols-[240px_1fr]">
+            <div>
+              <h3 className="text-[14px] font-semibold text-fg">Authentication</h3>
+              <p className="mt-1 text-[13px] text-muted">
+                Secure access to the local daemon API.
+              </p>
+            </div>
+            <div className="max-w-md">
+              <label className="block">
+                <span className="text-[12px] font-medium text-muted">Bearer token</span>
+                <input
+                  type="password"
+                  className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none focus:border-border-strong"
+                  value={token}
+                  onChange={(e) => saveToken(e.target.value)}
+                  placeholder="Only needed if started with --token"
+                />
+              </label>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={refreshAll}
+                  className="inline-flex items-center gap-2 rounded-md bg-fg px-3 py-1.5 text-[12px] font-medium text-bg transition hover:bg-gray-200"
+                >
+                  Refresh runtime
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveToken("")}
+                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-fg transition hover:border-border-strong hover:text-fg"
+                >
+                  Clear token
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* Project Configuration */}
+          <section className="grid gap-6 py-8 md:grid-cols-[240px_1fr]">
+            <div>
+              <h3 className="text-[14px] font-semibold text-fg">Project Configuration</h3>
+              <p className="mt-1 text-[13px] text-muted">
+                What this daemon knows about your synced app.
+              </p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-5 max-w-2xl">
+              <div className="space-y-4">
+                <KV k="Schema source" v={sourceLabel(schema?.source ?? publicCfg?.sync_source)} />
+                <KV
+                  k="Target URL"
+                  v={
+                    <span className="break-all font-mono text-[12px]">
+                      {schema?.base_url ?? publicCfg?.base_url ?? "not set"}
+                    </span>
+                  }
+                />
+                <KV
+                  k="Server defaults"
+                  v={`read-only ${publicCfg?.read_only ? "on" : "off"} · dry-run ${publicCfg?.dry_run ? "on" : "off"} · strict ${publicCfg?.strict ? "on" : "off"}`}
+                />
+                <KV
+                  k="Local files"
+                  v={
+                    <span className="font-mono text-[12px]">
+                      .appctl/config.toml · schema.json · tools.json · history.db
+                    </span>
+                  }
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProviderCard({
+  provider,
+  isActive,
+}: {
+  provider: ProviderRuntimeStatus;
+  isActive: boolean;
+}) {
+  return (
+    <article
+      className={`rounded-lg border bg-surface p-4 ${isActive ? "border-fg" : "border-border"}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className="truncate text-[14px] font-semibold text-fg">{provider.name}</h4>
+            {isActive && <Pill tone="accent">active</Pill>}
+          </div>
+          <div className="mt-0.5 truncate text-[12px] text-muted">
+            {provider.kind} · {authKindLabel(provider.auth_status.kind)}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {provider.auth_status.configured ? (
+            <Pill tone="success">configured</Pill>
+          ) : (
+            <Pill tone="warn">action needed</Pill>
+          )}
+          {provider.verified ? (
+            <Pill tone="success">connection confirmed</Pill>
+          ) : (
+            <Pill tone="warn">connection not confirmed</Pill>
+          )}
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 text-[12px]">
+        <KV k="Model" v={provider.model} mono />
+        <KV
+          k="Base URL"
+          v={<span className="break-all font-mono text-[11px]">{provider.base_url}</span>}
+        />
+        {provider.auth_status.secret_ref && (
+          <KV k="Secret ref" v={provider.auth_status.secret_ref} mono />
+        )}
+        {provider.auth_status.profile && <KV k="Profile" v={provider.auth_status.profile} mono />}
+        {provider.auth_status.project_id && (
+          <KV k="Project" v={provider.auth_status.project_id} mono />
+        )}
+        <KV k="Expires" v={formatExpiry(provider.auth_status.expires_at)} />
+      </div>
+
+      {!provider.auth_status.configured && provider.auth_status.recovery_hint && (
+        <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-[12px] leading-relaxed text-amber-100">
+          {provider.auth_status.recovery_hint}
+        </div>
+      )}
+      {provider.auth_status.configured && !provider.verified && (
+        <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-[12px] leading-relaxed text-amber-100">
+          Config and key are saved, but the last live check didn’t succeed. To confirm the
+          connection, run:
+          <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11.5px] text-amber-50">
+            appctl auth provider login {provider.name}
+          </pre>
+        </div>
+      )}
+    </article>
   );
 }

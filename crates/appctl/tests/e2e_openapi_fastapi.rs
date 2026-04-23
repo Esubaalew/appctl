@@ -96,6 +96,7 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
             kind: ProviderKind::OpenAiCompatible,
             base_url: format!("{}/", llm.uri()),
             model: "mock-model".to_string(),
+            verified: true,
             auth: Some(ProviderAuthConfig::None),
             api_key_ref: None,
             extra_headers: Default::default(),
@@ -112,12 +113,13 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
     let schema = appctl::sync::load_schema(&paths).unwrap();
     assert_eq!(tool_name, "create_widget");
 
-    let response = run_agent(
+    let outcome = run_agent(
         &paths,
         &config,
         Some("mock"),
         None,
         "Create a widget named Demo",
+        &[],
         &tools,
         &schema,
         ExecutionContext {
@@ -134,5 +136,5 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
     .await
     .expect("agent");
 
-    assert_eq!(response, json!("Created widget Demo"));
+    assert_eq!(outcome.response, json!("Created widget Demo"));
 }

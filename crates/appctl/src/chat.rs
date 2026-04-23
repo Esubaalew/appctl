@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rustyline::{DefaultEditor, error::ReadlineError};
+use rustyline::{Editor, error::ReadlineError, history::DefaultHistory};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -24,21 +24,23 @@ pub struct ChatOptions {
 pub async fn run_chat(
     paths: &ConfigPaths,
     config: &AppConfig,
+    app_name: &str,
     mut options: ChatOptions,
 ) -> Result<()> {
     let schema = load_schema(paths)?;
     let tools = load_tools(paths)?;
-    let mut editor = DefaultEditor::new()?;
+    let context = crate::term::chat_context(app_name, &config.default, options.provider.as_deref());
+    crate::term::print_chat_banner(&context, &paths.root, schema.resources.len(), tools.len());
+    let mut editor = Editor::<crate::term::PromptHelper, DefaultHistory>::new()?;
+    editor.set_helper(Some(crate::term::PromptHelper::new(context)));
     let session_id = Uuid::new_v4().to_string();
+    let mut transcript = Vec::new();
 
     loop {
-        let prompt = format!(
-            "appctl[{}]> ",
-            options
-                .provider
-                .clone()
-                .unwrap_or_else(|| config.default.clone())
-        );
+        let prompt = editor
+            .helper()
+            .map(|helper| helper.plain_prompt())
+            .unwrap_or_else(|| "appctl▶ ".to_string());
         match editor.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim();
@@ -47,6 +49,12 @@ pub async fn run_chat(
                 }
                 editor.add_history_entry(line)?;
                 if handle_slash_command(line, &mut options) {
+                    refresh_prompt_helper(
+                        &mut editor,
+                        app_name,
+                        &config.default,
+                        options.provider.as_deref(),
+                    );
                     if line == "/exit" {
                         break;
                     }
@@ -61,6 +69,7 @@ pub async fn run_chat(
                     options.provider.as_deref(),
                     options.model.as_deref(),
                     line,
+                    &transcript,
                     &tools,
                     &schema,
                     ExecutionContext {
@@ -76,9 +85,10 @@ pub async fn run_chat(
                 )
                 .await;
                 let _ = printer.await;
-                let response = response?;
-                if !matches!(response, serde_json::Value::String(_)) {
-                    println!("{}", serde_json::to_string_pretty(&response)?);
+                let outcome = response?;
+                transcript = outcome.transcript;
+                if !matches!(outcome.response, serde_json::Value::String(_)) {
+                    crate::term::print_json_output(&outcome.response);
                 }
             }
             Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
@@ -87,6 +97,21 @@ pub async fn run_chat(
     }
 
     Ok(())
+}
+
+fn refresh_prompt_helper(
+    editor: &mut Editor<crate::term::PromptHelper, DefaultHistory>,
+    app_name: &str,
+    default_provider: &str,
+    override_provider: Option<&str>,
+) {
+    if let Some(helper) = editor.helper_mut() {
+        helper.set_context(crate::term::chat_context(
+            app_name,
+            default_provider,
+            override_provider,
+        ));
+    }
 }
 
 fn handle_slash_command(line: &str, options: &mut ChatOptions) -> bool {

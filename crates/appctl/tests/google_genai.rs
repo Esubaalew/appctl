@@ -57,6 +57,8 @@ async fn google_genai_provider_sends_api_key_and_parses_function_call() {
                 scopes: Vec::new(),
                 project_id: None,
                 recovery_hint: None,
+                help_url: None,
+                bridge_client: None,
             },
         },
         auth_status: ProviderAuthStatus {
@@ -69,6 +71,8 @@ async fn google_genai_provider_sends_api_key_and_parses_function_call() {
             scopes: Vec::new(),
             project_id: None,
             recovery_hint: None,
+            help_url: None,
+            bridge_client: None,
         },
         extra_headers: BTreeMap::new(),
     });

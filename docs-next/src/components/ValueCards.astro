@@ -8,12 +8,12 @@ const cards = [
   {
     title: 'Any LLM works',
     body:
-      'Bring OpenAI, Anthropic, Google, xAI, Mistral, or a local model. Pick per project, switch any time.',
+      'Bring OpenAI, Anthropic, Google, Azure OpenAI, Ollama, LM Studio, vLLM, or any OpenAI-compatible endpoint. Switch per project.',
   },
   {
     title: 'Every call is audited',
     body:
-      'Each tool call is logged with provenance, arguments, and status. Replay runs, or export to your own sink.',
+      'Each tool call is logged with provenance, arguments, and status in SQLite. Replay runs or export to your own sink.',
   },
 ];
 ---
@@ -21,7 +21,7 @@ const cards = [
   .grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
+    gap: 14px;
   }
   @media (max-width: 900px) {
     .grid {
@@ -31,18 +31,20 @@ const cards = [
   .card {
     padding: 22px;
     border: 1px solid var(--appctl-border);
-    border-radius: 12px;
-    background: var(--appctl-panel);
+    border-radius: 8px;
+    background: var(--appctl-surface);
   }
   .card h3 {
     margin: 0 0 8px;
-    font-size: 17px;
+    font-size: 15px;
+    font-weight: 600;
     letter-spacing: -0.005em;
+    color: var(--appctl-fg);
   }
   .card p {
     margin: 0;
-    color: var(--appctl-muted);
-    font-size: 14.5px;
+    color: var(--appctl-fg-dim);
+    font-size: 14px;
     line-height: 1.55;
   }
 </style>

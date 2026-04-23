@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use crate::{
     ai::{AgentStep, LlmProvider, Message, ToolCall},
     config::ResolvedProvider,
+    term::format_api_error_summary,
     tools::ToolDef,
 };
 
@@ -78,13 +79,13 @@ impl LlmProvider for AnthropicProvider {
             bail!(
                 "Anthropic API returned {}: {}",
                 status,
-                summarize_body(&body)
+                format_api_error_summary(&body)
             );
         }
         let response: Value = serde_json::from_str(&body).with_context(|| {
             format!(
                 "failed to parse Anthropic response as JSON: {}",
-                summarize_body(&body)
+                format_api_error_summary(&body)
             )
         })?;
 
@@ -135,15 +136,4 @@ impl LlmProvider for AnthropicProvider {
             Ok(AgentStep::Message { content: text })
         }
     }
-}
-
-fn summarize_body(body: &str) -> String {
-    let trimmed = body.trim();
-    if trimmed.is_empty() {
-        return "<empty body>".to_string();
-    }
-
-    let mut compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
-    compact.truncate(280);
-    compact
 }

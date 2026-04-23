@@ -1,0 +1,166 @@
+# verify-matrix.toml
+#
+# Every tuple that must be green before we ship a release.
+# Read by scripts/verify-all.sh. Each `[[case]]` runs independently.
+#
+# A case is SKIPPED (not failed) when all of its `requires_env` vars are unset.
+# A case is FAILED when any step fails while its env vars are present.
+#
+# Fields per case:
+#   id              unique id; also used as the sub-directory name for logs
+#   demo            demo directory under examples/demos
+#   sync            argv passed to `appctl sync` inside the demo copy
+#   provider_name   name used inside appctl for this provider
+#   provider_kind   one of: google_genai | vertex | open_ai_compatible | anthropic | azure_open_ai
+#   auth_kind       one of: api_key | google_adc | azure_ad | mcp_bridge | none
+#   base_url        base URL to write into config.toml
+#   model           model id to write into config.toml
+#   secret_env      env var that holds the real API key, when auth_kind = "api_key"
+#   secret_ref      keychain name to store the secret under
+#   prompt          the real prompt sent by `appctl run`
+#   requires_env    env vars that must be set for this case to run
+#   extra_headers   optional key=value lines added to the provider block
+
+[[case]]
+id = "openapi-fastapi+openai-api-key"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "openai"
+provider_kind = "open_ai_compatible"
+auth_kind = "api_key"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4.1-mini"
+secret_env = "OPENAI_API_KEY"
+secret_ref = "OPENAI_API_KEY"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["OPENAI_API_KEY"]
+
+[[case]]
+id = "openapi-fastapi+anthropic-api-key"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "claude"
+provider_kind = "anthropic"
+auth_kind = "api_key"
+base_url = "https://api.anthropic.com"
+model = "claude-sonnet-4"
+secret_env = "ANTHROPIC_API_KEY"
+secret_ref = "ANTHROPIC_API_KEY"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["ANTHROPIC_API_KEY"]
+
+[[case]]
+id = "openapi-fastapi+qwen-dashscope"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "qwen"
+provider_kind = "open_ai_compatible"
+auth_kind = "api_key"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen3-coder-plus"
+secret_env = "DASHSCOPE_API_KEY"
+secret_ref = "DASHSCOPE_API_KEY"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["DASHSCOPE_API_KEY"]
+
+[[case]]
+id = "openapi-fastapi+gemini-api-key"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "gemini"
+provider_kind = "google_genai"
+auth_kind = "api_key"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.5-pro"
+secret_env = "GOOGLE_API_KEY"
+secret_ref = "GOOGLE_API_KEY"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["GOOGLE_API_KEY"]
+
+[[case]]
+id = "openapi-fastapi+gemini-adc"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "gemini"
+provider_kind = "google_genai"
+auth_kind = "google_adc"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.5-pro"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["GOOGLE_APPLICATION_CREDENTIALS"]
+
+[[case]]
+id = "openapi-fastapi+vertex-adc"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "vertex"
+provider_kind = "vertex"
+auth_kind = "google_adc"
+base_url = "https://us-central1-aiplatform.googleapis.com"
+model = "gemini-2.5-pro"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["GOOGLE_APPLICATION_CREDENTIALS", "VERTEX_PROJECT"]
+extra_headers = ["x-appctl-vertex-region=us-central1"]
+
+[[case]]
+id = "openapi-fastapi+azure-api-key"
+demo = "openapi-fastapi"
+sync = ["sync", "--openapi", ".", "--base-url", "http://127.0.0.1:8000"]
+provider_name = "azure"
+provider_kind = "azure_open_ai"
+auth_kind = "api_key"
+base_url_env = "AZURE_OPENAI_ENDPOINT"
+model_env = "AZURE_OPENAI_DEPLOYMENT"
+secret_env = "AZURE_OPENAI_API_KEY"
+secret_ref = "AZURE_OPENAI_API_KEY"
+prompt = "Reply with the single token 'ok'."
+requires_env = ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT"]
+
+# MCP bridge cases only assert that `appctl init` wrote the right config into
+# the external client and that the external binary can at least print --help.
+# They do not do a real subscription call in CI because doing so would
+# require real paid accounts and interactive login.
+
+[[case]]
+id = "mcp-bridge+codex"
+demo = "mcp-stdio"
+sync = ["sync", "--mcp-stdio", ".", "--base-url", "http://127.0.0.1:1"]
+provider_name = "openai-subscription"
+provider_kind = "open_ai_compatible"
+auth_kind = "mcp_bridge"
+bridge_client = "codex"
+smoke_only = true
+requires_env = ["APPCTL_LIVE_MCP_BRIDGE"]
+
+[[case]]
+id = "mcp-bridge+claude-code"
+demo = "mcp-stdio"
+sync = ["sync", "--mcp-stdio", ".", "--base-url", "http://127.0.0.1:1"]
+provider_name = "claude-subscription"
+provider_kind = "open_ai_compatible"
+auth_kind = "mcp_bridge"
+bridge_client = "claude"
+smoke_only = true
+requires_env = ["APPCTL_LIVE_MCP_BRIDGE"]
+
+[[case]]
+id = "mcp-bridge+qwen-code"
+demo = "mcp-stdio"
+sync = ["sync", "--mcp-stdio", ".", "--base-url", "http://127.0.0.1:1"]
+provider_name = "qwen-subscription"
+provider_kind = "open_ai_compatible"
+auth_kind = "mcp_bridge"
+bridge_client = "qwen_code"
+smoke_only = true
+requires_env = ["APPCTL_LIVE_MCP_BRIDGE"]
+
+[[case]]
+id = "mcp-bridge+gemini-cli"
+demo = "mcp-stdio"
+sync = ["sync", "--mcp-stdio", ".", "--base-url", "http://127.0.0.1:1"]
+provider_name = "gemini-subscription"
+provider_kind = "open_ai_compatible"
+auth_kind = "mcp_bridge"
+bridge_client = "gemini"
+smoke_only = true
+requires_env = ["APPCTL_LIVE_MCP_BRIDGE"]

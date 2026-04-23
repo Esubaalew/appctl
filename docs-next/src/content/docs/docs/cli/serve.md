@@ -1,64 +1,104 @@
 ---
 title: appctl serve
-description: Run appctl as an HTTP + WebSocket daemon with a bundled web UI.
+description: HTTP + WebSocket daemon for the embedded web console and custom frontends.
 ---
 
-Run `appctl` as a daemon. It exposes HTTP endpoints, streams `AgentEvent`s over WebSocket, and serves a bundled React web UI.
+`appctl serve` starts an HTTP server that does two things:
+
+1. Serves the **embedded web console** — an operator UI shipped inside the
+   `appctl` binary (no separate install, no CDN calls).
+2. Exposes the same agent loop as `appctl chat` over a JSON HTTP + WebSocket
+   API so you can drive it from your own UI, IDE plugin, or script.
+
+The server runs the same planner, executor, and safety rails as the CLI. All
+tools, logs, and configuration live in the current app directory
+(`--app-dir`, default `.appctl`).
 
 ## Usage
 
-```
+```bash
 appctl serve [OPTIONS]
 ```
 
 ## Options
 
-- `--port <PORT>` — HTTP port (default `4242`).
-- `--bind <HOST>` — bind address (default `127.0.0.1`; use `0.0.0.0` to accept LAN).
-- `--token <TOKEN>` — require `Authorization: Bearer <TOKEN>` on every request.
-- `--provider <NAME>`, `--model <NAME>` — override the default LLM.
-- `--strict`, `--read-only`, `--dry-run`, `--confirm` — safety flags (same as `chat`). Note: `--confirm` defaults to `true` under `serve` since there is no human at the CLI to answer prompts.
+| Flag | Default | What it does |
+| --- | --- | --- |
+| `--bind <ADDR>` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` only with `--token`. |
+| `--port <N>` | `4242` | TCP port. |
+| `--token <STRING>` | unset | Require this bearer token on every request. When set, the web UI prompts for it. |
+| `--provider <NAME>` | — | Override the default provider for this server instance. |
+| `--model <NAME>` | — | Override the provider's model. |
+| `--read-only` | off | Block every mutating tool server-wide. |
+| `--dry-run` | off | Skip real I/O; return simulated events. |
+| `--strict` | off | Block `provenance = "inferred"` tools until verified. |
+| `--confirm` | **on** | Auto-approve mutations. Default is on (non-interactive). Pass `--confirm=false` to require per-call approval from the web UI. |
 
-## What you get
+Flags set on `appctl serve` apply to **every** request — a web UI client cannot
+override them. Use this to enforce safety in shared deployments.
 
-- `GET /` — the bundled web UI (React, works offline).
-- `GET /schema` — the current schema as JSON.
-- `GET /tools` — derived tools list the agent sees.
-- `GET /config/public` — non-secret config snapshot, including redacted provider auth state for the UI.
-- `GET /history` — list history entries.
-- `POST /run` — submit a prompt, get a response with the full event trail.
-- `WS /chat` — bidirectional chat with streaming `AgentEvent`s.
+## The web console
 
-See [HTTP endpoints](/docs/api/http/) for payload shapes.
+Open `http://127.0.0.1:4242/` in a browser. The console ships as a single-page
+app with four tabs:
 
-## Example
+- **Chat** — streaming conversation with the agent. Tool calls render inline
+  as collapsible cards showing arguments and truncated responses.
+- **Tools** — searchable list of every tool the agent can call, with its
+  `kind`, `op`, safety level, and schema.
+- **History** — the audit log (same table as `appctl history`), with
+  expandable rows for arguments and raw response.
+- **Settings** — provider status, token usage (if the provider reports
+  billing info), and a field for the auth token when `--token` is set.
+
+The UI connects over `WS /chat` for streaming; if WebSocket is blocked it
+falls back to `POST /run` for non-streaming completions.
+
+## HTTP endpoints
+
+All endpoints honour `--token` (via `Authorization: Bearer ...` or
+`x-appctl-token`) when set.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/tools` | `.appctl/tools.json` as JSON. |
+| `GET` | `/history?limit=<N>` | Last N audit rows. |
+| `GET` | `/schema` | `.appctl/schema.json` as JSON. |
+| `GET` | `/config/public` | Redacted configuration (provider name, model, app name, safety flags). No secrets. |
+| `POST` | `/run` | One-shot prompt, returns final answer + events. |
+| `WS` | `/chat` | Streaming agent events. |
+
+See [HTTP endpoints](/docs/api/http/) and [WebSocket](/docs/api/websocket/) for
+request and response shapes.
+
+## Examples
 
 ```bash
-appctl serve --port 4242 --token $(openssl rand -hex 32)
+# Local-only operator console
+appctl serve
+
+# Share on the LAN behind a token
+appctl serve --bind 0.0.0.0 --token "$(openssl rand -hex 24)"
+
+# Read-only, dry-run demo instance
+appctl serve --read-only --dry-run
+
+# Force a specific provider for a server that runs inside a CI job
+appctl serve --provider openai --model gpt-4o-mini --confirm=false
 ```
 
-Open `http://127.0.0.1:4242/` in a browser. Paste the token when prompted, or set it in the client as `Authorization: Bearer <TOKEN>`.
+## Security notes
 
-The bundled web UI shows:
-
-- active provider
-- redacted provider auth state
-- expiry and recovery hints when known
-- target URL, schema source, and daemon safety flags
-
-## LAN / shared deployments
-
-```bash
-appctl serve --bind 0.0.0.0 --port 4242 \
-  --token "$APPCTL_TOKEN" \
-  --strict --read-only
-```
-
-Run behind your own TLS terminator. `appctl serve` does not terminate TLS; use Caddy, Nginx, or Cloudflare Tunnel.
+- The bind address defaults to `127.0.0.1`. Changing it to `0.0.0.0` without
+  also passing `--token` is a mistake — the server will still start, but
+  anything on your network can use your provider credits.
+- The token is compared byte-for-byte. Pick a long random string.
+- Static assets are embedded into the binary at build time, so there is no
+  need to open any additional ports for asset delivery.
 
 ## Related
 
-- [HTTP endpoints](/docs/api/http/)
-- [WebSocket](/docs/api/websocket/)
-- [Provider matrix](/docs/provider-matrix/)
-- [Deploy → Server](/docs/deploy/server/)
+- [`appctl chat`](/docs/cli/chat/) — CLI equivalent of the chat tab.
+- [HTTP endpoints](/docs/api/http/) — exact schemas for the endpoints above.
+- [WebSocket](/docs/api/websocket/) — event stream format.
+- [Security](/docs/security/) — hardening guidance for shared deployments.

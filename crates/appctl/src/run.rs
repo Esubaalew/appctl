@@ -21,9 +21,16 @@ pub struct RunOptions {
     pub strict: bool,
 }
 
-pub async fn run_once(paths: &ConfigPaths, config: &AppConfig, options: RunOptions) -> Result<()> {
+pub async fn run_once(
+    paths: &ConfigPaths,
+    config: &AppConfig,
+    app_name: &str,
+    options: RunOptions,
+) -> Result<()> {
     let schema = load_schema(paths)?;
     let tools = load_tools(paths)?;
+    let context = crate::term::chat_context(app_name, &config.default, options.provider.as_deref());
+    crate::term::print_chat_banner(&context, &paths.root, schema.resources.len(), tools.len());
     let (tx, rx) = mpsc::channel(64);
     let printer = tokio::spawn(crate::term::run_event_printer(rx));
     let response = run_agent(
@@ -32,6 +39,7 @@ pub async fn run_once(paths: &ConfigPaths, config: &AppConfig, options: RunOptio
         options.provider.as_deref(),
         options.model.as_deref(),
         &options.prompt,
+        &[],
         &tools,
         &schema,
         ExecutionContext {
@@ -47,10 +55,18 @@ pub async fn run_once(paths: &ConfigPaths, config: &AppConfig, options: RunOptio
     )
     .await;
     let _ = printer.await;
-    let response = response?;
+    let response = response?.response;
+
+    if let Some(text) = response.as_str()
+        && text.contains('?')
+    {
+        crate::term::print_tip(
+            "`appctl run` is one-shot — use `appctl chat` for follow-up conversation.",
+        );
+    }
 
     if !matches!(response, serde_json::Value::String(_)) {
-        println!("{}", serde_json::to_string_pretty(&response)?);
+        crate::term::print_json_pretty_value(&response);
     }
     Ok(())
 }

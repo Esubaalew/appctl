@@ -97,6 +97,7 @@ async fn sync_django_fixture_then_agent_calls_create_parcel() {
             kind: ProviderKind::OpenAiCompatible,
             base_url: format!("{}/", llm.uri()),
             model: "mock-model".to_string(),
+            verified: true,
             auth: Some(ProviderAuthConfig::None),
             api_key_ref: None,
             extra_headers: Default::default(),
@@ -110,12 +111,13 @@ async fn sync_django_fixture_then_agent_calls_create_parcel() {
     };
     config.save(&paths).unwrap();
 
-    let response = run_agent(
+    let outcome = run_agent(
         &paths,
         &config,
         Some("mock"),
         None,
         "Create a parcel with tracking number TRK-1",
+        &[],
         &tools,
         &schema,
         ExecutionContext {
@@ -132,5 +134,5 @@ async fn sync_django_fixture_then_agent_calls_create_parcel() {
     .await
     .expect("agent");
 
-    assert_eq!(response, json!("Parcel created"));
+    assert_eq!(outcome.response, json!("Parcel created"));
 }
