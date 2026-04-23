@@ -1,3 +1,4 @@
+---
 title: SQL databases (Postgres, MySQL, SQLite)
 description: Skip the API. Point at a database URL and get typed CRUD tools per table.
 ---
