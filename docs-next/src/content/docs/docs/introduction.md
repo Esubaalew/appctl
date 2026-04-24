@@ -1,56 +1,44 @@
 ---
 title: Introduction
-description: What appctl is, what it is not, and why you might want it.
+description: What appctl is and how it relates to your application and LLM.
 ---
 
-`appctl` is a Rust CLI that turns an existing application into a set of typed tools an LLM can call. One command gets you an agent that understands your app, uses your endpoints, and logs every action.
+> Talk to your app. In plain English.
 
-## The commands you actually use
+`appctl` is a CLI that reads a machine-readable description of an application
+(OpenAPI, ORM, SQL `information_schema`, framework layout, etc.), writes
+`.appctl/schema.json` and `.appctl/tools.json`, and at runtime dispatches
+tool calls from the model to your HTTP endpoints or database according to that
+schema. Call history is stored locally (e.g. `.appctl/history.db`).
 
-1. [`appctl init`](/docs/init/) — one-time setup. Picks a provider, runs the
-   real auth flow, stores the secret in your OS keychain, and verifies the
-   connection with a live call.
-2. [`appctl sync`](/docs/cli/sync/) — point it at your app. It reads your
-   routes or schema and writes a local contract to `.appctl/schema.json` plus
-   a flattened `.appctl/tools.json`.
-3. [`appctl chat`](/docs/cli/chat/) — talk to the agent in plain English. It
-   picks the right tool, runs it, and logs the result.
-4. [`appctl serve`](/docs/cli/serve/) — run it as an HTTP + WebSocket daemon
-   with the embedded web console for teammates, IDE plugins, or custom
-   frontends.
+## Primary commands
 
-## What it is not
+1. [`appctl init`](/docs/init/) — create `.appctl/config.toml` and store provider credentials.
+2. [`appctl sync`](/docs/cli/sync/) — generate the schema and tools from one selected source. If `.appctl/schema.json` already exists, [`--force`](/docs/cli/sync/#when-to-use-force) is required to replace it.
+3. [`appctl chat`](/docs/cli/chat/) or [`appctl run`](/docs/cli/run/) — send user text; the model may emit tool calls which `appctl` executes.
+4. [`appctl serve`](/docs/cli/serve/) — expose HTTP/WebSocket and the embedded web console.
 
-- It is not a framework. You do not rewrite your app.
-- It is not a new database. Your data stays where it is.
-- It is not an LLM. You bring your own (OpenAI, Anthropic, Google, xAI, Mistral, Ollama, any OpenAI-compatible endpoint).
-- It is not magic. It reads routes and schemas that already exist. If the information is not there, the tools will be wrong.
+## What appctl is not
 
-## When to use it
+- A web framework: your application is unchanged; `appctl` only consumes what it can read.
+- A database: data remains in your systems.
+- An LLM product: you configure [providers](/docs/installation/) in `config.toml`.
 
-- You have an internal app and want teammates to drive it in natural language.
-- You have a SaaS with an OpenAPI spec and want an agent that can take action, not just answer questions.
-- You have a legacy HTML admin with a form login and no API.
-- You want MCP support without rebuilding everything as MCP servers.
+## Sync sources (summary)
 
-## Supported sources
+| Source | Documentation |
+| --- | --- |
+| OpenAPI | [OpenAPI](/docs/sources/openapi/) |
+| Django (DRF) | [Django](/docs/sources/django/) |
+| Rails, Laravel, ASP.NET, Strapi | [Rails](/docs/sources/rails/), [Laravel](/docs/sources/laravel/), [ASP.NET](/docs/sources/aspnet/), [Strapi](/docs/sources/strapi/) |
+| Supabase / PostgREST | [Supabase](/docs/sources/supabase/) |
+| SQL and other datastores | [Databases](/docs/sources/db/) |
+| URL + login | [URL login](/docs/sources/url/) |
+| MCP | [MCP](/docs/sources/mcp/) |
+| Dynamic plugins | [Plugins](/docs/sources/plugins/) |
 
-| Source | Reads | Output |
-| --- | --- | --- |
-| [OpenAPI / Swagger](/docs/sources/openapi/) | spec document | one tool per operation |
-| [Django (DRF)](/docs/sources/django/) | `models.py`, `settings.py` | five tools per model |
-| [Rails API](/docs/sources/rails/) | `routes.rb`, `schema.rb` | five tools per resource |
-| [Laravel API](/docs/sources/laravel/) | `routes/api.php`, migrations | five tools per resource |
-| [ASP.NET Core](/docs/sources/aspnet/) | swagger.json or controllers | tools per endpoint |
-| [Strapi v4](/docs/sources/strapi/) | content-type schemas | five tools per content type |
-| [Supabase / PostgREST](/docs/sources/supabase/) | OpenAPI from PostgREST | REST tools per table |
-| [SQL databases](/docs/sources/db/) | information_schema | five SQL tools per table |
-| [URL login](/docs/sources/url/) | HTML forms, links | tools per form |
-| [MCP servers](/docs/sources/mcp/) | `tools/list` | one tool per MCP tool |
-| [Plugins](/docs/sources/plugins/) | your Rust `cdylib` | anything |
+## See also
 
-## Next
-
-- [Installation](/docs/installation/): get `appctl` on your machine.
-- [Quickstart](/docs/quickstart/): run a demo app end-to-end in five minutes.
-- [Mental model](/docs/concepts/mental-model/): how the pieces fit together.
+- [Installation](/docs/installation/)
+- [Quickstart](/docs/quickstart/)
+- [Mental model](/docs/concepts/mental-model/)

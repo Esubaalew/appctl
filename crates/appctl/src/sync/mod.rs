@@ -70,7 +70,9 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
     paths.ensure()?;
 
     if !request.force && paths.schema.exists() {
-        tracing::info!("overwriting existing schema at {}", paths.schema.display());
+        bail!(
+            ".appctl/schema.json already exists (pass --force to overwrite it and regenerate .appctl/tools.json)"
+        );
     }
 
     let mut schema = if let Some(source) = &request.openapi {
@@ -141,6 +143,10 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
     write_json(&paths.schema, &schema)?;
     write_json(&paths.tools, &tools)?;
 
+    if let Some(conn) = &request.db {
+        merge_target_database_url_from_sync(&paths, conn)?;
+    }
+
     print_section_title("Sync complete");
     print_path_row("app directory", &paths.root);
     print_status_success(&format!(
@@ -197,6 +203,28 @@ fn stable_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+/// `appctl sync --db` uses a connection string for introspection, but `appctl chat` / run read
+/// [`AppConfig::target::database_url`](crate::config::TargetConfig::database_url). If that is
+/// unset, copy the sync string so DB tools work without a second manual copy.
+fn merge_target_database_url_from_sync(paths: &ConfigPaths, connection_string: &str) -> Result<()> {
+    let mut config = AppConfig::load_or_init(paths)?;
+    let missing = config
+        .target
+        .database_url
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|s| s.is_empty());
+    if !missing {
+        return Ok(());
+    }
+    config.target.database_url = Some(connection_string.to_string());
+    config.save(paths)?;
+    print_tip(
+        "Set [target] database_url from this `sync --db` connection (required for DB tool calls in chat/run).",
+    );
+    Ok(())
 }
 
 pub fn load_schema(paths: &ConfigPaths) -> Result<Schema> {

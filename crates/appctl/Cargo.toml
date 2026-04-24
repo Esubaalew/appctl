@@ -11,7 +11,7 @@ rust-version.workspace = true
 readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
-description = "One command. Any app. Full AI control. The universal AI CLI for any web app, database, or service."
+description = "CLI: sync OpenAPI, databases, and frameworks into LLM tool definitions; chat, run, and HTTP serve."
 # `cargo publish` only ships paths under this crate; `rust-embed` reads `embedded-web/dist`.
 include = [
     "build.rs",
@@ -39,7 +39,7 @@ async-trait = { workspace = true }
 axum = { version = "0.8.9", features = ["ws"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
 dialoguer = { version = "0.12.0", features = ["fuzzy-select"] }
 dirs = "5.0.1"
 futures = "0.3.32"

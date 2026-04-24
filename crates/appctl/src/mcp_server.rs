@@ -228,6 +228,8 @@ mod tests {
             cloud: Default::default(),
             behavior: BehaviorConfig::default(),
             tooling: Default::default(),
+            display_name: None,
+            description: None,
         };
         config.save(&paths).unwrap();
 

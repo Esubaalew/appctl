@@ -416,6 +416,11 @@ impl Executor {
         for name in query_fields {
             if let Some(value) = body_map.remove(name) {
                 query.push((name.clone(), value_to_string(&value)));
+            } else if let Some(raw) = self.config.target.default_query.get(name) {
+                let resolved = resolve_target_default_query_value(raw).with_context(|| {
+                    format!("resolving [target].default_query[{name}] (use env:VAR for env vars)")
+                })?;
+                query.push((name.clone(), resolved));
             }
         }
 
@@ -455,13 +460,15 @@ impl Executor {
     ) -> Result<Value> {
         let connection_string =
             runtime_database_source(&self.config).context("database connection string missing")?;
+        let qt = sql_ident_ansi(table);
+        let pkq = sql_ident_ansi(primary_key);
         match database_kind {
             DatabaseKind::Postgres => {
                 let pool = sqlx::postgres::PgPoolOptions::new()
                     .connect(&connection_string)
                     .await?;
                 let sql = format!(
-                    "select row_to_json(t) as row from (select * from {table} where {primary_key} = $1 limit 1) t"
+                    "select row_to_json(t) as row from (select * from {qt} where {pkq} = $1 limit 1) t"
                 );
                 let row: Option<Value> = sqlx::query_scalar(&sql)
                     .bind(value_to_string(id))
@@ -474,7 +481,7 @@ impl Executor {
                 let pool = sqlx::sqlite::SqlitePoolOptions::new()
                     .connect(&connection_string)
                     .await?;
-                let sql = format!("select * from {table} where {primary_key} = ? limit 1");
+                let sql = format!("select * from {qt} where {pkq} = ? limit 1");
                 let rows = sqlx::query(&sql)
                     .bind(value_to_string(id))
                     .fetch_all(&pool)
@@ -562,6 +569,18 @@ impl ExecutionRequest {
             request_snapshot: Value::Object(Map::new()),
         }
     }
+}
+
+/// Literal value, or `env:NAME` to read from [`std::env::var`], for [`crate::config::TargetConfig::default_query`].
+fn resolve_target_default_query_value(raw: &str) -> Result<String> {
+    const PREFIX: &str = "env:";
+    if let Some(name) = raw.strip_prefix(PREFIX) {
+        let name = name.trim();
+        return std::env::var(name).with_context(|| {
+            format!("environment variable '{name}' (from [target].default_query) is not set")
+        });
+    }
+    Ok(raw.to_string())
 }
 
 pub(crate) fn build_headers(
@@ -708,6 +727,16 @@ fn session_file_path(paths: &ConfigPaths, _config: &AppConfig) -> Option<std::pa
     }
 }
 
+/// SQL double-quoted identifier (SQL-92; safe for **reserved words** like `order`, `user` in SQLite & PostgreSQL).
+fn sql_ident_ansi(s: &str) -> String {
+    format!("\"{}\"", s.replace('\"', "\"\""))
+}
+
+/// MySQL / MariaDB style `` `identifier` `` (reserved words, etc.).
+fn sql_ident_mysql_quoted(s: &str) -> String {
+    format!("`{}`", s.replace('`', "``"))
+}
+
 fn summarize_http_status(status: u16, method: &HttpMethod, path: &str) -> String {
     let method = reqwest_method(method).as_str().to_string();
     match status {
@@ -747,10 +776,12 @@ async fn execute_sql_postgres(
     arguments: &Value,
 ) -> Result<ExecutionResult> {
     let primary_key = primary_key.unwrap_or("id");
+    let qt = sql_ident_ansi(table);
+    let pkq = sql_ident_ansi(primary_key);
     match operation {
         SqlOperation::Select => {
             let sql = format!(
-                "select coalesce(json_agg(t), '[]'::json) as rows from (select * from {table} limit 100) t"
+                "select coalesce(json_agg(t), '[]'::json) as rows from (select * from {qt} limit 100) t"
             );
             let rows: Value = sqlx::query_scalar(&sql).fetch_one(pool).await?;
             Ok(ExecutionResult {
@@ -764,7 +795,7 @@ async fn execute_sql_postgres(
                 .or_else(|| arguments.get("id"))
                 .context("missing primary key argument")?;
             let sql = format!(
-                "select row_to_json(t) as row from (select * from {table} where {primary_key} = $1 limit 1) t"
+                "select row_to_json(t) as row from (select * from {qt} where {pkq} = $1 limit 1) t"
             );
             let row: Option<Value> = sqlx::query_scalar(&sql)
                 .bind(value_to_string(id))
@@ -781,12 +812,16 @@ async fn execute_sql_postgres(
                 .context("insert expects a JSON object")?;
             let columns: Vec<_> = payload.keys().cloned().collect();
             let values: Vec<_> = payload.values().cloned().collect();
+            let col_list = columns
+                .iter()
+                .map(|c| sql_ident_ansi(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             let placeholders = (1..=columns.len())
                 .map(|i| format!("${i}"))
                 .collect::<Vec<_>>();
             let sql = format!(
-                "insert into {table} ({}) values ({}) returning row_to_json({table})",
-                columns.join(", "),
+                "insert into {qt} as appctl_r ({col_list}) values ({}) returning row_to_json(appctl_r)",
                 placeholders.join(", ")
             );
             let mut query = sqlx::query_scalar::<_, Value>(&sql);
@@ -821,10 +856,12 @@ async fn execute_sql_postgres(
             let assignments = columns
                 .iter()
                 .enumerate()
-                .map(|(index, column)| format!("{column} = ${}", index + 1))
+                .map(|(index, column)| {
+                    format!("appctl_r.{} = ${}", sql_ident_ansi(column), index + 1)
+                })
                 .collect::<Vec<_>>();
             let sql = format!(
-                "update {table} set {} where {primary_key} = ${} returning row_to_json({table})",
+                "update {qt} as appctl_r set {} where appctl_r.{pkq} = ${} returning row_to_json(appctl_r)",
                 assignments.join(", "),
                 columns.len() + 1
             );
@@ -844,9 +881,7 @@ async fn execute_sql_postgres(
                 .get(primary_key)
                 .or_else(|| arguments.get("id"))
                 .context("missing primary key argument")?;
-            let sql = format!(
-                "delete from {table} where {primary_key} = $1 returning json_build_object('deleted', true, '{primary_key}', {primary_key})"
-            );
+            let sql = format!("delete from {qt} as z where z.{pkq} = $1 returning row_to_json(z)");
             let row: Value = sqlx::query_scalar(&sql)
                 .bind(value_to_string(id))
                 .fetch_one(pool)
@@ -867,9 +902,11 @@ async fn execute_sql_mysql(
     arguments: &Value,
 ) -> Result<ExecutionResult> {
     let primary_key = primary_key.unwrap_or("id");
+    let qt = sql_ident_mysql_quoted(table);
+    let pkq = sql_ident_mysql_quoted(primary_key);
     match operation {
         SqlOperation::Select => {
-            let sql = format!("select * from {table} limit 100");
+            let sql = format!("select * from {qt} limit 100");
             let rows = sqlx::query(&sql).fetch_all(pool).await?;
             Ok(ExecutionResult {
                 output: rows_to_json(rows),
@@ -881,7 +918,7 @@ async fn execute_sql_mysql(
                 .get(primary_key)
                 .or_else(|| arguments.get("id"))
                 .context("missing primary key argument")?;
-            let sql = format!("select * from {table} where {primary_key} = ? limit 1");
+            let sql = format!("select * from {qt} where {pkq} = ? limit 1");
             let rows = sqlx::query(&sql)
                 .bind(value_to_string(id))
                 .fetch_all(pool)
@@ -897,9 +934,13 @@ async fn execute_sql_mysql(
                 .context("insert expects a JSON object")?;
             let columns: Vec<_> = payload.keys().cloned().collect();
             let placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>();
+            let col_list = columns
+                .iter()
+                .map(|c| sql_ident_mysql_quoted(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             let sql = format!(
-                "insert into {table} ({}) values ({})",
-                columns.join(", "),
+                "insert into {qt} ({col_list}) values ({})",
                 placeholders.join(", ")
             );
             let mut query = sqlx::query(&sql);
@@ -930,12 +971,9 @@ async fn execute_sql_mysql(
             }
             let assignments = columns
                 .iter()
-                .map(|column| format!("{column} = ?"))
+                .map(|column| format!("{} = ?", sql_ident_mysql_quoted(column)))
                 .collect::<Vec<_>>();
-            let sql = format!(
-                "update {table} set {} where {primary_key} = ?",
-                assignments.join(", ")
-            );
+            let sql = format!("update {qt} set {} where {pkq} = ?", assignments.join(", "));
             let mut query = sqlx::query(&sql);
             for column in &columns {
                 query = query.bind(value_to_string(payload.get(column).unwrap()));
@@ -951,7 +989,7 @@ async fn execute_sql_mysql(
                 .get(primary_key)
                 .or_else(|| arguments.get("id"))
                 .context("missing primary key argument")?;
-            let sql = format!("delete from {table} where {primary_key} = ?");
+            let sql = format!("delete from {qt} where {pkq} = ?");
             let result = sqlx::query(&sql)
                 .bind(value_to_string(id))
                 .execute(pool)
@@ -972,9 +1010,11 @@ async fn execute_sql_sqlite(
     arguments: &Value,
 ) -> Result<ExecutionResult> {
     let primary_key = primary_key.unwrap_or("id");
+    let qt = sql_ident_ansi(table);
+    let pkq = sql_ident_ansi(primary_key);
     match operation {
         SqlOperation::Select => {
-            let sql = format!("select * from {table} limit 100");
+            let sql = format!("select * from {qt} limit 100");
             let rows = sqlx::query(&sql).fetch_all(pool).await?;
             Ok(ExecutionResult {
                 output: rows_to_json_sqlite(rows),
@@ -986,7 +1026,7 @@ async fn execute_sql_sqlite(
                 .get(primary_key)
                 .or_else(|| arguments.get("id"))
                 .context("missing primary key argument")?;
-            let sql = format!("select * from {table} where {primary_key} = ? limit 1");
+            let sql = format!("select * from {qt} where {pkq} = ? limit 1");
             let rows = sqlx::query(&sql)
                 .bind(value_to_string(id))
                 .fetch_all(pool)
@@ -1005,9 +1045,13 @@ async fn execute_sql_sqlite(
                 .context("insert expects a JSON object")?;
             let columns: Vec<_> = payload.keys().cloned().collect();
             let placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>();
+            let col_list = columns
+                .iter()
+                .map(|c| sql_ident_ansi(c))
+                .collect::<Vec<_>>()
+                .join(", ");
             let sql = format!(
-                "insert into {table} ({}) values ({})",
-                columns.join(", "),
+                "insert into {qt} ({col_list}) values ({})",
                 placeholders.join(", ")
             );
             let mut query = sqlx::query(&sql);
@@ -1038,12 +1082,9 @@ async fn execute_sql_sqlite(
             }
             let assignments = columns
                 .iter()
-                .map(|column| format!("{column} = ?"))
+                .map(|column| format!("{} = ?", sql_ident_ansi(column)))
                 .collect::<Vec<_>>();
-            let sql = format!(
-                "update {table} set {} where {primary_key} = ?",
-                assignments.join(", ")
-            );
+            let sql = format!("update {qt} set {} where {pkq} = ?", assignments.join(", "));
             let mut query = sqlx::query(&sql);
             for column in &columns {
                 query = query.bind(value_to_string(payload.get(column).unwrap()));
@@ -1059,7 +1100,7 @@ async fn execute_sql_sqlite(
                 .get(primary_key)
                 .or_else(|| arguments.get("id"))
                 .context("missing primary key argument")?;
-            let sql = format!("delete from {table} where {primary_key} = ?");
+            let sql = format!("delete from {qt} where {pkq} = ?");
             let result = sqlx::query(&sql)
                 .bind(value_to_string(id))
                 .execute(pool)
@@ -1663,10 +1704,40 @@ fn dynamo_attr_to_json(value: &AttributeValue) -> Value {
 mod tests {
     use super::{
         HttpMethod, dynamo_attr_to_json, firestore_fields_from_json, firestore_fields_to_json,
-        summarize_http_status, tool_result_is_error,
+        resolve_target_default_query_value, sql_ident_ansi, summarize_http_status,
+        tool_result_is_error,
     };
     use aws_sdk_dynamodb::types::AttributeValue;
     use serde_json::json;
+
+    #[test]
+    fn sql_ident_ansi_quotes_sqlite_reserved_table_name() {
+        assert_eq!(sql_ident_ansi("order"), "\"order\"");
+        assert_eq!(sql_ident_ansi("user"), "\"user\"");
+        assert_eq!(sql_ident_ansi("a\"b"), "\"a\"\"b\"");
+    }
+
+    #[test]
+    fn target_default_query_resolves_literal() {
+        assert_eq!(
+            resolve_target_default_query_value("literal-token").unwrap(),
+            "literal-token"
+        );
+    }
+
+    #[test]
+    fn target_default_query_resolves_env() {
+        let k = "APPCTL_EXECUTOR_TEST_DQ_9C3E";
+        // SAFETY: test-only unique key; other tests do not use this var.
+        unsafe {
+            std::env::set_var(k, "from-env");
+        }
+        let r = resolve_target_default_query_value(&format!("env:{k}")).unwrap();
+        unsafe {
+            std::env::remove_var(k);
+        }
+        assert_eq!(r, "from-env");
+    }
 
     #[test]
     fn http_405_summary_stays_ambiguous() {

@@ -7,15 +7,21 @@ Common issues and their fixes.
 
 ## `sync` refuses to overwrite
 
-```
-error: .appctl/schema.json already exists (pass --force)
+You see an error like:
+
+```text
+.appctl/schema.json already exists (pass --force to overwrite it and regenerate .appctl/tools.json)
 ```
 
-Pass `--force`:
+**Why:** without `--force`, the CLI will not replace an existing `schema.json` (edits, wrong directory, and mistaken CI jobs all look the same as a real re-sync from the code’s point of view). Add `--force` when you really mean to refresh from the source.
+
+**Fix:** pass `--force` on the same `sync` line you use for your source:
 
 ```bash
 appctl sync --openapi ... --force
 ```
+
+For watch mode, include `--force` in the one long command, because the second and later re-syncs (when the OpenAPI document changes) are overwrites. See [the sync reference on when to use `--force`](/docs/cli/sync/#when-to-use-force).
 
 ## Django tools hit the wrong URL
 

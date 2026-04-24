@@ -29,6 +29,7 @@ use syntect::{
 use tokio::sync::mpsc::Receiver;
 
 use crate::events::{AgentEvent, ToolStatus};
+use crate::schema::{Schema, SyncSource};
 
 const TOOL_PREVIEW_LINES: usize = 12;
 
@@ -367,30 +368,83 @@ pub fn chat_context(
     )
 }
 
-pub fn print_chat_banner(context: &str, app_dir: &Path, resource_count: usize, tool_count: usize) {
+/// One-line description of the sync source for chat banners (not the OpenAPI-only legacy text).
+pub fn session_sync_line(schema: &Schema) -> String {
+    format!("Tools synced from {}.", session_sync_phrase(&schema.source))
+}
+
+fn session_sync_phrase(source: &SyncSource) -> String {
+    match source {
+        SyncSource::Openapi => "an OpenAPI document".to_string(),
+        SyncSource::Django => "Django/DRF introspection".to_string(),
+        SyncSource::Flask => "Flask route introspection".to_string(),
+        SyncSource::Db => "a database connection".to_string(),
+        SyncSource::Url => "a live URL and forms".to_string(),
+        SyncSource::Mcp => "MCP (Model Context Protocol)".to_string(),
+        SyncSource::Rails => "Rails route/schema introspection".to_string(),
+        SyncSource::Laravel => "Laravel route/migration introspection".to_string(),
+        SyncSource::Aspnet => "ASP.NET (or bundled OpenAPI) introspection".to_string(),
+        SyncSource::Strapi => "Strapi introspection".to_string(),
+        SyncSource::Supabase => "PostgREST (Supabase) introspection".to_string(),
+        SyncSource::Plugin => "a dynamic plugin".to_string(),
+    }
+}
+
+/// Framed session header for `appctl chat` and `appctl run` (non-JSON).
+pub struct ChatBannerInfo<'a> {
+    pub context: &'a str,
+    pub registry_name: &'a str,
+    pub app_dir: &'a Path,
+    pub schema: &'a Schema,
+    pub resource_count: usize,
+    pub tool_count: usize,
+    pub context_note: Option<&'a str>,
+    pub app_description: Option<&'a str>,
+}
+
+pub fn print_chat_banner(b: &ChatBannerInfo<'_>) {
     let width = terminal::size()
         .map(|(w, _)| w as usize)
         .unwrap_or(88)
         .clamp(64, 100) as u16;
-    let area = Rect::new(0, 0, width, 8);
+    let text_cols = (width as usize).saturating_sub(4);
+    let mut lines = vec![
+        Line::from(session_sync_line(b.schema)),
+        Line::from(format!("app list / app use name: {}", b.registry_name)),
+    ];
+    if let Some(s) = b.app_description.map(str::trim).filter(|s| !s.is_empty()) {
+        lines.push(Line::from(format!(
+            "about: {}",
+            trim_one_line(s, text_cols.max(40))
+        )));
+    }
+    lines.push(Line::from(format!(
+        "app directory: {}",
+        b.app_dir.display()
+    )));
+    if let Some(note) = b.context_note {
+        lines.push(Line::from(trim_one_line(note, text_cols.max(40))));
+    }
+    let text_line_count = lines.len() as u16;
+    // `Constraint::Length(4)` fits two inner text lines; add one per extra line of content.
+    let hero_h = 4u16 + text_line_count.saturating_sub(2);
+    let area_height = (hero_h + 4u16).min(18);
+    let area = Rect::new(0, 0, width, area_height);
     let mut buffer = Buffer::empty(area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Length(4)])
+        .constraints([Constraint::Length(hero_h), Constraint::Length(4)])
         .split(area);
 
-    let title = format!(" appctl — chat [{}] ", context);
-    let hero = Paragraph::new(Text::from(vec![
-        Line::from("Interactive session — synced OpenAPI tools and project context"),
-        Line::from(format!("app directory: {}", app_dir.display())),
-    ]))
-    .block(Block::default().borders(Borders::ALL).title(title));
+    let title = format!(" appctl — chat [{}] ", b.context);
+    let hero = Paragraph::new(Text::from(lines))
+        .block(Block::default().borders(Borders::ALL).title(title));
     hero.render(chunks[0], &mut buffer);
 
     let details = Paragraph::new(Text::from(vec![
         Line::from(format!(
             "resources: {}   tools: {}",
-            resource_count, tool_count
+            b.resource_count, b.tool_count
         )),
         Line::from("slash commands: /provider NAME   /model NAME   /read-only on|off   /dry-run on|off   /exit"),
     ]))

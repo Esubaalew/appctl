@@ -13,6 +13,8 @@ use crate::{
         ExecutionContext, ExecutionRequest, Executor, tool_result_is_error, tool_result_summary,
     },
     history::HistoryStore,
+    schema::Schema,
+    term::session_sync_line,
     tools::ToolDef,
 };
 
@@ -82,12 +84,13 @@ async fn send_agent_event(tx: &Option<mpsc::Sender<AgentEvent>>, ev: AgentEvent)
 pub async fn run_agent(
     paths: &ConfigPaths,
     config: &AppConfig,
+    registry_name: &str,
     provider_name: Option<&str>,
     model_override: Option<&str>,
     prompt: &str,
     prior_messages: &[Message],
     tools: &[ToolDef],
-    schema: &crate::schema::Schema,
+    schema: &Schema,
     exec_context: ExecutionContext,
     events: Option<mpsc::Sender<AgentEvent>>,
 ) -> Result<AgentRunOutcome> {
@@ -106,7 +109,8 @@ pub async fn run_agent(
     )?);
     let executor = Executor::new(paths)?;
     let history = HistoryStore::open(paths)?;
-    let mut messages = build_turn_messages(prior_messages, prompt);
+    let system_content = compose_system_message(config, paths, schema, registry_name);
+    let mut messages = build_turn_messages(prior_messages, prompt, &system_content);
 
     let mut final_response = Value::Null;
 
@@ -258,10 +262,48 @@ pub fn load_provider(paths: &ConfigPaths) -> Result<AppConfig> {
     AppConfig::load_for_runtime(paths, "run")
 }
 
+fn compose_system_message(
+    config: &AppConfig,
+    paths: &ConfigPaths,
+    schema: &Schema,
+    registry_name: &str,
+) -> String {
+    let mut s = String::new();
+    s.push_str(&system_prompt());
+    s.push_str("\n\n## This app (use this context; do not invent another project)\n");
+    s.push_str(&format!(
+        "- **Registry name** (what the user types for `appctl app use` / `app list`): `{}`\n",
+        registry_name
+    ));
+    s.push_str(&format!(
+        "- **Display label** (chat banner / UI): {}\n",
+        config.banner_label(registry_name)
+    ));
+    if let Some(d) = config
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+    {
+        s.push_str(&format!("- **Description**: {}\n", d));
+    }
+    s.push_str(&format!(
+        "- **App directory** (this `.appctl`): {}\n",
+        paths.root.display()
+    ));
+    s.push_str(&format!(
+        "- **Tools / schema from**: {}\n",
+        session_sync_line(schema)
+    ));
+    s
+}
+
 fn system_prompt() -> String {
     r#"Critical identity: you are only "appctl" (the end-user’s application operations agent). You must not name or imply Gemini, Google, OpenAI, Anthropic, a model name, a vendor, a cloud, or a subscription product. If asked who/what you are, answer exactly: I am appctl, your application operations agent. One short reply; do not add a second self-introduction paragraph.
 
-You help users with synced OpenAPI tools and project operations. Prefer direct tool use. Never invent parameters.
+You help users with the tools synced for this app (see the appctl banner for the sync source). Prefer direct tool use. Never invent parameters.
+
+For HTTP tools, appctl may add Authorization headers and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; do not ask the user to paste API tokens or secrets if a tool can run with optional parameters that appctl supplies. Only ask for a value when a tool result shows an auth or permission error and the spec requires a parameter the user must supply in chat.
 
 Response style rules:
 - Do not volunteer unrelated information the user did not ask for.
@@ -284,31 +326,37 @@ fn format_tool_result_message(output: &Value) -> Result<String> {
     }
 }
 
-fn build_turn_messages(prior_messages: &[Message], prompt: &str) -> Vec<Message> {
+fn build_turn_messages(
+    prior_messages: &[Message],
+    prompt: &str,
+    system_content: &str,
+) -> Vec<Message> {
     let mut messages = if prior_messages.is_empty() {
         vec![Message {
             role: "system".to_string(),
-            content: system_prompt(),
+            content: system_content.to_string(),
             tool_calls: Vec::new(),
             tool_call_id: None,
             tool_name: None,
         }]
     } else {
-        prior_messages.to_vec()
+        let mut m = prior_messages.to_vec();
+        if let Some(idx) = m.iter().position(|msg| msg.role == "system") {
+            m[idx].content = system_content.to_string();
+        } else {
+            m.insert(
+                0,
+                Message {
+                    role: "system".to_string(),
+                    content: system_content.to_string(),
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
+                    tool_name: None,
+                },
+            );
+        }
+        m
     };
-
-    if !messages.iter().any(|message| message.role == "system") {
-        messages.insert(
-            0,
-            Message {
-                role: "system".to_string(),
-                content: system_prompt(),
-                tool_calls: Vec::new(),
-                tool_call_id: None,
-                tool_name: None,
-            },
-        );
-    }
 
     messages.push(Message {
         role: "user".to_string(),
@@ -366,8 +414,9 @@ mod tests {
             msg("user", "first"),
             msg("assistant", "reply"),
         ];
-        let messages = build_turn_messages(&prior, "second");
+        let messages = build_turn_messages(&prior, "second", "full-sys");
         assert_eq!(messages.len(), 4);
+        assert_eq!(messages[0].content, "full-sys");
         assert_eq!(messages[1].content, "first");
         assert_eq!(messages[2].content, "reply");
         assert_eq!(messages[3].content, "second");

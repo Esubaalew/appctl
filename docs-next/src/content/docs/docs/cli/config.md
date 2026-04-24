@@ -58,6 +58,10 @@ auth = { kind = "api_key", secret_ref = "GOOGLE_API_KEY" }
   = "..." }`, `{ kind = "oauth2", profile = "...", scopes = [...] }`,
   `{ kind = "google_adc", project = "..." }`, `{ kind = "azure_ad", ... }`,
   `{ kind = "mcp_bridge", client = "..." }`.
+- `[target]` — your **app under control** (HTTP base URL, auth for tools, default query, database URL). See [OpenAPI: protected APIs](/docs/sources/openapi/#openapi-and-protected-authenticated-apis) for `auth_header`, `base_url`, and `default_query`.
+  - `auth_header` — optional; sent as the `Authorization` request header for HTTP tools.
+  - `base_url` / `base_url_env` — override the synced API base URL.
+  - `default_query` — optional table of default query parameters for HTTP tools; values can be `env:VAR` to read from the environment. Tool call arguments override the same key.
 
 ## Secrets
 

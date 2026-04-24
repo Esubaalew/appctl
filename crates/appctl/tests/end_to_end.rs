@@ -91,6 +91,8 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
             history_limit: 50,
         },
         tooling: Default::default(),
+        display_name: None,
+        description: None,
     };
     config.save(&paths).unwrap();
 
@@ -133,6 +135,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
     let outcome = run_agent(
         &paths,
         &config,
+        "test-app",
         Some("mock"),
         None,
         "Create a pet named Rex",

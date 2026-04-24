@@ -95,6 +95,43 @@ Pass `--write` to mark reachable routes as `provenance=verified` in the schema.
 - Marks tools as `provenance=declared`. This is the highest trust level because the server itself published the contract.
 - Reads `securitySchemes` from the spec and picks the matching `AuthStrategy`.
 
+## OpenAPI and protected (authenticated) APIs
+
+`appctl sync` turns operations into **tools** with the parameters your spec advertises. It does **not** “log in as admin” to your app. You wire credentials into **HTTP** requests the executor makes.
+
+### Header-based auth (typical: Bearer, API key)
+
+- **`[target] auth_header` in [`.appctl/config.toml`](../cli/config/)** — a single `Authorization` (or other) header value sent on **every** HTTP tool call. Prefer storing secrets in the [keychain or env](/docs/deploy/secrets-and-keys/) and referencing them rather than pasting in chat.
+- **`appctl sync ... --auth-header "Bearer ..."`** — bakes a header into the synced schema’s `metadata.auth_header`; the executor prefers that when building headers. Avoid committing long-lived tokens in the repo; use `auth_header` in config for production.
+- **Security schemes** in the spec (when the sync can map them) set `schema.auth` (bearer, API key, etc.) and read secrets from the env or keychain.
+
+If your backend accepts **`Authorization: Bearer <token>`**, set **`[target] auth_header`** (or a mapped `schema.auth` bearer) so the **LLM** does not need the secret. It only chooses tools and body/query **arguments the spec still exposes as parameters**.
+
+### Query-based tokens (e.g. `?access_token=`)
+
+If your OpenAPI file lists `access_token` (or similar) as a **query** parameter, it becomes a **normal tool parameter**. The model may ask you for a value, or you pass it in a prompt.
+
+To supply a value **without** typing it in chat, use **`[target.default_query]`** in `config.toml`: a map of query **names to values** merged into every relevant HTTP call. Tool arguments from the model **override** these defaults for the same key. Values can be a literal or `env:VAR` to read from the environment, for example:
+
+```toml
+[target.default_query]
+access_token = "env:MY_API_ACCESS_TOKEN"
+```
+
+Use `appctl doctor` to check reachability after you set the base URL and auth.
+
+### What the model does vs what appctl adds (so the agent can use auth)
+
+The **language model** only chooses tool names and JSON **arguments** that match the generated tool schema. It does **not** “log in” to your app by itself.
+
+| Layer | Who supplies it |
+| --- | --- |
+| **HTTP headers** (`Authorization`, API keys, etc.) | **appctl** — from `[target] auth_header`, `schema.metadata.auth_header` (from sync), or `schema.auth` + env/keychain. Injected on every HTTP tool request by the appctl process before the call is sent. The model is **not** given your raw bearer string in the system prompt; it should **call the tool** and let appctl attach headers. |
+| **Query parameters** in the spec | **Model** if it passes them in the tool call; **appctl** fills gaps from `[target.default_query]` (e.g. `env:VAR`) so optional tokens need not be typed in chat. If you configure `default_query` for a name, the model can omit that key and the runtime still sends it. |
+| **What to tell users** | Configure `target` (and `default_query` for query-style APIs) *before* chat; then ask the model in natural language to **list/call** endpoints. If it still asks for a token, ensure `default_query` or header auth is set, or the tool will return 401/403 in the result. |
+
+In short: **auth for the target API is not “in the model’s head”** — it is in **appctl config and the OS env/keychain**. The model’s job is to **use tools**; the executor’s job is to **add configured credentials** to each HTTP request.
+
 ## Known limits
 
 - Incomplete specs produce incomplete tools. Lint your spec with Spectral before syncing.

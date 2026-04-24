@@ -3,7 +3,7 @@ title: Mental model
 description: How sync, schema, tools, and the agent loop fit together.
 ---
 
-Four moving parts. Once you have them straight, everything else makes sense.
+These are the main components the rest of the docs refer to.
 
 ## 1. Your app
 

@@ -50,7 +50,11 @@ type ChatEntry =
   | { kind: "error"; id: string; body: string };
 
 type PublicConfig = {
+  /** Global registry (or folder) name from `~/.appctl/apps.toml`. */
   app_name?: string;
+  /** Resolved label for UIs: `config.toml` `display_name` when set, else `app_name`. */
+  banner_label?: string;
+  display_name?: string | null;
   default_provider?: string;
   active_provider?: string;
   provider_statuses?: ProviderRuntimeStatus[];
@@ -342,9 +346,9 @@ function promptSuggestions(schema: SchemaShape | null, appName?: string): string
 
   if (resources.length === 0) {
     return [
-      `Summarize ${app} and tell me which actions are safe to try first.`,
-      "Show me the riskiest mutating tools and when I should use strict mode.",
-      "List a few starter prompts I can run safely.",
+      `What tools exist for ${app}? Which are read-only?`,
+      "Which tools write or delete data?",
+      "What should I run with strict or read-only mode on?",
     ];
   }
 
@@ -352,9 +356,9 @@ function promptSuggestions(schema: SchemaShape | null, appName?: string): string
   const second = resources.length > 1 ? resources[1] : first;
 
   return [
-    `List the available ${first} records and summarize what matters.`,
-    `Create a realistic ${second} example, but explain the tool call before acting.`,
-    `Which actions in ${app} can write or delete data?`,
+    `List ${first} entries (main fields only).`,
+    `Create one ${second} and show the tool call you used.`,
+    `Which ${app} tools are mutating?`,
   ];
 }
 
@@ -1042,7 +1046,11 @@ export default function App() {
     return { resources, actionCount, writes, destructive };
   }, [actions, schema]);
 
-  const suggestions = useMemo(() => promptSuggestions(schema, publicCfg?.app_name), [schema, publicCfg?.app_name]);
+  const appBannerTitle = publicCfg?.banner_label ?? publicCfg?.app_name;
+  const suggestions = useMemo(
+    () => promptSuggestions(schema, appBannerTitle),
+    [schema, appBannerTitle],
+  );
 
   const activeProviderName =
     publicCfg?.active_provider ?? publicCfg?.default_provider ?? "not configured";
@@ -1100,7 +1108,7 @@ export default function App() {
         {/* top bar: slim, real */}
         <header className="flex flex-none items-center gap-3 border-b border-border bg-surface px-4 py-2">
           <h1 className="text-[13px] font-semibold text-fg">
-            appctl <span className="text-muted font-normal ml-1">/ {publicCfg?.app_name ?? "app"}</span>
+            appctl <span className="text-muted font-normal ml-1">/ {appBannerTitle ?? "app"}</span>
           </h1>
           <span className="hidden text-[12px] text-muted sm:inline">
             {sourceLabel(publicCfg?.sync_source ?? schema?.source)}
@@ -1394,10 +1402,8 @@ function ChatWorkspace({
 function EmptyHero() {
   return (
     <div className="pt-12 pb-4 text-center">
-      <h2 className="text-[14px] font-medium text-fg">How can I help?</h2>
-      <p className="mt-2 text-[13px] text-muted">
-        Ask appctl to run tools or summarize data.
-      </p>
+      <h2 className="text-[14px] font-medium text-fg">Chat</h2>
+      <p className="mt-2 text-[13px] text-muted">Messages go to the model; appctl runs the tool calls.</p>
     </div>
   );
 }
@@ -1449,9 +1455,9 @@ function ToolsPanel({
       <div className="mx-auto w-full max-w-[1200px]">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-[18px] font-semibold text-fg">Agent tools</h2>
+            <h2 className="text-[18px] font-semibold text-fg">Tools</h2>
             <p className="mt-1 text-[13px] text-muted">
-              Every action the model can call, with its safety level and transport.
+              From the synced schema: name, safety, and how the call is made.
             </p>
           </div>
           <input
@@ -1530,10 +1536,8 @@ function HistoryPanel({ history }: { history: HistoryEntry[] }) {
       <div className="mx-auto w-full max-w-[1200px]">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h2 className="text-[20px] font-semibold text-fg">Activity</h2>
-            <p className="mt-1 text-[13px] text-muted">
-              A complete history of tool calls, results, and side effects.
-            </p>
+            <h2 className="text-[20px] font-semibold text-fg">History</h2>
+            <p className="mt-1 text-[13px] text-muted">Recorded tool calls (same data as <code className="font-mono">appctl history</code>).</p>
           </div>
         </div>
 

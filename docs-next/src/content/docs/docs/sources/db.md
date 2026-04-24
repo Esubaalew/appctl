@@ -38,7 +38,7 @@ appctl sync --db "dynamodb://us-east-1" --force
 For every supported backend, the sync produces the same five logical tools:
 `list_*`, `get_*`, `create_*`, `update_*`, and `delete_*`.
 
-- **SQL** sources generate typed CRUD tools per table and execute them as prepared statements.
+- **SQL** sources generate typed CRUD tools per table and execute them as prepared statements. Table and column names that clash with **reserved words** (for example SQLite’s `order`, `user`, or `group`) are **quoted** in generated SQL so `list_order` and similar tools work.
 - **MongoDB** generates CRUD tools per collection, keyed by `_id`.
 - **Redis** generates a generic `redis_key` resource backed by key/value operations.
 - **Firestore** generates CRUD tools per top-level collection and uses Google ADC at runtime.

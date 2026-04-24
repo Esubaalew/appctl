@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:appctl": "npm run build && cd .. && cargo build -p appctl --release",
+    "build:appctl:check": "npm run typecheck && npm run lint && npm run build:appctl",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src --ext ts,tsx --max-warnings 0"

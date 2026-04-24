@@ -25,6 +25,8 @@ pub struct RunOptions {
     pub dry_run: bool,
     pub confirm: bool,
     pub strict: bool,
+    /// Shown under the app directory in the session banner.
+    pub context_note: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,14 +56,25 @@ pub async fn run_once(
     let tools = load_runtime_tools(paths, config)?;
     let session_id = Uuid::new_v4().to_string();
     if !options.json {
+        let label = config.banner_label(app_name);
         let context =
-            crate::term::chat_context(app_name, &config.default, options.provider.as_deref());
-        crate::term::print_chat_banner(&context, &paths.root, schema.resources.len(), tools.len());
+            crate::term::chat_context(label, &config.default, options.provider.as_deref());
+        crate::term::print_chat_banner(&crate::term::ChatBannerInfo {
+            context: &context,
+            registry_name: app_name,
+            app_dir: &paths.root,
+            schema: &schema,
+            resource_count: schema.resources.len(),
+            tool_count: tools.len(),
+            context_note: options.context_note.as_deref(),
+            app_description: config.description.as_deref(),
+        });
     }
     let (tx, mut rx) = mpsc::channel(64);
     let response = run_agent(
         paths,
         config,
+        app_name,
         options.provider.as_deref(),
         options.model.as_deref(),
         &options.prompt,

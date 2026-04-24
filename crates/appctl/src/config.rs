@@ -122,6 +122,13 @@ pub struct AppConfig {
     pub behavior: BehaviorConfig,
     #[serde(default)]
     pub tooling: ToolingConfig,
+    /// Human-friendly name for chat, `serve` UI, and logs. If unset, the global registry name
+    /// (or parent folder, for unregistered apps) is shown.
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// One-line blurb in the chat banner and `/config/public` (set during `appctl init` or in TOML).
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +169,11 @@ pub struct TargetConfig {
     pub base_url_env: Option<String>,
     #[serde(default)]
     pub auth_header: Option<String>,
+    /// Default query parameters for HTTP tools. Keys that appear in a tool’s OpenAPI query
+    /// list are filled from here when the model does not pass them; tool arguments still win.
+    /// Use `env:VAR` as the value to read from the process environment.
+    #[serde(default)]
+    pub default_query: BTreeMap<String, String>,
     #[serde(default)]
     pub database_url: Option<String>,
 }
@@ -229,6 +241,15 @@ impl AppConfig {
             .get(tool_name)
             .map(String::as_str)
             .unwrap_or(tool_name)
+    }
+
+    /// Label for chat/serve banners. Prefer `display_name` when set, otherwise the registry
+    /// (or folder) name for this app.
+    pub fn banner_label<'a>(&'a self, registry_name: &'a str) -> &'a str {
+        self.display_name
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(registry_name)
     }
 }
 
@@ -459,6 +480,21 @@ pub fn app_name_from_dir(app_dir: &Path) -> String {
         .unwrap_or_else(|| "app".to_string())
 }
 
+/// `true` when the default registry label would be the home directory basename (e.g. `~/.appctl` →
+/// `esubalew`), which is often a poor global name in `appctl app list`.
+pub fn registry_default_looks_like_os_username(suggested: &str, app_dir: &Path) -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let home_appctl = home.join(".appctl");
+    if normalize_app_dir(app_dir) != normalize_app_dir(&home_appctl) {
+        return false;
+    }
+    home.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|h| h == suggested)
+}
+
 pub fn find_registered_app_name(registry: &AppRegistry, app_dir: &Path) -> Option<String> {
     let normalized = normalize_app_dir(app_dir);
     registry.apps.iter().find_map(|(name, registered)| {
@@ -493,7 +529,8 @@ pub fn active_app_path(registry: &AppRegistry) -> Option<(String, PathBuf)> {
 mod tests {
     use super::{
         AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, find_app_dir_from,
-        find_registered_app_name, normalize_app_dir, write_json,
+        find_registered_app_name, normalize_app_dir, registry_default_looks_like_os_username,
+        write_json,
     };
     use serde_json::json;
     use std::path::{Path, PathBuf};
@@ -532,6 +569,20 @@ mod tests {
     fn app_name_from_dir_uses_parent_folder() {
         let app_dir = PathBuf::from("/tmp/botlink/.appctl");
         assert_eq!(app_name_from_dir(&app_dir), "botlink");
+    }
+
+    #[test]
+    fn banner_label_prefers_display_name() {
+        let mut c = AppConfig::default();
+        assert_eq!(c.banner_label("esubalew"), "esubalew");
+        c.display_name = Some("Home APIs".to_string());
+        assert_eq!(c.banner_label("esubalew"), "Home APIs");
+    }
+
+    #[test]
+    fn registry_username_heuristic_not_for_random_paths() {
+        let tmp = std::env::temp_dir().join("appctl-regtest").join(".appctl");
+        assert!(!registry_default_looks_like_os_username("anything", &tmp));
     }
 
     #[test]

@@ -109,12 +109,15 @@ async fn sync_django_fixture_then_agent_calls_create_parcel() {
             history_limit: 50,
         },
         tooling: Default::default(),
+        display_name: None,
+        description: None,
     };
     config.save(&paths).unwrap();
 
     let outcome = run_agent(
         &paths,
         &config,
+        "test-app",
         Some("mock"),
         None,
         "Create a parcel with tracking number TRK-1",

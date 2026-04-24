@@ -20,18 +20,30 @@ pub struct ChatOptions {
     pub dry_run: bool,
     pub confirm: bool,
     pub strict: bool,
+    /// Shown under the app directory in the session banner.
+    pub context_note: Option<String>,
 }
 
 pub async fn run_chat(
     paths: &ConfigPaths,
     config: &AppConfig,
-    app_name: &str,
+    registry_name: &str,
     mut options: ChatOptions,
 ) -> Result<()> {
     let schema = load_schema(paths)?;
     let tools = load_runtime_tools(paths, config)?;
-    let context = crate::term::chat_context(app_name, &config.default, options.provider.as_deref());
-    crate::term::print_chat_banner(&context, &paths.root, schema.resources.len(), tools.len());
+    let banner = config.banner_label(registry_name);
+    let context = crate::term::chat_context(banner, &config.default, options.provider.as_deref());
+    crate::term::print_chat_banner(&crate::term::ChatBannerInfo {
+        context: &context,
+        registry_name,
+        app_dir: &paths.root,
+        schema: &schema,
+        resource_count: schema.resources.len(),
+        tool_count: tools.len(),
+        context_note: options.context_note.as_deref(),
+        app_description: config.description.as_deref(),
+    });
     let mut editor = Editor::<crate::term::PromptHelper, DefaultHistory>::new()?;
     editor.set_helper(Some(crate::term::PromptHelper::new(context)));
     let session_name = options.session.clone();
@@ -40,6 +52,7 @@ pub async fn run_chat(
         .map(session_id_from_name)
         .unwrap_or_else(|| Uuid::new_v4().to_string());
     let mut transcript = Vec::new();
+    let registry_name = registry_name.to_string();
 
     loop {
         let prompt = editor
@@ -56,7 +69,8 @@ pub async fn run_chat(
                 if handle_slash_command(line, &mut options) {
                     refresh_prompt_helper(
                         &mut editor,
-                        app_name,
+                        config,
+                        &registry_name,
                         &config.default,
                         options.provider.as_deref(),
                     );
@@ -71,6 +85,7 @@ pub async fn run_chat(
                 let response = run_agent(
                     paths,
                     config,
+                    &registry_name,
                     options.provider.as_deref(),
                     options.model.as_deref(),
                     line,
@@ -127,13 +142,15 @@ fn session_id_from_name(name: &str) -> String {
 
 fn refresh_prompt_helper(
     editor: &mut Editor<crate::term::PromptHelper, DefaultHistory>,
-    app_name: &str,
+    config: &AppConfig,
+    registry_name: &str,
     default_provider: &str,
     override_provider: Option<&str>,
 ) {
     if let Some(helper) = editor.helper_mut() {
+        let label = config.banner_label(registry_name);
         helper.set_context(crate::term::chat_context(
-            app_name,
+            label,
             default_provider,
             override_provider,
         ));

@@ -9,6 +9,7 @@ All notable changes to `appctl` are documented in this file.
 ### Fixed
 
 - doc app drift
+- `appctl sync` refuses to replace an existing `schema.json` without `--force`, matching the documented safety behavior.
 
 ## [0.7.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.6.0...appctl-v0.7.0) - 2026-04-23
 

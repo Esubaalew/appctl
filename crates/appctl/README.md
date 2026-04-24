@@ -1,33 +1,11 @@
 # appctl
 
-> One command. Any app. Full AI control.
+> Talk to your app. In plain English.
 
-`appctl` is a Rust CLI that introspects an application — via an OpenAPI spec,
-Django source, a SQL schema, a live URL, an MCP server, Rails, Laravel,
-ASP.NET, Strapi, Supabase, or any dynamic `appctl-plugin-sdk` plugin — and
-exposes it to any LLM as a first-class, sandboxed tool layer.
-
-```bash
-cargo install appctl
-
-appctl sync --openapi https://api.example.com/openapi.json
-appctl chat
-```
-
-See the [project README](https://github.com/Esubaalew/appctl) for full
-documentation, architecture notes, and the list of supported sync sources.
-
-## Features
-
-- Provider-agnostic LLM layer (OpenAI-compatible, NVIDIA NIM, OpenRouter,
-  local endpoints).
-- Audit log of every tool call in a local SQLite database.
-- OAuth2 PKCE login with OS-keychain-persisted refresh tokens.
-- HTTP + WebSocket daemon (`appctl serve`) used by the companion VS Code
-  extension.
-- Dynamic plugins loaded from `~/.appctl/plugins/` (see the
-  [`appctl-plugin-sdk`](https://crates.io/crates/appctl-plugin-sdk) crate).
+Rust crate and binary for the `appctl` CLI. See the [repository
+README](https://github.com/Esubaalew/appctl#readme) and
+[docs.rs/appctl](https://docs.rs/appctl) for usage.
 
 ## License
 
-MIT — see [`LICENSE`](https://github.com/Esubaalew/appctl/blob/main/LICENSE).
+MIT — see the repository `LICENSE` file.

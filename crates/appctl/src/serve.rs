@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     Json, Router,
     body::Body,
@@ -30,6 +30,23 @@ use crate::{
     sync::{load_runtime_tools, load_schema},
 };
 
+fn try_open_in_browser(url: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(url).spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn();
+    }
+}
+
 /// Max in-memory HTTP `/run` session transcripts. Beyond this, older ids may be evicted.
 const HTTP_SESSION_BUDGET: usize = 256;
 
@@ -39,6 +56,7 @@ struct WebAssets;
 
 #[derive(Debug, Clone)]
 pub struct ServeOptions {
+    /// `0` means bind an ephemeral (OS-assigned) port.
     pub port: u16,
     pub bind: String,
     pub token: Option<String>,
@@ -50,6 +68,8 @@ pub struct ServeOptions {
     pub read_only: bool,
     pub dry_run: bool,
     pub confirm: bool,
+    /// When true, best-effort open the local UI URL in the default browser.
+    pub open_browser: bool,
 }
 
 #[derive(Clone)]
@@ -116,13 +136,22 @@ pub async fn run_server(
 
     let addr: SocketAddr = format!("{}:{}", state.options.bind, state.options.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    println!("appctl serve listening on http://{}", addr);
+    let local = listener.local_addr().context("listener local_addr")?;
+    let base_url = format!("http://{local}");
+    println!("appctl serve — {base_url}  (use Ctrl+C to stop)");
+    if state.options.open_browser {
+        let open_url = base_url.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            try_open_in_browser(&open_url);
+        });
+    }
     if state.options.tunnel {
-        let target = format!("http://{}", addr);
+        let target = base_url.clone();
         Command::new("cloudflared")
             .args(["tunnel", "--url", &target, "--no-autoupdate"])
             .spawn()?;
-        println!("cloudflared tunnel started for {}", target);
+        println!("cloudflared tunnel started for {target}");
     }
     axum::serve(listener, app).await?;
     Ok(())
@@ -300,8 +329,12 @@ async fn get_config_public(
         .provider
         .clone()
         .unwrap_or_else(|| state.config.default.clone());
+    let banner_label = state.config.banner_label(&state.app_name);
     Ok(Json(json!({
         "app_name": state.app_name,
+        "banner_label": banner_label,
+        "display_name": state.config.display_name,
+        "description": state.config.description,
         "default_provider": state.config.default,
         "active_provider": active_provider,
         "provider_statuses": state.config.provider_statuses_with_paths(&state.paths),
@@ -369,11 +402,13 @@ async fn post_run(
         map.get(&session_id).cloned().unwrap_or_default()
     };
 
+    let app_name = state.app_name.clone();
     let sid_run = session_id.clone();
     let agent = tokio::spawn(async move {
         run_agent(
             &paths,
             &config,
+            &app_name,
             prov.as_deref(),
             model.as_deref(),
             &msg,
@@ -454,6 +489,7 @@ async fn handle_socket(
         let prior = transcript.clone();
         let sid = session_id.clone();
         let request_client_id = client_id.clone();
+        let app_name = state.app_name.clone();
         let agent = tokio::spawn(async move {
             let schema = match load_schema(&paths) {
                 Ok(s) => s,
@@ -466,6 +502,7 @@ async fn handle_socket(
             run_agent(
                 &paths,
                 &config,
+                &app_name,
                 prov.as_deref(),
                 model.as_deref(),
                 &message,
@@ -632,6 +669,7 @@ mod tests {
             read_only: true,
             dry_run: true,
             confirm: false,
+            open_browser: false,
         };
         let merged = merge_safety(&opts, Some(false), Some(false), Some(true), Some(false));
         assert!(merged.read_only);
@@ -654,6 +692,7 @@ mod tests {
             read_only: false,
             dry_run: false,
             confirm: true,
+            open_browser: false,
         };
         let merged = merge_safety(&opts, Some(true), Some(true), Some(false), Some(true));
         assert!(merged.read_only);

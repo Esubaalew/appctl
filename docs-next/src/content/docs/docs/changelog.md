@@ -7,6 +7,20 @@ Mirrors [`CHANGELOG.md`](https://github.com/Esubaalew/appctl/blob/main/CHANGELOG
 
 ## [Unreleased]
 
+### Fixed
+
+- **SQL tools:** Quote identifiers in generated SQL for SQLite, PostgreSQL, and MySQL so table names like `order` (reserved word) no longer cause syntax errors.
+
+### Added
+
+- **`appctl serve`:** Optional `--no-open` (default is to open the local UI in the default browser), env overrides `APPCTL_PORT` / `APPCTL_BIND`, and port `0` for an OS-assigned ephemeral port.
+- **Agent system prompt:** A fixed “This app” block (registry name, display label, optional `description`, `.appctl` path, sync source) so the model always knows which project it is in.
+- **`app add`:** `--display-name` and `--description`; optional positional `NAME` must come **after** those flags (Clap rule).
+
+### Changed
+
+- **`appctl sync --db`:** If `[target] database_url` is unset, the sync connection string is written to config so DB tools work without hand-editing.
+
 ## [0.7.0] — 2026-04-23
 
 ### Added

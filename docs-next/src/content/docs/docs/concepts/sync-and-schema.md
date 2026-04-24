@@ -59,15 +59,21 @@ The `auth` block at the top of the schema tells the runtime how to authenticate:
 
 Override the inferred strategy at sync time with `--auth-header '<header>: <value>'`.
 
-## Re-syncing
+## Re-syncing and `--force`
 
-Always pass `--force` if a schema already exists:
+`appctl sync` **rebuilds** the contract from the source. It does not merge with
+an existing `schema.json`. A second run replaces that file and regenerates
+`tools.json`, which is what you want after the backend changed — and **not**
+what you want if you edited the JSON on purpose, ran the command in the wrong
+directory, or a job overwrote a committed file. Hence `--force` for any
+second write.
 
 ```bash
-appctl sync --openapi ... --force
+appctl sync --openapi http://127.0.0.1:8000/openapi.json --base-url http://127.0.0.1:8000
+# after the spec changes, same line plus --force
 ```
 
-Without `--force`, `appctl` refuses to overwrite to protect manual edits.
+[More detail](/docs/cli/sync/#when-to-use-force) in the `sync` reference.
 
 ## Manual edits
 
@@ -82,7 +88,7 @@ Keep a copy in version control alongside your app. CI can re-sync and diff.
 
 ## SQL support tiers
 
-`appctl sync --db` is first-class for three engines today:
+`appctl sync --db` supports three SQL engines in depth today:
 
 - Postgres
 - MySQL

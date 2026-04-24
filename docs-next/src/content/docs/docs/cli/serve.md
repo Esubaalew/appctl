@@ -24,8 +24,9 @@ appctl serve [OPTIONS]
 
 | Flag | Default | What it does |
 | --- | --- | --- |
-| `--bind <ADDR>` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` only with `--token`. |
-| `--port <N>` | `4242` | TCP port. |
+| `--bind <ADDR>` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` only with `--token`. Can be set with env `APPCTL_BIND`. |
+| `--port <N>` | `4242` | TCP port. Use `0` to let the OS pick a free port (the printed URL includes the real port). Env: `APPCTL_PORT`. |
+| `--no-open` | off | By default, appctl opens the local UI in your default browser after the server is listening. Pass this to skip that. |
 | `--token <STRING>` | unset | Require this bearer token on every request. When set, the web UI prompts for it. |
 | `--identity-header <NAME>` | `x-appctl-client-id` | Header used to tag requests with a caller identity in the activity log. |
 | `--tunnel` | off | Start `cloudflared tunnel --url ...` next to the local server. |
@@ -42,7 +43,9 @@ turn), but they cannot relax server-enforced flags.
 
 ## The web console
 
-Open `http://127.0.0.1:4242/` in a browser. The console ships as a single-page
+On macOS, Linux (via `xdg-open`), and Windows, **your default browser opens automatically** to the real listening URL (after a very short delay) unless you pass `--no-open`.
+
+Open `http://127.0.0.1:4242/` if you are using the default port. The console ships as a single-page
 app with four tabs:
 
 - **Chat** — streaming conversation with the agent. Tool calls render inline

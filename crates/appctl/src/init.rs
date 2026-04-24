@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::{self, IsTerminal};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -14,7 +15,8 @@ use crate::{
     },
     config::{
         AppConfig, AppRegistry, ConfigPaths, ProviderConfig, ProviderKind, app_name_from_dir,
-        find_registered_app_name, save_secret,
+        find_registered_app_name, normalize_app_dir, registry_default_looks_like_os_username,
+        save_secret,
     },
     term::{
         print_flow_header, print_section_title, print_status_error, print_status_success, print_tip,
@@ -45,6 +47,7 @@ pub async fn run_init(paths: &ConfigPaths) -> Result<()> {
     } else {
         AppConfig::default()
     };
+    apply_default_app_display_name(&mut config, paths);
 
     let items = [
         "Vertex AI via Google ADC (real browser)",
@@ -197,8 +200,73 @@ pub async fn run_init(paths: &ConfigPaths) -> Result<()> {
         println!("{}", next_step);
     }
 
+    print_section_title("App identity");
+    print_tip(
+        "The display label defaults to the project folder (parent of `.appctl`). The global registry name (next) is what you pass to `appctl app use` / `app list`.",
+    );
+    refine_app_label_and_description(paths)?;
     prompt_register_app(paths)?;
+    print_tip(
+        "Database tools: `appctl sync --db` with your sqlite: or postgres:// URL; that URL is saved under [target] in config for chat/run (no need to hand-edit).",
+    );
 
+    Ok(())
+}
+
+fn apply_default_app_display_name(config: &mut AppConfig, paths: &ConfigPaths) {
+    if config
+        .display_name
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        config.display_name = Some(app_name_from_dir(&paths.root));
+    }
+}
+
+/// Persists a sensible default and, in a TTY, offers one place to adjust label + add an optional description.
+fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
+    if !paths.config.exists() {
+        return Ok(());
+    }
+    let mut config = match AppConfig::load(paths) {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+    apply_default_app_display_name(&mut config, paths);
+
+    if !io::stdin().is_terminal() {
+        print_tip(
+            "No TTY: skipped display name / description prompts — folder-based label was applied. In a real terminal, run `appctl init` again, or: `appctl app add` with `--display-name` and `--description`.",
+        );
+        return config.save(paths);
+    }
+
+    let default_label = config
+        .display_name
+        .clone()
+        .unwrap_or_else(|| app_name_from_dir(&paths.root));
+    let label: String = Input::new()
+        .with_prompt("Display label (chat / serve; Enter to keep the folder name)")
+        .default(default_label)
+        .interact_text()?;
+    let label = label.trim();
+    if !label.is_empty() {
+        config.display_name = Some(label.to_string());
+    }
+
+    let desc: String = Input::new()
+        .with_prompt("One-line description (optional; shown in the chat banner)")
+        .allow_empty(true)
+        .interact_text()?;
+    let d = desc.trim();
+    if d.is_empty() {
+        config.description = None;
+    } else {
+        config.description = Some(d.to_string());
+    }
+    config.save(paths)?;
+    print_status_success(&format!("App label saved in {}", paths.config.display()));
     Ok(())
 }
 
@@ -206,28 +274,78 @@ fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
     let mut registry = AppRegistry::load_or_default()?;
     let detected_name = find_registered_app_name(&registry, &paths.root)
         .unwrap_or_else(|| app_name_from_dir(&paths.root));
-    let prompt = if registry.apps.contains_key(&detected_name) {
-        format!(
-            "Update global app registration for '{}' and make it active?",
-            detected_name
-        )
-    } else {
-        format!(
-            "Register this app globally as '{}' and make it active?",
-            detected_name
-        )
+
+    if !io::stdin().is_terminal() {
+        if find_registered_app_name(&registry, &paths.root).is_none() {
+            registry.register_and_activate(detected_name.clone(), paths.root.clone());
+            registry.save()?;
+            print_status_success(&format!(
+                "No TTY: registered this app as '{}' in ~/.appctl (skipping interactive name prompt).",
+                detected_name
+            ));
+        } else {
+            print_tip(
+                "No TTY: skipped registry name prompt — this .appctl is already in ~/.appctl/apps.toml.",
+            );
+        }
+        print_tip(
+            "For interactive registration naming, use a real terminal: `appctl app add` from this app.",
+        );
+        return Ok(());
+    }
+
+    print_tip(
+        "Global registry name: used for `appctl app use <name>`, `app list`, and the first part of the chat title (before '·'). It is not your API URL — pick something you will recognize.",
+    );
+    if registry_default_looks_like_os_username(&detected_name, &paths.root) {
+        print_tip(
+            "This .appctl lives under your home directory, so the suggested name matches your login folder (e.g. your macOS username). If this app is not «you», type a clearer name (e.g. home-agents, personal-api).",
+        );
+    }
+
+    let mut chosen: String = Input::new()
+        .with_prompt("Registry name for this app")
+        .default(detected_name.clone())
+        .interact_text()?;
+    chosen = chosen.trim().to_string();
+    if chosen.is_empty() {
+        chosen = detected_name.clone();
+    }
+
+    let confirm_prompt = match registry.apps.get(&chosen) {
+        Some(p) if normalize_app_dir(p) == normalize_app_dir(&paths.root) => {
+            format!(
+                "Update global registration for '{}' and make it active?",
+                chosen
+            )
+        }
+        Some(p) => {
+            format!(
+                "Name '{}' already points to {}. Point it to {} instead and set active?",
+                chosen,
+                p.display(),
+                paths.root.display()
+            )
+        }
+        None => {
+            format!(
+                "Register '{}' -> {} and set as the active global app?",
+                chosen,
+                paths.root.display()
+            )
+        }
     };
 
     if Confirm::new()
-        .with_prompt(prompt)
+        .with_prompt(confirm_prompt)
         .default(true)
         .interact()?
     {
-        registry.register_and_activate(detected_name.clone(), paths.root.clone());
+        registry.register_and_activate(chosen.clone(), paths.root.clone());
         registry.save()?;
         print_status_success(&format!(
             "global app registered as '{}' in ~/.appctl/apps.toml",
-            detected_name
+            chosen
         ));
     } else {
         print_tip(

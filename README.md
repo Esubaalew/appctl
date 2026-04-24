@@ -1,126 +1,40 @@
 # appctl
 
-> One command. Any app. Full AI control.
+> Talk to your app. In plain English.
 
-`appctl` syncs any application into a local tool layer, then lets an LLM drive
-it. Point it at an OpenAPI spec, a database, a Rails / Laravel / ASP.NET /
-Strapi / Supabase project, a Django codebase, an MCP server, or a live URL,
-and you get a sandboxed agent for that app.
+Command-line tool: introspect an HTTP API, database, or supported application
+codebase, write a tool contract to `.appctl/`, and execute the tools your
+configured language model requests (HTTP, SQL, and related transports).
 
-**Setup is CLI. Daily use is a conversation.** A dev runs `sync`, `auth login`,
-and `serve` once. After that, end users type plain English into `appctl chat`,
-the VS Code panel, or any UI that speaks to `appctl serve` &mdash; the LLM
-picks the right tool under the hood. Nobody memorises CRUD commands.
-
-- Site: <https://esubaalew.github.io/appctl>
-- Repo: <https://github.com/Esubaalew/appctl>
-- Author: [Esubalew](https://esubalew.dev)
+**Documentation:** <https://esubaalew.github.io/appctl>  
+**Repository:** <https://github.com/Esubaalew/appctl>
 
 ## Install
-
-From [crates.io](https://crates.io/crates/appctl) (after the maintainer publishes the release):
 
 ```bash
 cargo install appctl
 ```
 
-From this repository (exact version, no crates.io wait):
+Build from a clone, or install with a custom web UI bundle: see
+[Installation](https://esubaalew.github.io/appctl/docs/installation/).
+
+## Commands (overview)
+
+| Command | Purpose |
+| --- | --- |
+| `appctl init` | Create `.appctl/config.toml` and store provider secrets. |
+| `appctl sync` | Generate `.appctl/schema.json` and `tools.json` from a source (e.g. `--openapi`, `--django`, `--db`). |
+| `appctl chat` / `appctl run` | Send a prompt; the model may call tools via `appctl`. |
+| `appctl serve` | HTTP and WebSocket API plus bundled web UI. |
 
 ```bash
-cargo install --locked --git https://github.com/Esubaalew/appctl.git --tag v0.7.0
-```
-
-From this repository working tree:
-
-```bash
-cargo install --locked --path crates/appctl
-```
-
-If you changed `web/src` locally and want the binary to include that updated UI,
-rebuild the bundle first:
-
-```bash
-cd web && npm ci && npm run build && cd ..
-cargo install --locked --path crates/appctl
-```
-
-## Usage
-
-```bash
-# Pick any source:
-appctl sync --openapi https://api.example.com/openapi.json
-appctl sync --rails ./my-rails-app
-appctl sync --laravel ./my-laravel-app
-appctl sync --aspnet ./MyAspApp
-appctl sync --strapi ./cms
-appctl sync --supabase https://xyz.supabase.co
-appctl sync --django ./my-django
-appctl sync --db postgresql://localhost/mydb
-appctl sync --url https://myapp.com --login-url /login --login-user me@x --login-password pw
-appctl sync --plugin airtable        # dynamic plugin from ~/.appctl/plugins/
-
-# Talk to it:
+appctl init
+appctl sync --openapi https://api.example.com/openapi.json --base-url https://api.example.com
 appctl chat
-appctl run "Add a user named John"
-appctl history --last 20
-appctl serve --port 4242             # HTTP + WebSocket daemon + bundled web UI
-appctl auth login github --client-id ... --auth-url ... --token-url ...
 ```
 
-## LLM providers
-
-Works with anything OpenAI-compatible and Anthropic natively:
-OpenAI, OpenRouter, NVIDIA NIM, Groq, Together, Fireworks, Ollama, LM Studio,
-vLLM, LiteLLM, plus Anthropic.
-
-Configure in `.appctl/config.toml`; secrets live in the OS keychain (fallback
-to env vars).
-
-## Plugins
-
-Build a `cdylib` against [`appctl-plugin-sdk`](https://crates.io/crates/appctl-plugin-sdk)
-and drop it into `~/.appctl/plugins/`, or run:
-
-```bash
-appctl plugin install <path|crate|git-url>
-appctl plugin list
-```
-
-See [`examples/plugins/appctl-airtable`](examples/plugins/appctl-airtable) for
-a reference.
-
-## VS Code
-
-Chat panel + tool traces over WebSocket. See
-[`extensions/vscode`](extensions/vscode). Build with
-`npm ci && npm run compile && npx vsce package`.
-
-## Safety
-
-- `--read-only` blocks writes.
-- `--dry-run` previews without executing.
-- Mutations prompt by default; `--confirm` auto-approves.
-- Every tool call is logged to `.appctl/history.db` (SQLite).
-
-## Repo layout
-
-```
-crates/appctl              # CLI + library
-crates/appctl-plugin-sdk   # stable schema + C ABI for plugins
-examples/plugins/*         # reference dynamic plugins
-extensions/vscode          # VS Code extension
-```
-
-## Development
-
-```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
-
-Release process: see [RELEASING.md](RELEASING.md). Changelog:
-[CHANGELOG.md](CHANGELOG.md).
+Full CLI reference, sync sources, providers, `serve`, and plugins are covered
+in the [documentation](https://esubaalew.github.io/appctl/docs/introduction/).
 
 ## License
 

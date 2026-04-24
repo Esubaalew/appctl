@@ -108,6 +108,8 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
             history_limit: 50,
         },
         tooling: Default::default(),
+        display_name: None,
+        description: None,
     };
     config.save(&paths).unwrap();
 
@@ -117,6 +119,7 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
     let outcome = run_agent(
         &paths,
         &config,
+        "test-app",
         Some("mock"),
         None,
         "Create a widget named Demo",

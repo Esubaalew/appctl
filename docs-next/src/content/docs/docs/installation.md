@@ -1,11 +1,12 @@
 ---
 title: Installation
-description: Install appctl and configure at least one language model provider.
+description: Build or install the appctl binary and set up a provider in config.
 ---
 
-`appctl` is a single Rust binary. Install it from crates.io, from source, or
-pull a prebuilt release. The embedded web UI is bundled into the binary at
-build time — there is nothing extra to install for [`appctl serve`](/docs/cli/serve/).
+`appctl` is distributed as a Rust binary. Install from crates.io, from a git
+checkout, or from release artifacts. The web console for
+[`appctl serve`](/docs/cli/serve/) is embedded at build time; no separate web
+package is installed at runtime.
 
 ## Supported platforms
 
@@ -27,15 +28,14 @@ Verify:
 appctl --version
 ```
 
-Output matches the binary you actually installed. If you build from source, the
-version comes from the root `Cargo.toml` in that checkout.
+The reported version is that of the installed binary. Source builds use the
+workspace version in the root `Cargo.toml`.
 
 ## From source
 
-Tracking `main` is the fastest path for new features. A normal checkout already
-includes the current embedded web bundle, so a straight `cargo install` works.
-Rebuild the web bundle only if you changed `web/src` locally or want to refresh
-the tracked assets before compiling.
+A checkout of `main` includes the prebuilt `web/dist` that `build.rs` copies
+into the crate. Rebuild the web app (`cd web && npm ci && npm run build`) if you
+change `web/src` before `cargo build` or `cargo install`.
 
 ```bash
 git clone https://github.com/Esubaalew/appctl.git

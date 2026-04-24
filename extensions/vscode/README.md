@@ -1,6 +1,6 @@
 # appctl for VS Code
 
-A chat & tool-trace panel for [`appctl`](https://github.com/Esubaalew/appctl), the universal AI CLI for any web app, database, or service.
+Chat and tool-trace panel for the [`appctl`](https://github.com/Esubaalew/appctl) CLI (sync your API or DB, then call tools from the editor).
 
 ## Features
 

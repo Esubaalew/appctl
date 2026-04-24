@@ -1,3 +1,4 @@
+use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -18,6 +19,7 @@ use crate::{
     config::{
         AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, delete_secret,
         find_app_dir_from, find_registered_app_name, load_secret, normalize_app_dir,
+        registry_default_looks_like_os_username,
     },
     doctor::{DoctorRunArgs, run_doctor, run_doctor_models},
     history::{HistoryCommand, run_history_command},
@@ -33,7 +35,7 @@ use crate::{
 #[command(
     name = "appctl",
     version,
-    about = "One command. Any app. Full AI control."
+    about = "Sync APIs and data sources into LLM tools; chat, run, serve."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -106,8 +108,6 @@ pub struct AppArgs {
 pub enum AppSubcommand {
     /// Register an app directory (defaults to detected local `.appctl`) and activate it.
     Add {
-        /// Name to register. Defaults to the parent directory name.
-        name: Option<String>,
         /// App directory to register. Defaults to the resolved `--app-dir`.
         #[arg(long)]
         path: Option<PathBuf>,
@@ -123,6 +123,16 @@ pub enum AppSubcommand {
         /// Overwrite an existing schema/tools set during the immediate sync.
         #[arg(long)]
         force: bool,
+        /// Human-friendly name (stored in this app's `config.toml` as `display_name`, shown in chat/serve).
+        #[arg(long)]
+        display_name: Option<String>,
+        /// One-line description (stored as `description` in this app's `config.toml`, shown in the chat banner).
+        #[arg(long)]
+        description: Option<String>,
+        /// Name to register in `~/.appctl`. Defaults to the parent directory name of this `.appctl`.
+        /// Put this last, after flags, e.g. `appctl app add --display-name "X" myapp` (clap requires optional positionals after flags).
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
     },
     /// List all registered apps and show the active one.
     List,
@@ -355,9 +365,12 @@ pub struct HistoryArgs {
 
 #[derive(Debug, Args)]
 pub struct ServeArgs {
+    /// TCP port. Use `0` to let the OS choose a free port (printed in the listening line).
     #[arg(long, default_value_t = 4242)]
+    #[arg(env = "APPCTL_PORT")]
     pub port: u16,
     #[arg(long, default_value = "127.0.0.1")]
+    #[arg(env = "APPCTL_BIND")]
     pub bind: String,
     /// Require this token on HTTP and WebSocket requests.
     #[arg(long)]
@@ -381,6 +394,9 @@ pub struct ServeArgs {
     /// Auto-approve mutating tools (on by default for non-interactive `serve`).
     #[arg(long, default_value_t = true)]
     pub confirm: bool,
+    /// Do not open the default web browser to the local UI when the server is ready.
+    #[arg(long)]
+    pub no_open: bool,
 }
 
 #[derive(Debug, Args)]
@@ -505,6 +521,7 @@ impl Cli {
                         dry_run: args.dry_run,
                         confirm: args.confirm,
                         strict: args.strict,
+                        context_note: app.context_note,
                     },
                 )
                 .await?;
@@ -525,6 +542,7 @@ impl Cli {
                         dry_run: args.dry_run,
                         confirm: args.confirm,
                         strict: args.strict,
+                        context_note: app.context_note,
                     },
                 )
                 .await?;
@@ -577,6 +595,7 @@ impl Cli {
                         read_only: args.read_only,
                         dry_run: args.dry_run,
                         confirm: args.confirm,
+                        open_browser: !args.no_open,
                     },
                 )
                 .await?;
@@ -1393,6 +1412,8 @@ fn init_tracing(log_level: &str) -> Result<()> {
 struct ResolvedAppContext {
     app_name: String,
     paths: ConfigPaths,
+    /// Shown in the chat banner when the session is not the global active app, or from `--app-dir`.
+    context_note: Option<String>,
 }
 
 async fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcommand) -> Result<()> {
@@ -1404,12 +1425,14 @@ async fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcomm
 
     match command {
         AppSubcommand::Add {
-            name,
             path,
             openapi,
             base_url,
             auth_header,
             force,
+            display_name,
+            description,
+            name,
         } => {
             let app_dir = path
                 .map(|p| {
@@ -1430,8 +1453,33 @@ async fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcomm
                 );
             }
 
-            let chosen = name.unwrap_or_else(|| app_name_from_dir(&app_dir));
+            let default_registry = app_name_from_dir(&app_dir);
             print_flow_header("app add", Some("Register an app and set it active"));
+            print_tip(
+                "Put `--display-name` / `--description` before the registry name, e.g. `appctl app add --display-name \"OrderHub\" ordering`.",
+            );
+            print_tip(
+                "Registry name: used in `appctl app use`, `app list`, and the chat title. It is not your server URL.",
+            );
+            if registry_default_looks_like_os_username(&default_registry, &app_dir) {
+                print_tip(
+                    "Default matches your home folder name (common for ~/.appctl). Pick a name that describes this app if the default is confusing.",
+                );
+            }
+
+            let chosen: String = match name {
+                Some(n) => n,
+                None if std::io::stdin().is_terminal() => {
+                    use dialoguer::Input;
+                    Input::new()
+                        .with_prompt("Registry name for this app")
+                        .default(default_registry.clone())
+                        .interact_text()
+                        .context("failed to read registry name")?
+                }
+                None => default_registry,
+            };
+
             registry.register_and_activate(chosen.clone(), app_dir.clone());
             registry.save()?;
             print_status_success(&format!("Registered '{}' -> {}", chosen, app_dir.display()));
@@ -1449,6 +1497,29 @@ async fn run_app_command(app_dir_override: Option<&PathBuf>, command: AppSubcomm
                     },
                 )
                 .await?;
+            }
+            if display_name.is_some() || description.is_some() {
+                let paths = ConfigPaths::new(app_dir);
+                let mut cfg = AppConfig::load_for_runtime(&paths, "app add")?;
+                if let Some(ref dn) = display_name {
+                    let d = dn.trim();
+                    if !d.is_empty() {
+                        cfg.display_name = Some(d.to_string());
+                    }
+                }
+                if let Some(ref desc) = description {
+                    let t = desc.trim();
+                    cfg.description = if t.is_empty() {
+                        None
+                    } else {
+                        Some(t.to_string())
+                    };
+                }
+                cfg.save(&paths)?;
+                print_status_success(&format!(
+                    "Updated app metadata in {}",
+                    paths.config.display()
+                ));
             }
         }
         AppSubcommand::List => {
@@ -1507,11 +1578,12 @@ fn resolve_runtime_app_context(app_dir_override: Option<&PathBuf>) -> Result<Res
         return app_context_from_path(
             normalize_app_dir(path),
             Some("Use `appctl init` to create it."),
+            AppContextFrom::CliArg,
         );
     }
 
     if let Some(path) = resolve_local_app_dir(None)? {
-        return app_context_from_path(path, None);
+        return app_context_from_path(path, None, AppContextFrom::LocalCwd);
     }
 
     let registry = AppRegistry::load_or_default()?;
@@ -1527,6 +1599,7 @@ fn resolve_runtime_app_context(app_dir_override: Option<&PathBuf>) -> Result<Res
         return Ok(ResolvedAppContext {
             app_name: name,
             paths: ConfigPaths::new(path),
+            context_note: None,
         });
     }
 
@@ -1535,9 +1608,18 @@ fn resolve_runtime_app_context(app_dir_override: Option<&PathBuf>) -> Result<Res
     )
 }
 
+#[derive(Debug, Clone, Copy)]
+enum AppContextFrom {
+    /// `appctl --app-dir=...` was set.
+    CliArg,
+    /// A `.appctl` was found walking up from the current working directory.
+    LocalCwd,
+}
+
 fn app_context_from_path(
     path: PathBuf,
     not_found_hint: Option<&str>,
+    from: AppContextFrom,
 ) -> Result<ResolvedAppContext> {
     if !path.exists() {
         let hint = not_found_hint.unwrap_or("Run `appctl init` or pick a different app context.");
@@ -1547,9 +1629,32 @@ fn app_context_from_path(
     let registry = AppRegistry::load_or_default()?;
     let app_name =
         find_registered_app_name(&registry, &path).unwrap_or_else(|| app_name_from_dir(&path));
+
+    let context_note = match from {
+        AppContextFrom::CliArg => Some(
+            "Context: --app-dir (ignores cwd and the global `app use` app for this command.)"
+                .to_string(),
+        ),
+        AppContextFrom::LocalCwd => {
+            if let Some((gname, gpath)) = active_app_path(&registry) {
+                if normalize_app_dir(&path) != normalize_app_dir(&gpath) {
+                    Some(format!(
+                        "Not the global `app use` app (that is \"{gname}\" in `app list`). A .appctl in this tree wins. To use that app instead: appctl --app-dir {} chat",
+                        gpath.display()
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    };
+
     Ok(ResolvedAppContext {
         app_name,
         paths: ConfigPaths::new(path),
+        context_note,
     })
 }
 

@@ -31,13 +31,38 @@ appctl sync [OPTIONS]
 ## Common options
 
 - `--base-url <URL>` — override the `base_url` written to the schema. Include any API mount prefix (for example `http://127.0.0.1:8001/api`).
-- `--force` — overwrite an existing `.appctl/schema.json` (required on re-sync).
+- `--force` — allow overwriting an existing `schema.json` and regenerating `tools.json`. **Required** whenever a schema file is already on disk, except for the first sync in a new project. See [When to use `--force`](#when-to-use-force).
 - `--watch` — keep polling an OpenAPI source and re-sync whenever the document changes.
 - `--watch-interval-secs <N>` — polling interval for `--watch` (default `2`).
 - `--doctor-write` — run `appctl doctor --write` immediately after a successful sync.
 - `--auth-header '<Header>: <Value>'` — override the inferred auth strategy.
 - `--supabase-anon-ref <NAME>` — name of the secret (keychain or env var) to use as the `apikey` header for Supabase.
 - `--login-url`, `--login-user`, `--login-password`, `--login-form-selector` — URL login credentials and form hints.
+
+### When to use `--force`
+
+`sync` writes or refreshes two files in `.appctl/`:
+
+| File | Role |
+| --- | --- |
+| `schema.json` | Resources, actions, auth. You can edit it. |
+| `tools.json` | Flat list for the model; derived from the schema on each successful sync. |
+
+If there is no `schema.json` yet, the first run only creates these files. If
+`schema.json` already exists, another run would **replace** it and rebuild
+`tools.json`. That is fine when the API or DB really changed, but it also
+destroys any edits you made to the JSON, and a mistaken `sync` in the wrong
+tree or a CI job could wipe a checked-in file. The CLI requires `--force` for
+that overwrite.
+
+Use `--force` when you are deliberately refreshing from the source: after API
+or schema changes, in OpenAPI [watch mode](#examples) once the file exists, in
+batch jobs, or with `appctl app add ... --openapi ...` when the app dir
+[already has a contract](/docs/cli/app/). Omit it for the first sync in an
+empty `.appctl/`.
+
+`--force` is only about local files, not TLS or auth; use
+[`--auth-header`](/docs/cli/sync#common-options) and friends for HTTP.
 
 ## Examples
 
@@ -81,9 +106,8 @@ appctl sync --supabase https://YOUR-PROJECT.supabase.co \
 
 ## Exit codes
 
-- `0` — schema written.
-- `1` — source unreachable or parse failure.
-- `2` — schema already exists and `--force` was not passed.
+- `0` — success; schema and tools were written.
+- `1` — any failure, including: source unreachable, parse/introspection error, or **existing `schema.json` without `--force`** (the error text tells you to add `--force`).
 
 ## See also
 

@@ -1,24 +1,16 @@
 ---
 title: Quickstart
-description: Run appctl against a demo FastAPI app end-to-end in five minutes.
+description: End-to-end flow using the OpenAPI + FastAPI demo in this repository.
 ---
 
-Five minutes, one real app, real output. We will use the FastAPI demo in the repo. Any OpenAPI-capable app works the same way.
+This walkthrough uses `examples/demos/openapi-fastapi`. The same `sync` flow
+applies to any app that exposes an OpenAPI document.
 
 ## Prerequisites
 
-- [`appctl` installed](/docs/installation/).
-- Python 3.11 or newer.
-- A configured LLM provider. The fastest way is the interactive wizard:
-
-  ```bash
-  appctl init
-  ```
-
-  See [`appctl init`](/docs/init/) for the full walkthrough of what it writes
-  and where secrets are stored. If you say yes to the final registration
-  prompt, the demo app is also added to `~/.appctl/apps.toml` so later
-  `appctl chat` / `appctl serve` commands can find it globally.
+- [`appctl` installed](/docs/installation/)
+- Python 3.11+
+- A configured LLM provider; run `appctl init` (see [`appctl init`](/docs/init/)). Accepting the optional app registration at the end adds this demo to `~/.appctl/apps.toml` for global `appctl chat` / `appctl serve`.
 
 ## 1. Clone and start the demo
 
@@ -51,6 +43,9 @@ In the same folder, point `appctl` at the live document:
 appctl sync --openapi http://127.0.0.1:8000/openapi.json \
   --base-url http://127.0.0.1:8000 --force
 ```
+
+Use `--force` if this directory already has a `schema.json` (e.g. you ran
+this before or copied the folder). [Details](/docs/cli/sync/#when-to-use-force).
 
 Current output shape:
 
@@ -105,13 +100,11 @@ appctl history --last 5
 
 ## 5. Run as a daemon (optional)
 
-For VS Code, the web UI, or custom frontends:
-
 ```bash
 appctl serve --port 4242
 ```
 
-HTTP endpoints and WebSocket events are documented in [API](/docs/api/http/).
+See [HTTP API](/docs/api/http/) for routes and WebSocket events.
 
 ## Clean up
 
@@ -120,15 +113,11 @@ kill %1      # stop uvicorn
 deactivate   # exit venv
 ```
 
-## What just happened
+## Sequence summary
 
-1. FastAPI generated an OpenAPI document.
-2. `appctl sync` turned each operation into a typed tool with JSON Schema params and marked it `provenance=declared`.
-3. `appctl doctor` probed the live server to confirm each tool returns something sensible.
-4. `appctl chat` fed the tool contract to your configured LLM, which picked the right one and filled in the arguments.
+1. The demo app serves an OpenAPI document.
+2. `appctl sync` maps operations to tools in `.appctl/schema.json` (here `provenance=declared`).
+3. `appctl doctor` checks reachability against the live base URL.
+4. `appctl chat` / `appctl run` send the tool list to the model and execute the calls it requests.
 
-## Where to go next
-
-- [Pick another source](/docs/sources/openapi/) for your real project.
-- [Understand provenance](/docs/concepts/provenance-and-safety/) before deploying.
-- [Embed in a server](/docs/deploy/server/) when you are ready to share.
+**Next:** [other sync sources](/docs/sources/openapi/) · [provenance and safety](/docs/concepts/provenance-and-safety/) · [deploy / serve](/docs/deploy/server/)

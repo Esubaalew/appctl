@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- SQL tools: double-quote (ANSI) and backtick (MySQL) table/column identifiers so reserved names like `order` do not break SQLite/PostgreSQL/MySQL.
+
+### Added
+
+- `appctl serve`: auto-open the default browser to the local UI (`--no-open` to skip), `APPCTL_PORT` / `APPCTL_BIND` env, port `0` for an ephemeral free port.
+- Agent system message includes a “This app” block (registry, label, description, path, sync source).
+
 ## [0.4.0] - 2026-04-23
 
 Operator-console redesign and an honest rewrite of the CLI reference.

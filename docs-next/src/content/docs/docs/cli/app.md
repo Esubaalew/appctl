@@ -18,7 +18,7 @@ appctl app <COMMAND>
 
 | Command | What it does |
 | --- | --- |
-| `appctl app add [NAME]` | Register the current directory's `.appctl/` (or the one passed via `--app-dir`) under a name and mark it as the global active app. `NAME` defaults to the parent directory name. You can also pass `--openapi`, `--base-url`, and `--auth-header` to sync immediately after registration. |
+| `appctl app add [NAME]` | Register the current directory's `.appctl/` (or `--path`) under a name and set it active. Optional `NAME` defaults to the parent directory name. Put **flags before** the name, e.g. `appctl app add --display-name "My API" --description "…" myapi`. With `--openapi` (and related sync flags) it can run a sync in that app directory. Use `--force` for that built-in sync when a `schema.json` [already exists](/docs/cli/sync/#when-to-use-force) — the same rules as `appctl sync`. |
 | `appctl app list` | Show every registered app, which one is active, and the absolute path to its `.appctl` directory. The active app is marked with `*`. |
 | `appctl app use <NAME>` | Switch the globally active app by name. |
 | `appctl app remove <NAME>` | Unregister an app. Files on disk are not touched. |
