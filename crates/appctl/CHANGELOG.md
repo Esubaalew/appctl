@@ -4,6 +4,12 @@ All notable changes to `appctl` are documented in this file.
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/Esubaalew/appctl/compare/appctl-v0.9.0...appctl-v0.9.1) - 2026-04-24
+
+### Other
+
+- smarter openai ger and docs
+
 ## [0.9.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.8.0...appctl-v0.9.0) - 2026-04-24
 
 ## [0.8.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.7.1...appctl-v0.8.0) - 2026-04-24
