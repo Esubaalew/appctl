@@ -6,9 +6,9 @@ All notable changes to `appctl` are documented in this file.
 
 ## [0.8.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.7.1...appctl-v0.8.0) - 2026-04-24
 
-### Other
+### Added
 
-- thing that dont wrok
+- OpenAPI sync: use `--auth-header` when **fetching** the document over HTTP(S); support `env:VAR` / `Bearer env:VAR` in that header; send `User-Agent` and `Accept` for JSON/YAML; if the URL is a **site root** and the first GET is 404, try common paths (`/openapi.json`, `/v3/api-docs`, …).
 
 ## [0.7.1](https://github.com/Esubaalew/appctl/compare/appctl-v0.7.0...appctl-v0.7.1) - 2026-04-24
 

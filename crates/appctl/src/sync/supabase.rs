@@ -63,7 +63,7 @@ impl SyncPlugin for SupabaseSync {
             ));
         };
 
-        let mut schema = OpenApiSync::new(openapi_url).introspect().await?;
+        let mut schema = OpenApiSync::new(openapi_url, None).introspect().await?;
         schema.source = SyncSource::Supabase;
         schema.base_url = Some(effective_base);
         schema.auth = AuthStrategy::ApiKey {

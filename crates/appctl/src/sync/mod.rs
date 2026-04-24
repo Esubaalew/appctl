@@ -76,7 +76,7 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
     }
 
     let mut schema = if let Some(source) = &request.openapi {
-        openapi::OpenApiSync::new(source.clone())
+        openapi::OpenApiSync::new(source.clone(), request.auth_header.clone())
             .introspect()
             .await?
     } else if let Some(path) = &request.django {
@@ -189,7 +189,7 @@ async fn run_sync_watch(paths: ConfigPaths, request: SyncRequest) -> Result<()> 
 
     let mut last_hash: Option<u64> = None;
     loop {
-        let raw = openapi::load_openapi_source(source).await?;
+        let raw = openapi::load_openapi_source(source, request.auth_header.as_deref()).await?;
         let next_hash = stable_hash(&raw);
         if last_hash != Some(next_hash) {
             run_sync_once(paths.clone(), &request).await?;

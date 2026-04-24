@@ -26,6 +26,8 @@ schema. Call history is stored locally (e.g. `.appctl/history.db`).
 
 ## Sync sources (summary)
 
+Not sure which flag to use? Start with [Choosing a sync source](/docs/sources/choosing-a-sync-source/) (Nest, Spring, Next.js, and other stacks without a built-in flag).
+
 | Source | Documentation |
 | --- | --- |
 | OpenAPI | [OpenAPI](/docs/sources/openapi/) |

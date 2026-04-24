@@ -3,7 +3,19 @@ title: OpenAPI / Swagger
 description: Turn any OpenAPI 2 or 3 document into typed tools for your agent.
 ---
 
-If your app serves an OpenAPI document, this is the source to use. It produces the cleanest tool names and the most accurate parameter schemas.
+If your app serves an OpenAPI document, this is the source to use. It produces the cleanest tool names and the most accurate parameter schemas. For frameworks without a dedicated `appctl sync --…` target (e.g. Nest, Spring, Next with a spec), this is the usual path—see [Choosing a sync source](/docs/sources/choosing-a-sync-source/).
+
+## Fetching the document
+
+- **File path** — pass a local `.json` or `.yaml` path; no network.
+- **http(s) URL** — `appctl` uses a normal GET with a clear `User-Agent` (`appctl/<version>`), follows redirects, and sends `Accept: application/json, application/yaml, …`.
+- **Authenticated spec URL** — pass the same header you use for tool calls:  
+  `appctl sync --openapi https://api.example.com/v3/api-docs --auth-header 'Authorization: Bearer env:STAGING_API_KEY'`  
+  The header is used **both** to download the spec and, unless overridden in config, in `schema` metadata for HTTP tools. Supported forms:
+  - `Header-Name: literal`
+  - `Header-Name: env:VAR` (value is read from the environment at sync time)
+  - `Authorization: Bearer env:VAR` (expands to `Bearer <value>`)
+- **Root base URL** — if you pass a **site root** (path `/` or empty) and the first GET returns 404, `appctl` also tries: `/openapi.json`, `/v3/api-docs`, `/v2/api-docs`, `/api-docs`, `/swagger.json`, `/api/openapi.json` (common Spring / gateway layouts).
 
 ## Prerequisites
 

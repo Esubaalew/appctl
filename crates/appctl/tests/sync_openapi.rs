@@ -9,7 +9,7 @@ use appctl::{
 async fn parses_openapi_fixture_into_resources_and_actions() {
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/openapi/petstore.json");
-    let schema = OpenApiSync::new(fixture.display().to_string())
+    let schema = OpenApiSync::new(fixture.display().to_string(), None)
         .introspect()
         .await
         .expect("openapi sync succeeds");

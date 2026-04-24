@@ -38,6 +38,7 @@ export default defineConfig({
       '/sources/url/': bp('/docs/sources/url/'),
       '/sources/mcp/': bp('/docs/sources/mcp/'),
       '/sources/plugins/': bp('/docs/sources/plugins/'),
+      '/sources/choosing-a-sync-source/': bp('/docs/sources/choosing-a-sync-source/'),
       '/deploy/': bp('/docs/deploy/local/'),
     };
   })(),
@@ -106,6 +107,7 @@ export default defineConfig({
         {
           label: 'Sources',
           items: [
+            { label: 'Choosing a sync source', slug: 'docs/sources/choosing-a-sync-source' },
             { label: 'OpenAPI / Swagger', slug: 'docs/sources/openapi' },
             { label: 'Django (DRF)', slug: 'docs/sources/django' },
             { label: 'Rails API', slug: 'docs/sources/rails' },

@@ -31,7 +31,7 @@ impl SyncPlugin for AspNetSync {
     async fn introspect(&self) -> Result<Schema> {
         if let Some(swagger) = find_swagger(&self.root) {
             tracing::info!("delegating to OpenAPI sync via {}", swagger.display());
-            let mut schema = OpenApiSync::new(swagger.display().to_string())
+            let mut schema = OpenApiSync::new(swagger.display().to_string(), None)
                 .introspect()
                 .await?;
             schema.source = SyncSource::Aspnet;

@@ -35,7 +35,7 @@ appctl sync [OPTIONS]
 - `--watch` — keep polling an OpenAPI source and re-sync whenever the document changes.
 - `--watch-interval-secs <N>` — polling interval for `--watch` (default `2`).
 - `--doctor-write` — run `appctl doctor --write` immediately after a successful sync.
-- `--auth-header '<Header>: <Value>'` — override the inferred auth strategy.
+- `--auth-header '<Header>: <Value>'` — for OpenAPI, used when **downloading** the spec over HTTP(S) and stored for HTTP tool calls. Values can use `env:VAR` or `Bearer env:VAR` (see [OpenAPI](/docs/sources/openapi/#fetching-the-document)). For other sources, it mainly sets schema metadata for the executor.
 - `--supabase-anon-ref <NAME>` — name of the secret (keychain or env var) to use as the `apikey` header for Supabase.
 - `--login-url`, `--login-user`, `--login-password`, `--login-form-selector` — URL login credentials and form hints.
 
