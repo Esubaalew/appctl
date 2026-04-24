@@ -9,12 +9,13 @@ description: Where appctl stores API keys, how to override them, and how to hand
 
 ### OS keychain (preferred)
 
-Service name: `appctl`. Each secret is keyed by a short name (`api_key_ref` in `config.toml`).
+Service name: `appctl`. Each secret is keyed by a short name (`secret_ref` in
+`config.toml`).
 
 Store:
 
 ```bash
-appctl config set-secret anthropic --value "$ANTHROPIC_API_KEY"
+appctl config set-secret ANTHROPIC_API_KEY --value "$ANTHROPIC_API_KEY"
 appctl config set-secret supabase_anon --value "$SUPABASE_ANON_KEY"
 ```
 
@@ -29,7 +30,7 @@ Platforms:
 If a secret is not in the keychain, `appctl` falls back to an environment variable of the same name:
 
 ```bash
-export anthropic="$ANTHROPIC_API_KEY"
+export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
 appctl chat
 ```
 
@@ -43,7 +44,7 @@ In `config.toml`:
 [[provider]]
 name = "claude"
 kind = "anthropic"
-api_key_ref = "anthropic"   # <- this name
+auth = { kind = "api_key", secret_ref = "ANTHROPIC_API_KEY" }   # <- this name
 model = "claude-sonnet-4"
 ```
 
@@ -59,14 +60,18 @@ The `env_ref` field names the keychain/env key, not the raw value.
 
 ```bash
 # Rotate
-appctl config set-secret anthropic --value "$NEW_KEY"
+appctl config set-secret ANTHROPIC_API_KEY --value "$NEW_KEY"
 ```
 
 No process restart is required. The next tool call reads the updated secret.
 
 ## OAuth tokens
 
-`appctl auth login <provider>` stores access + refresh tokens under service `appctl` with key `oauth:<provider>`. Refresh happens automatically when a refresh token is present; otherwise `appctl auth login` rerunss the flow.
+`appctl auth target login <provider>` stores target-app OAuth tokens under
+service `appctl` with key `appctl_oauth::<provider>`. Provider OAuth / device
+code flows store their token blob under `appctl_llm_oauth::<profile>`. Refresh
+happens automatically when a refresh token is present; otherwise rerun the
+login flow.
 
 ## Do not commit
 

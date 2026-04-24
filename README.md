@@ -27,10 +27,17 @@ cargo install appctl
 From this repository (exact version, no crates.io wait):
 
 ```bash
-cargo install --locked --git https://github.com/Esubaalew/appctl.git --tag v0.3.0
+cargo install --locked --git https://github.com/Esubaalew/appctl.git --tag v0.7.0
 ```
 
-To build the embedded web UI the same way CI does (needed for a clean `cargo install` from a working tree):
+From this repository working tree:
+
+```bash
+cargo install --locked --path crates/appctl
+```
+
+If you changed `web/src` locally and want the binary to include that updated UI,
+rebuild the bundle first:
 
 ```bash
 cd web && npm ci && npm run build && cd ..

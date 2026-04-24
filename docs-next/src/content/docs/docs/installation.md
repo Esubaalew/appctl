@@ -32,23 +32,25 @@ version comes from the root `Cargo.toml` in that checkout.
 
 ## From source
 
-Tracking `main` is the fastest path for new features. The embedded web UI
-must be built before you `cargo install`, because `appctl` is compiled against
-the `web/dist/` output.
+Tracking `main` is the fastest path for new features. A normal checkout already
+includes the current embedded web bundle, so a straight `cargo install` works.
+Rebuild the web bundle only if you changed `web/src` locally or want to refresh
+the tracked assets before compiling.
 
 ```bash
 git clone https://github.com/Esubaalew/appctl.git
 cd appctl
 
-# Build the web UI bundle (Node 20+ required, matches CI)
-cd web && npm ci && npm run build && cd ..
-
 # Install the binary
 cargo install --locked --path crates/appctl
 ```
 
-If you skip the `web` build step, `cargo install` will still succeed but the
-`appctl serve` web console will 404 on `/`.
+If you changed `web/src`, rebuild the bundle first:
+
+```bash
+cd web && npm ci && npm run build && cd ..
+cargo install --locked --path crates/appctl
+```
 
 ## From a prebuilt release
 
@@ -141,9 +143,9 @@ Native transports:
 - **Anthropic** (`kind = "anthropic"`) — Claude with the native API shape.
 - **Google GenAI** (`kind = "google_genai"`) — Gemini via the
   `generativelanguage.googleapis.com` endpoint.
-- **Vertex AI** (`kind = "vertex_ai"`) — Gemini via Google Vertex, using
+- **Vertex AI** (`kind = "vertex"`) — Gemini via Google Vertex, using
   Google ADC.
-- **Azure OpenAI** (`kind = "azure_openai"`) — Azure deployments with AAD or
+- **Azure OpenAI** (`kind = "azure_open_ai"`) — Azure deployments with AAD or
   key auth.
 
 See [Provider matrix](/docs/provider-matrix/) for the exact `auth` shape and
@@ -159,6 +161,7 @@ You should see every subcommand:
 
 ```text
 Commands:
+  init      Set up a `.appctl` directory (models, auth, and provider) interactively.
   sync      Introspect your app and regenerate the tool schema.
   chat      Interactive REPL against the synced schema.
   run       One-shot prompt against the synced schema.
@@ -169,6 +172,7 @@ Commands:
   plugin    Manage dynamic sync plugins.
   auth      Authenticate the target app and the LLM provider.
   mcp       Run appctl itself as an MCP server.
+  app       Manage known app contexts and the global active app.
 ```
 
 ## Next

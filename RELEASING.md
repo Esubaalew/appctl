@@ -30,6 +30,10 @@ entry.
 `release-plz` (see `.github/workflows/release-plz.yml`) automates this process
 by opening a PR whenever the `main` branch has unreleased commits.
 
+Because `appctl` embeds the web console into the Rust crate, every release
+build must refresh `web/dist` and sync it into
+`crates/appctl/embedded-web/dist` before publishing or packaging artifacts.
+
 ## Cutting a release
 
 1. Merge all release-worthy PRs into `main`.
@@ -38,8 +42,9 @@ by opening a PR whenever the `main` branch has unreleased commits.
 3. `release-plz` will tag the commit (e.g. `v0.2.0`) and publish both crates
    to crates.io in the correct order (`appctl-plugin-sdk` first, then
    `appctl`).
-4. The tag triggers `.github/workflows/release.yml`, which runs `cargo-dist`
-   to produce cross-platform binaries and a GitHub Release.
+4. The tag triggers `.github/workflows/release.yml`, which rebuilds the web UI,
+   syncs the embedded bundle, then produces cross-platform binaries and a
+   GitHub Release.
 5. The `vscode.yml` workflow builds and uploads the `.vsix` extension as a
    release asset.
 
@@ -57,18 +62,27 @@ release-plz is about to publish and fails the workflow otherwise.
 If you must release by hand:
 
 ```bash
-# 1. Make sure the tree is clean and tests pass.
+# 1. Refresh the embedded web UI bundle.
+cd web
+npm ci
+npm run build
+cd ..
+rm -rf crates/appctl/embedded-web/dist
+mkdir -p crates/appctl/embedded-web
+cp -R web/dist crates/appctl/embedded-web/dist
+
+# 2. Make sure the tree is clean and tests pass.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
-# 2. Publish the SDK first.
+# 3. Publish the SDK first.
 cargo publish -p appctl-plugin-sdk
 
-# 3. Wait ~30s for crates.io indexing, then publish the CLI.
+# 4. Wait ~30s for crates.io indexing, then publish the CLI.
 cargo publish -p appctl
 
-# 4. Tag and push.
+# 5. Tag and push.
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
@@ -80,6 +94,7 @@ automated release.
 
 - [ ] `CHANGELOG.md` has an entry for the new version.
 - [ ] `Cargo.toml` `[workspace.package].version` is bumped.
+- [ ] `web/dist` is rebuilt and `crates/appctl/embedded-web/dist` matches it.
 - [ ] `cargo test --workspace` is green.
 - [ ] `cargo package --no-verify -p appctl-plugin-sdk` inspects cleanly.
 - [ ] `cargo package --no-verify -p appctl` inspects cleanly.

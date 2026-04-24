@@ -36,8 +36,9 @@ appctl serve [OPTIONS]
 | `--strict` | off | Block `provenance = "inferred"` tools until verified. |
 | `--confirm` | **on** | Auto-approve mutations. Default is on (non-interactive). Pass `--confirm=false` to require per-call approval from the web UI. |
 
-Flags set on `appctl serve` apply to **every** request — a web UI client cannot
-override them. Use this to enforce safety in shared deployments.
+Flags set on `appctl serve` are the **minimum** safety level for every request.
+Clients may request stricter modes (for example, turning on `read_only` for one
+turn), but they cannot relax server-enforced flags.
 
 ## The web console
 
@@ -51,8 +52,8 @@ app with four tabs:
 - **History** — the activity log (same table as `appctl history`), with
   expandable rows for arguments and raw response. If clients send the identity
   header, the session label is recorded there too.
-- **Settings** — provider status, token usage (if the provider reports
-  billing info), and a field for the auth token when `--token` is set.
+- **Settings** — provider status, sync summary, and a field for the auth token
+  when `--token` is set.
 
 The UI connects over `WS /chat` for streaming; if WebSocket is blocked it
 falls back to `POST /run` for non-streaming completions. Both paths keep
@@ -104,6 +105,8 @@ appctl serve --provider openai --model gpt-4o-mini --confirm=false
 - The bind address defaults to `127.0.0.1`. Changing it to `0.0.0.0` without
   also passing `--token` is a mistake — the server will still start, but
   anything on your network can use your provider credits.
+- Browser requests with an `Origin` header must match the daemon host (or
+  forwarded host). This blocks cross-site pages from driving a local daemon.
 - The token is compared byte-for-byte. Pick a long random string.
 - Static assets are embedded into the binary at build time, so there is no
   need to open any additional ports for asset delivery.

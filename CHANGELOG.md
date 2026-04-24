@@ -44,7 +44,7 @@ Provider authentication, MCP serve, and onboarding polish.
 ### Added
 
 - **Provider authentication** — `appctl auth provider login|status|logout|list` and a full `ProviderAuthConfig` model covering API key, OAuth2 (PKCE), Google Application Default Credentials, Azure AD device code, Qwen OAuth, and MCP bridge flows.
-- **New providers** — first-class `Vertex AI` (`kind = "vertex_ai"`, Google ADC) and `Azure OpenAI` (`kind = "azure_openai"`, API key or Azure AD) transports alongside existing OpenAI-compatible, Anthropic, and Google GenAI kinds.
+- **New providers** — first-class `Vertex AI` (`kind = "vertex"`, Google ADC) and `Azure OpenAI` (`kind = "azure_open_ai"`, API key or Azure AD) transports alongside existing OpenAI-compatible, Anthropic, and Google GenAI kinds.
 - **`appctl mcp serve`** — expose the local schema and tools to an external agent client (Codex CLI, Claude Code, Qwen Code, Gemini CLI) over MCP, enabling subscription-backed billing via the bridge.
 - **Schema replacement** — `docs-next` Astro/Starlight site replaces the previous static docs.
 - **UI onboarding** — `appctl init` / `appctl config init` produces a working `.appctl/config.toml` with a provider preset; `appctl config provider-sample --preset <name>` prints a paste-ready `[[provider]]` block for every supported kind.

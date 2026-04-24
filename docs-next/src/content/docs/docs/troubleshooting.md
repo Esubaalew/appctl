@@ -59,13 +59,13 @@ appctl config show
 The `api_key_ref` in your config does not match any keychain entry or environment variable. Store the key:
 
 ```bash
-appctl config set-secret anthropic --value "$ANTHROPIC_API_KEY"
+appctl config set-secret ANTHROPIC_API_KEY --value "$ANTHROPIC_API_KEY"
 ```
 
 Or set the env var for the current session:
 
 ```bash
-export anthropic="$ANTHROPIC_API_KEY"
+export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
 ```
 
 ## `appctl serve` returns `401 Unauthorized`
@@ -101,7 +101,7 @@ error: failed to unlock keychain
 The keychain needs `secret-service` running (GNOME Keyring or KWallet). On headless servers, use environment variables instead:
 
 ```bash
-export anthropic="$ANTHROPIC_API_KEY"
+export ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
 ```
 
 ## Still stuck?

@@ -676,23 +676,26 @@ function Toggle({
   label,
   hint,
   checked,
+  disabled = false,
   onChange,
 }: {
   label: string;
   hint: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       title={hint}
       className={`group flex items-center gap-2 rounded-md border px-2 py-1 text-[12px] transition ${
         checked
           ? "border-border-strong bg-panel text-fg"
           : "border-border bg-surface text-muted hover:border-border-strong hover:text-fg-dim"
-      }`}
+      } ${disabled ? "cursor-not-allowed opacity-70" : ""}`}
     >
       <span
         className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition ${
@@ -1172,6 +1175,9 @@ export default function App() {
               setReadOnly={setReadOnly}
               setDryRun={setDryRun}
               setStrictMode={setStrictMode}
+              serverReadOnly={publicCfg?.read_only ?? false}
+              serverDryRun={publicCfg?.dry_run ?? false}
+              serverStrictMode={publicCfg?.strict ?? false}
               suggestions={suggestions}
               wsStatus={wsStatus}
               connectWs={connectWs}
@@ -1210,6 +1216,9 @@ function ChatWorkspace({
   setReadOnly,
   setDryRun,
   setStrictMode,
+  serverReadOnly,
+  serverDryRun,
+  serverStrictMode,
   suggestions,
   wsStatus,
   connectWs,
@@ -1226,11 +1235,17 @@ function ChatWorkspace({
   setReadOnly: (v: boolean) => void;
   setDryRun: (v: boolean) => void;
   setStrictMode: (v: boolean) => void;
+  serverReadOnly: boolean;
+  serverDryRun: boolean;
+  serverStrictMode: boolean;
   suggestions: string[];
   wsStatus: string;
   connectWs: () => void;
 }) {
   const isEmpty = chatLog.length === 0;
+  const readOnlyLocked = serverReadOnly;
+  const dryRunLocked = serverDryRun;
+  const strictLocked = serverStrictMode;
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -1310,20 +1325,35 @@ function ChatWorkspace({
             <div className="flex items-center gap-2 px-2 pb-2 pt-1">
               <Toggle
                 label="Read-only"
-                hint="Blocks any write or delete action."
+                hint={
+                  readOnlyLocked
+                    ? "Server is already enforcing read-only mode."
+                    : "Blocks any write or delete action."
+                }
                 checked={readOnly}
+                disabled={readOnlyLocked}
                 onChange={setReadOnly}
               />
               <Toggle
                 label="Dry-run"
-                hint="Shows what would happen without executing."
+                hint={
+                  dryRunLocked
+                    ? "Server is already enforcing dry-run mode."
+                    : "Shows what would happen without executing."
+                }
                 checked={dryRun}
+                disabled={dryRunLocked}
                 onChange={setDryRun}
               />
               <Toggle
                 label="Strict"
-                hint="Blocks inferred HTTP tools until verified by doctor."
+                hint={
+                  strictLocked
+                    ? "Server is already enforcing strict mode."
+                    : "Blocks inferred HTTP tools until verified by doctor."
+                }
                 checked={strictMode}
+                disabled={strictLocked}
                 onChange={setStrictMode}
               />
               <div className="ml-auto flex items-center gap-3 text-[12px] text-muted">
@@ -1719,6 +1749,10 @@ function SettingsPanel({
                 <KV
                   k="Server defaults"
                   v={`read-only ${publicCfg?.read_only ? "on" : "off"} · dry-run ${publicCfg?.dry_run ? "on" : "off"} · strict ${publicCfg?.strict ? "on" : "off"}`}
+                />
+                <KV
+                  k="Request safety"
+                  v="The browser can add extra safety, but it cannot relax server-enforced flags."
                 />
                 <KV
                   k="Local files"

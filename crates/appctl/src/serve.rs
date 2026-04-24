@@ -5,8 +5,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Query, State, WebSocketUpgrade},
-    http::{HeaderMap, StatusCode, Uri, header},
+    http::{HeaderMap, HeaderName, HeaderValue, Request, StatusCode, Uri, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -15,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::process::Command;
 use tokio::sync::mpsc;
+use url::Url;
 use uuid::Uuid;
 
 use crate::{
@@ -107,6 +110,8 @@ pub async fn run_server(
         .route("/run", post(post_run))
         .route("/chat", get(ws_chat))
         .fallback(get(serve_static))
+        .layer(middleware::from_fn(harden_responses))
+        .layer(middleware::from_fn(validate_browser_origin))
         .with_state(state.clone());
 
     let addr: SocketAddr = format!("{}:{}", state.options.bind, state.options.port).parse()?;
@@ -121,6 +126,44 @@ pub async fn run_server(
     }
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn validate_browser_origin(request: Request<Body>, next: Next) -> Response {
+    if !browser_origin_ok(request.headers()) {
+        return forbidden_err("cross-origin browser request blocked");
+    }
+    next.run(request).await
+}
+
+async fn harden_responses(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    set_default_header(
+        headers,
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    set_default_header(headers, "x-frame-options", HeaderValue::from_static("DENY"));
+    set_default_header(
+        headers,
+        "referrer-policy",
+        HeaderValue::from_static("no-referrer"),
+    );
+    set_default_header(
+        headers,
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+        ),
+    );
+    response
+}
+
+fn set_default_header(headers: &mut HeaderMap, name: &'static str, value: HeaderValue) {
+    let name = HeaderName::from_static(name);
+    if !headers.contains_key(&name) {
+        headers.insert(name, value);
+    }
 }
 
 fn auth_ok(state: &AppState, headers: &HeaderMap, query_token: Option<&str>) -> bool {
@@ -138,8 +181,59 @@ fn auth_ok(state: &AppState, headers: &HeaderMap, query_token: Option<&str>) -> 
     })
 }
 
+fn browser_origin_ok(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    let Some(host_header) = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let Ok(origin_url) = Url::parse(origin) else {
+        return false;
+    };
+    if !matches!(origin_url.scheme(), "http" | "https") {
+        return false;
+    }
+    let Some(origin_host) = origin_url.host_str() else {
+        return false;
+    };
+    let Some((request_host, request_port)) = parse_host_header(host_header) else {
+        return false;
+    };
+    let scheme = origin_url.scheme();
+    let origin_port = origin_url
+        .port_or_known_default()
+        .unwrap_or_else(|| default_port_for_scheme(scheme));
+    let request_port = request_port.unwrap_or_else(|| default_port_for_scheme(scheme));
+    request_host.eq_ignore_ascii_case(origin_host) && request_port == origin_port
+}
+
+fn parse_host_header(host: &str) -> Option<(String, Option<u16>)> {
+    let candidate = host.split(',').next()?.trim();
+    let parsed = Url::parse(&format!("http://{candidate}")).ok()?;
+    Some((parsed.host_str()?.to_string(), parsed.port()))
+}
+
+fn default_port_for_scheme(scheme: &str) -> u16 {
+    match scheme {
+        "https" => 443,
+        _ => 80,
+    }
+}
+
 fn auth_err() -> Response {
     StatusCode::UNAUTHORIZED.into_response()
+}
+
+fn forbidden_err(message: &str) -> Response {
+    (StatusCode::FORBIDDEN, Json(json!({ "error": message }))).into_response()
 }
 
 async fn serve_static(uri: Uri) -> impl IntoResponse {
@@ -446,10 +540,11 @@ fn merge_safety(
     strict: Option<bool>,
 ) -> SafetyMode {
     SafetyMode {
-        read_only: read_only.unwrap_or(opts.read_only),
-        dry_run: dry_run.unwrap_or(opts.dry_run),
-        confirm: confirm.unwrap_or(opts.confirm),
-        strict: strict.unwrap_or(opts.strict),
+        // Clients may ask for extra safety, but they may not weaken the server policy.
+        read_only: opts.read_only || read_only.unwrap_or(false),
+        dry_run: opts.dry_run || dry_run.unwrap_or(false),
+        confirm: opts.confirm && confirm.unwrap_or(true),
+        strict: opts.strict || strict.unwrap_or(false),
     }
 }
 
@@ -489,4 +584,81 @@ fn internal_error(error: impl ToString) -> Response {
         Json(json!({ "error": error.to_string() })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_origin_allows_non_browser_clients() {
+        let headers = HeaderMap::new();
+        assert!(browser_origin_ok(&headers));
+    }
+
+    #[test]
+    fn browser_origin_allows_same_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4242"));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:4242"),
+        );
+        assert!(browser_origin_ok(&headers));
+    }
+
+    #[test]
+    fn browser_origin_rejects_cross_site_requests() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4242"));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.example"),
+        );
+        assert!(!browser_origin_ok(&headers));
+    }
+
+    #[test]
+    fn merge_safety_never_relaxes_server_policy() {
+        let opts = ServeOptions {
+            port: 4242,
+            bind: "127.0.0.1".to_string(),
+            token: None,
+            identity_header: "x-appctl-client-id".to_string(),
+            tunnel: false,
+            provider: None,
+            model: None,
+            strict: true,
+            read_only: true,
+            dry_run: true,
+            confirm: false,
+        };
+        let merged = merge_safety(&opts, Some(false), Some(false), Some(true), Some(false));
+        assert!(merged.read_only);
+        assert!(merged.dry_run);
+        assert!(merged.strict);
+        assert!(!merged.confirm);
+    }
+
+    #[test]
+    fn merge_safety_allows_extra_client_restrictions() {
+        let opts = ServeOptions {
+            port: 4242,
+            bind: "127.0.0.1".to_string(),
+            token: None,
+            identity_header: "x-appctl-client-id".to_string(),
+            tunnel: false,
+            provider: None,
+            model: None,
+            strict: false,
+            read_only: false,
+            dry_run: false,
+            confirm: true,
+        };
+        let merged = merge_safety(&opts, Some(true), Some(true), Some(false), Some(true));
+        assert!(merged.read_only);
+        assert!(merged.dry_run);
+        assert!(merged.strict);
+        assert!(!merged.confirm);
+    }
 }

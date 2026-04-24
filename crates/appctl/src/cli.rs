@@ -6,15 +6,18 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::{
     auth::{
+        azure_ad::{
+            AzureAdDeviceConfig, DEFAULT_SCOPE as AZURE_OPENAI_DEFAULT_SCOPE, device_code_login,
+        },
         oauth::{
             OAuthLoginConfig, OAuthTokenNamespace, delete_provider_tokens, login as oauth_login,
         },
-        provider::ProviderAuthConfig,
+        provider::{ProviderAuthConfig, ProviderAuthKind},
     },
     chat::{ChatOptions, run_chat},
     config::{
-        AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, find_app_dir_from,
-        find_registered_app_name, load_secret, normalize_app_dir,
+        AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, delete_secret,
+        find_app_dir_from, find_registered_app_name, load_secret, normalize_app_dir,
     },
     doctor::{DoctorRunArgs, run_doctor, run_doctor_models},
     history::{HistoryCommand, run_history_command},
@@ -1016,10 +1019,7 @@ async fn login_provider_auth(
             );
             Ok(())
         }
-        Some(ProviderAuthConfig::GoogleAdc { .. })
-        | Some(ProviderAuthConfig::QwenOAuth { .. })
-        | Some(ProviderAuthConfig::AzureAd { .. })
-        | Some(ProviderAuthConfig::McpBridge { .. }) => {
+        Some(ProviderAuthConfig::GoogleAdc { .. }) => {
             let status = config
                 .provider_statuses()
                 .into_iter()
@@ -1045,6 +1045,56 @@ async fn login_provider_auth(
                     })
                 )
             }
+        }
+        Some(ProviderAuthConfig::QwenOAuth { profile }) => {
+            if crate::auth::oauth::load_provider_tokens(&profile).is_some() {
+                println!(
+                    "provider '{}' already has Qwen OAuth tokens for profile '{}'",
+                    provider_name, profile
+                );
+                Ok(())
+            } else {
+                bail!(
+                    "Qwen OAuth is not wired into `appctl auth provider login` yet. Use a DashScope API key or configure the Qwen Code MCP bridge through `appctl init`."
+                )
+            }
+        }
+        Some(ProviderAuthConfig::AzureAd {
+            tenant,
+            client_id: configured_client_id,
+            ..
+        }) => {
+            let client_id = client_id.unwrap_or(configured_client_id);
+            let scope = if scope.is_empty() {
+                AZURE_OPENAI_DEFAULT_SCOPE.to_string()
+            } else {
+                scope.join(" ")
+            };
+            let storage_key = format!("azure-ad::{tenant}::{client_id}");
+            let tokens = device_code_login(AzureAdDeviceConfig {
+                tenant,
+                client_id,
+                scope,
+                storage_key,
+                authority_base: None,
+                suppress_browser: false,
+            })
+            .await?;
+            println!(
+                "Logged in provider '{}' via Azure AD device code. Stored {} scope entries.",
+                provider_name,
+                tokens.scopes.len()
+            );
+            Ok(())
+        }
+        Some(ProviderAuthConfig::McpBridge { client }) => {
+            println!(
+                "provider '{}' uses the {} MCP bridge. Launch `{}` instead of authenticating through `appctl auth provider login`.",
+                provider_name,
+                client.display_name(),
+                client.binary_name()
+            );
+            Ok(())
         }
         None => bail!(
             "provider '{}' is not configured and has no built-in auth preset",
@@ -1089,11 +1139,11 @@ fn print_provider_auth_status(
 
 fn print_single_provider_status(provider: &crate::config::ResolvedProviderSummary) {
     println!(
-        "{} ({:?}) model={} auth={:?} configured={}",
+        "{} kind={} model={} auth={} configured={}",
         provider.name,
-        provider.kind,
+        provider_kind_label(provider.kind),
         provider.model,
-        provider.auth_status.kind,
+        provider_auth_kind_label(&provider.auth_status.kind),
         provider.auth_status.configured
     );
     if let Some(profile) = &provider.auth_status.profile {
@@ -1113,28 +1163,112 @@ fn print_single_provider_status(provider: &crate::config::ResolvedProviderSummar
     }
 }
 
+fn provider_kind_label(kind: crate::config::ProviderKind) -> &'static str {
+    match kind {
+        crate::config::ProviderKind::Anthropic => "anthropic",
+        crate::config::ProviderKind::OpenAiCompatible => "open_ai_compatible",
+        crate::config::ProviderKind::GoogleGenai => "google_genai",
+        crate::config::ProviderKind::Vertex => "vertex",
+        crate::config::ProviderKind::AzureOpenAi => "azure_open_ai",
+    }
+}
+
+fn provider_auth_kind_label(kind: &ProviderAuthKind) -> &'static str {
+    match kind {
+        ProviderAuthKind::None => "none",
+        ProviderAuthKind::ApiKey => "api_key",
+        ProviderAuthKind::GoogleAdc => "google_adc",
+        ProviderAuthKind::QwenOAuth => "qwen_oauth",
+        ProviderAuthKind::AzureAd => "azure_ad",
+        ProviderAuthKind::McpBridge => "mcp_bridge",
+        ProviderAuthKind::OAuth2 => "oauth2",
+    }
+}
+
 fn logout_provider_auth(config: &AppConfig, provider_name: &str) -> Result<()> {
     let provider = config
         .providers
         .iter()
         .find(|provider| provider.name == provider_name)
         .with_context(|| format!("provider '{}' not found in config", provider_name))?;
-    let ProviderAuthConfig::OAuth2 { profile, .. } = provider
+    let auth = provider
         .auth
-        .as_ref()
-        .with_context(|| format!("provider '{}' has no oauth2 auth profile", provider_name))?
-    else {
-        bail!(
-            "provider '{}' is not configured for oauth2 provider auth",
-            provider_name
-        );
-    };
-    delete_provider_tokens(profile)?;
-    println!(
-        "deleted provider auth tokens for '{}' (profile '{}')",
-        provider_name, profile
-    );
-    Ok(())
+        .clone()
+        .or_else(|| provider_auth_preset(provider_name))
+        .with_context(|| format!("provider '{}' has no auth configuration", provider_name))?;
+
+    match auth {
+        ProviderAuthConfig::None => {
+            println!(
+                "provider '{}' does not store credentials in appctl",
+                provider_name
+            );
+            Ok(())
+        }
+        ProviderAuthConfig::ApiKey { secret_ref, .. } => {
+            if load_secret(&secret_ref).is_ok() {
+                delete_secret(&secret_ref)?;
+                println!(
+                    "deleted provider secret for '{}' from keychain entry '{}'",
+                    provider_name, secret_ref
+                );
+            } else {
+                println!(
+                    "no keychain secret stored for '{}' under '{}'",
+                    provider_name, secret_ref
+                );
+            }
+            Ok(())
+        }
+        ProviderAuthConfig::OAuth2 { profile, .. } | ProviderAuthConfig::QwenOAuth { profile } => {
+            if crate::auth::oauth::load_provider_tokens(&profile).is_some() {
+                delete_provider_tokens(&profile)?;
+                println!(
+                    "deleted provider auth tokens for '{}' (profile '{}')",
+                    provider_name, profile
+                );
+            } else {
+                println!(
+                    "no stored provider auth tokens found for '{}' (profile '{}')",
+                    provider_name, profile
+                );
+            }
+            Ok(())
+        }
+        ProviderAuthConfig::AzureAd {
+            tenant, client_id, ..
+        } => {
+            let storage_key = format!("azure-ad::{tenant}::{client_id}");
+            if crate::auth::oauth::load_provider_tokens(&storage_key).is_some() {
+                delete_provider_tokens(&storage_key)?;
+                println!(
+                    "deleted Azure AD tokens for '{}' (profile '{}')",
+                    provider_name, storage_key
+                );
+            } else {
+                println!(
+                    "no stored Azure AD tokens found for '{}' (profile '{}')",
+                    provider_name, storage_key
+                );
+            }
+            Ok(())
+        }
+        ProviderAuthConfig::GoogleAdc { .. } => {
+            println!(
+                "provider '{}' uses Google ADC. appctl does not own those credentials; run `gcloud auth application-default revoke` if you want to clear them.",
+                provider_name
+            );
+            Ok(())
+        }
+        ProviderAuthConfig::McpBridge { client } => {
+            println!(
+                "provider '{}' uses the {} MCP bridge. appctl does not store credentials for it.",
+                provider_name,
+                client.display_name()
+            );
+            Ok(())
+        }
+    }
 }
 
 fn provider_sample_toml(preset: Option<&str>) -> Result<String> {
@@ -1156,10 +1290,11 @@ auth = { kind = "oauth2", profile = "gemini-default", scopes = ["https://www.goo
 
 [[provider]]
 name = "vertex"
-kind = "google_genai"
-base_url = "https://generativelanguage.googleapis.com"
+kind = "vertex"
+base_url = "https://us-central1-aiplatform.googleapis.com"
 model = "gemini-2.5-pro"
-auth = { kind = "google_adc", profile = "vertex-default" }
+auth = { kind = "google_adc", project = "your-gcp-project" }
+extra_headers = { x-appctl-vertex-region = "us-central1" }
 "#
         }
         "qwen" => {
@@ -1181,7 +1316,7 @@ name = "claude"
 kind = "anthropic"
 base_url = "https://api.anthropic.com"
 model = "claude-sonnet-4"
-auth = { kind = "api_key", secret_ref = "anthropic" }
+auth = { kind = "api_key", secret_ref = "ANTHROPIC_API_KEY" }
 "#
         }
         "openai" => {
@@ -1227,7 +1362,7 @@ fn provider_auth_preset(provider_name: &str) -> Option<ProviderAuthConfig> {
             help_url: None,
         }),
         "claude" => Some(ProviderAuthConfig::ApiKey {
-            secret_ref: "anthropic".to_string(),
+            secret_ref: "ANTHROPIC_API_KEY".to_string(),
             help_url: None,
         }),
         "openai" => Some(ProviderAuthConfig::ApiKey {

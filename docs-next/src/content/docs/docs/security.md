@@ -18,6 +18,10 @@ description: Threat model, safety flags, and the controls appctl gives you.
 
 For any `appctl serve` reachable beyond `127.0.0.1`, always set `--token`. Clients must present the token on every request.
 
+The browser-facing endpoints also reject cross-origin requests when an
+`Origin` header is present, so a random web page cannot drive a local daemon
+just because it can reach `127.0.0.1`.
+
 ### Safety flags
 
 | Flag | Effect |

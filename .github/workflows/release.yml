@@ -29,9 +29,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
       - name: Install Linux deps
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Build embedded web UI
+        working-directory: web
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+      - name: Sync embedded web bundle
+        shell: bash
+        run: |
+          rm -rf crates/appctl/embedded-web/dist
+          mkdir -p crates/appctl/embedded-web
+          cp -R web/dist crates/appctl/embedded-web/dist
       - name: Build binary
         shell: bash
         run: |
@@ -61,9 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: extensions/vscode/package-lock.json
       - working-directory: extensions/vscode

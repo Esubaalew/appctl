@@ -638,9 +638,9 @@ pub(crate) fn build_headers(
 }
 
 fn secret_or_env(name: &str) -> Result<String> {
-    load_secret(name).or_else(|_| {
-        std::env::var(name).with_context(|| format!("missing secret or env var '{name}'"))
-    })
+    std::env::var(name)
+        .with_context(|| format!("missing secret or env var '{name}'"))
+        .or_else(|_| load_secret(name))
 }
 
 fn reqwest_method(method: &HttpMethod) -> reqwest::Method {

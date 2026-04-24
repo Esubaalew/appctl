@@ -12,7 +12,12 @@ ws://127.0.0.1:4242/chat
 wss://your.tls.terminator/chat
 ```
 
-If `--token` is set, pass it as `?token=<TOKEN>` or in the `Authorization` header during the upgrade request.
+If `--token` is set, pass it as `?token=<TOKEN>` or in the `Authorization`
+header during the upgrade request.
+
+If the client is a browser, the `Origin` header must match the daemon host (or
+forwarded host). This blocks cross-site pages from opening a socket to a local
+daemon.
 
 ## Send
 
@@ -28,7 +33,8 @@ Each client message is a JSON text frame:
 }
 ```
 
-Only `message` is required. Safety fields override the server defaults for this request.
+Only `message` is required. Safety fields can request stricter handling for this
+turn, but they cannot relax a server-enforced mode.
 
 ## Receive
 
@@ -60,7 +66,8 @@ ws.onopen = () => ws.send(JSON.stringify({ message: 'hello' }));
 
 ## Errors
 
-- `1008 Policy Violation` — bad token.
+- `401 Unauthorized` — missing or wrong token during the HTTP upgrade.
+- `403 Forbidden` — browser origin did not match the daemon host.
 - Server-side tool errors appear as `{"kind":"tool_result","status":"error","result":"..."}` frames, not connection closes. Unrecoverable loop errors appear as `{"kind":"error","message":"..."}` followed by `{"kind":"done"}`.
 
 ## See also

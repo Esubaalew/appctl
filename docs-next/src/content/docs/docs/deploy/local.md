@@ -22,7 +22,7 @@ Everything per-project lives in `.appctl/` next to your app. Add it to `.gitigno
 ```bash
 # one-time
 appctl config init
-appctl config set-secret anthropic --value "$ANTHROPIC_API_KEY"
+appctl config set-secret ANTHROPIC_API_KEY --value "$ANTHROPIC_API_KEY"
 
 # per project
 cd my-app

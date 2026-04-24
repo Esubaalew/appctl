@@ -28,7 +28,7 @@ The `--preset` argument accepts one of:
 
 - `default` — the whole-file scaffold (multiple providers)
 - `gemini` — Google Gemini via OAuth2
-- `vertex` — Google Vertex via application-default credentials
+- `vertex` — Google Vertex via application-default credentials (with a region header placeholder)
 - `openai` — OpenAI API
 - `claude` — Anthropic Claude API
 - `qwen` — Qwen via DashScope (OpenAI-compatible)
@@ -52,8 +52,8 @@ auth = { kind = "api_key", secret_ref = "GOOGLE_API_KEY" }
 - `default` — the provider used when `--provider` is not passed on `chat`,
   `run`, or `serve`.
 - `[[provider]]` — one block per configured provider. `kind` is one of
-  `open_ai_compatible`, `anthropic`, `google_genai`, `azure_openai`,
-  `vertex_ai`.
+  `open_ai_compatible`, `anthropic`, `google_genai`, `azure_open_ai`,
+  `vertex`.
 - `auth` — one of: `{ kind = "none" }`, `{ kind = "api_key", secret_ref
   = "..." }`, `{ kind = "oauth2", profile = "...", scopes = [...] }`,
   `{ kind = "google_adc", project = "..." }`, `{ kind = "azure_ad", ... }`,

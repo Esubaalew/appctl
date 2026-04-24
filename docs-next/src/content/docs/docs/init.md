@@ -26,32 +26,30 @@ directory instead of creating a second nested one.
 1. **Detect existing config.** If `.appctl/config.toml` already exists, it
    asks whether to replace or augment it so you can add a second provider
    without losing the first.
-2. **Pick an auth path.** A menu is shown with four broad options:
-   - Direct API via a real browser
-     (Vertex via Google ADC, Azure OpenAI via Azure AD device code).
-   - Direct API via an API key (OpenAI, Anthropic, Google GenAI, Groq,
-     Together, Mistral, Cohere, Fireworks, Perplexity, DeepSeek, xAI, Qwen,
-     local Ollama, …).
+2. **Pick a provider path.** The menu currently offers concrete choices:
+   - Vertex AI via Google ADC.
+   - Gemini API key.
    - Guided OpenAI-compatible setup (OpenRouter, NVIDIA NIM, custom base URLs).
-   - MCP subscription bridge (Codex, Claude Code, Qwen Code, Gemini CLI).
+   - Local OpenAI-compatible setup (Ollama, LM Studio, vLLM, llama.cpp).
+   - Anthropic API key.
+   - Qwen DashScope API key.
+   - Azure OpenAI API key.
+   - MCP subscription bridges (Codex, Claude Code, Qwen Code, Gemini CLI).
 3. **Run the real flow for that path.**
    - **Google ADC (Vertex):** shells out to
      `gcloud auth application-default login`. Your default browser opens, you
      sign in, and `gcloud` owns the token cache. `appctl` reads fresh access
      tokens on demand, never stores them.
-   - **Azure AD device code:** prints a one-time code, opens
-     `https://microsoft.com/devicelogin`, and polls until you sign in. The
-     resulting access token is stored in the OS keychain.
    - **API key:** prompts for the key, stores it in the keychain under a
-     `appctl:<provider>` entry, and records the provider's help URL so later
+     short `secret_ref` name under the `appctl` service, and records the provider's help URL so later
      error messages can point users back to the key-issuance page.
    - **MCP bridge:** writes an `appctl` entry into the external client's
      config file (for example `~/.codex/config.toml`) with a timestamped
      backup of the original file.
 4. **Pick a model.** For providers that expose a list endpoint, `init` pulls
    the actual catalogue for your account and shows a searchable selector
-   (type to filter). For providers without a list endpoint, a small curated
-   default list is offered with an "enter your own" escape hatch.
+   (type to filter). For providers without a list endpoint, `init` falls back
+   to a curated default or asks for the exact deployment / model id.
 5. **Verify.** For direct-API providers, `init` sends a tiny
    `"Reply with ok."` prompt to the chosen model. On success the provider is
    stored with `verified = true`. On failure (invalid key, 404 model, 429

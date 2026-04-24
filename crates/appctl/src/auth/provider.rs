@@ -352,9 +352,9 @@ pub fn resolve_provider_auth(
 }
 
 fn load_secret_value(name: &str) -> Option<String> {
-    load_secret(name)
+    std::env::var(name)
         .ok()
-        .or_else(|| std::env::var(name).ok())
+        .or_else(|| load_secret(name).ok())
         .filter(|value| !value.is_empty())
 }
 
@@ -444,7 +444,7 @@ fn inspect_auth_spec(
                 project_id: None,
                 bridge_client: None,
                 recovery_hint: Some(
-                    "Run `appctl auth provider login qwen --oauth` or use `--subscription` to wire Qwen Code."
+                    "Qwen OAuth is not wired into `appctl auth provider login` yet. Use a DashScope API key or the Qwen Code MCP bridge from `appctl init`."
                         .to_string(),
                 ),
             }
@@ -466,7 +466,8 @@ fn inspect_auth_spec(
                 project_id: None,
                 bridge_client: None,
                 recovery_hint: Some(
-                    "Run `appctl auth provider login <provider> --device-code`.".to_string(),
+                    "Run `appctl auth provider login <provider>` to start the Azure AD device-code flow."
+                        .to_string(),
                 ),
             }
         }

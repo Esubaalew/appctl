@@ -16,6 +16,10 @@ If `--token <TOKEN>` was passed, every request must carry one of:
 
 Without `--token`, auth is disabled. Do not run this on a public interface without a token.
 
+If a browser sends an `Origin` header, it must match the daemon host (or
+`X-Forwarded-Host` when you are behind a reverse proxy). Non-browser clients
+such as `curl` are unaffected.
+
 ## `GET /schema`
 
 Returns the current `schema.json` verbatim.
@@ -76,6 +80,9 @@ Request:
 
 Optional: `"session_id": "<uuid or opaque id>"` — omit on the first message in a thread, then send the value from the last response so the agent receives the same in-memory history as a multi-turn [`appctl chat`](/docs/cli/chat/) session (up to the provider’s `history_limit`). New ids are created server-side when omitted.
 
+The safety booleans can only **tighten** the server policy for that request.
+They cannot turn off a mode that `appctl serve` already enforced at startup.
+
 Response:
 
 ```json
@@ -105,7 +112,8 @@ Any other path returns the bundled web UI (single-page app). The SPA reads the r
 ## Errors
 
 - `401 Unauthorized` — missing or wrong token.
-- `404 Not Found` — unknown path and no SPA fallback.
+- `403 Forbidden` — cross-origin browser request rejected.
+- `404 Not Found` — only returned when the embedded UI bundle is missing and no fallback asset is available.
 - `500 Internal Server Error` — unexpected server-side failure. Message is in the body.
 
 ## See also

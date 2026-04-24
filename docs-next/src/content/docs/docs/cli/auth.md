@@ -9,8 +9,8 @@ description: OAuth and credential management for target apps and LLM providers.
   (e.g. a GitHub or Stripe account behind your OpenAPI spec). Tokens are stored
   under the `appctl_oauth::<name>` keychain entry.
 - `appctl auth provider ...` — credentials for the LLM provider that powers
-  `chat`, `run`, and `serve`. Handles API keys, OAuth2, Google ADC, Azure AD,
-  Qwen device flow, and MCP bridge clients.
+  `chat`, `run`, and `serve`. Handles API keys, OAuth2, Google ADC, Azure AD
+  device code, and MCP bridge clients.
 
 Top-level shortcuts (`appctl auth login <provider>`, `appctl auth status
 <provider>`) are kept as aliases for `appctl auth target login / status`.
@@ -55,23 +55,26 @@ matching flow:
 | `none` | Nothing to do — "no credentials required". |
 | `api_key` | Prompt for the key (or read `--value`), write it to the keychain under `secret_ref`. No browser. |
 | `oauth2` | Authorization-Code + PKCE flow using the configured `auth_url`, `token_url`, scopes, and client id/secret. Opens a real browser. |
-| `google_adc` | Requires that `gcloud auth application-default login` has already been run. Prints the project hint and recovery command if the ADC credentials are missing. |
-| `qwen_oauth` | Same detection flow — prints a recovery hint when the token file is missing. |
-| `azure_ad` | Same — the Azure AD device-code flow is triggered by the verify path, not by `login`. |
-| `mcp_bridge` | Prints the recovery hint for the external client (Codex CLI, Claude Code, Qwen Code, Gemini CLI). |
+| `google_adc` | Checks whether `gcloud auth application-default login` has already been run and prints the recovery command when it is missing. |
+| `qwen_oauth` | Status-only today. `appctl` can read stored tokens if you configured them manually, but the interactive Qwen OAuth login is not wired into this command. |
+| `azure_ad` | Starts the Azure AD device-code flow, opens the verification URL, and stores the resulting tokens in the keychain. |
+| `mcp_bridge` | Prints launch guidance for the external client (Codex CLI, Claude Code, Qwen Code, Gemini CLI). |
 
 `provider status` prints a one-line summary per provider:
 
 ```text
-gemini       kind=google_genai     auth=api_key         configured
-claude       kind=anthropic        auth=api_key         missing GOOGLE_API_KEY
-openai       kind=open_ai_compat   auth=api_key         configured
+gemini kind=google_genai model=gemini-2.5-pro auth=oauth2 configured=true
+claude kind=anthropic model=claude-sonnet-4 auth=api_key configured=false
+  secret_ref: ANTHROPIC_API_KEY
+openai kind=open_ai_compatible model=gpt-5 auth=api_key configured=true
 ```
 
-`provider logout` deletes the stored credentials for a named provider.
+`provider logout` removes the stored key or token blob that `appctl` owns for a
+named provider. For Google ADC and MCP bridges, it prints the external cleanup
+step instead.
 `provider list` is an alias for `provider status` without a filter.
 
-## Presets for uncofigured providers
+## Presets for unconfigured providers
 
 Calling `provider login <name>` with no `[[provider]]` block in
 `.appctl/config.toml` uses a built-in preset so you can bootstrap quickly:
@@ -79,11 +82,11 @@ Calling `provider login <name>` with no `[[provider]]` block in
 | Name | Kind | Auth | Secret name |
 | --- | --- | --- | --- |
 | `gemini` | `google_genai` | OAuth2 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` |
-| `qwen` | `open_ai_compat` | `api_key` | `DASHSCOPE_API_KEY` |
-| `claude` | `anthropic` | `api_key` | `anthropic` |
-| `openai` | `open_ai_compat` | `api_key` | `OPENAI_API_KEY` |
-| `vertex` | `google_genai` | Google ADC | — |
-| `ollama` | `open_ai_compat` | `none` | — |
+| `qwen` | `open_ai_compatible` | `api_key` | `DASHSCOPE_API_KEY` |
+| `claude` | `anthropic` | `api_key` | `ANTHROPIC_API_KEY` |
+| `openai` | `open_ai_compatible` | `api_key` | `OPENAI_API_KEY` |
+| `vertex` | `vertex` | `google_adc` | — |
+| `ollama` | `open_ai_compatible` | `none` | — |
 
 To make the provider available for `chat` and `run`, also add the matching
 `[[provider]]` block to `.appctl/config.toml` (use `appctl config
@@ -127,9 +130,9 @@ See the [Provider matrix](/docs/provider-matrix/) for the full list.
 
 ## Azure AD
 
-For providers with `auth.kind = "azure_ad"`, the device-code flow starts on
-the first real request. `appctl auth provider login` only prints a recovery
-hint; run `appctl chat` or `appctl run` to begin the device-code prompt.
+For providers with `auth.kind = "azure_ad"`, `appctl auth provider login
+<name>` starts the device-code flow immediately. `appctl chat` and
+`appctl run` can then reuse the stored bearer token.
 
 ## Related
 
