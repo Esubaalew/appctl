@@ -66,7 +66,7 @@ Or grab them from the [Releases page](https://github.com/Esubaalew/appctl/releas
 ## Configure a provider
 
 `appctl` needs at least one language-model provider to run `chat`, `run`, or
-`serve`. The blessed path is the interactive wizard:
+`serve`. Start with the interactive wizard:
 
 ```bash
 appctl init

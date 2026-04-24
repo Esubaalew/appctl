@@ -1,9 +1,9 @@
 ---
 title: appctl init
-description: Interactive first-time setup. No hand-edited config.
+description: Interactive first-time setup for providers, secrets, and verification.
 ---
 
-`appctl init` is the only blessed way to configure a provider. It writes
+`appctl init` is the interactive way to configure a provider. It writes
 `.appctl/config.toml`, stores secrets in the OS keychain, runs the real auth
 flow, and ends with a live verify call before printing `done`. If the verify
 call fails, the config is still written but the provider is marked
@@ -87,15 +87,6 @@ not re-prompt for keychain access on every chat turn.
 `config.toml`, offer to augment (add another provider alongside the existing
 ones) or replace, and respect whichever choice you make. It will also offer to
 refresh the matching global app registration if one already exists.
-
-## What it does NOT do
-
-- It does not ask for `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` or require
-  you to register your own OAuth client.
-- It does not silently fall back to a different provider if verification
-  fails.
-- It does not write config fields you did not approve.
-- It does not require you to edit `.appctl/config.toml` by hand.
 
 ## See also
 

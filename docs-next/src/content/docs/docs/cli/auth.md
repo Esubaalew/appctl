@@ -112,11 +112,9 @@ appctl auth provider logout openai
 
 ## Signing in with a consumer subscription
 
-If you want to use your ChatGPT or Claude consumer subscription, `appctl`
-does not run the subscription login itself — it piggy-backs on the vendor's
-official CLI through the **MCP bridge**. Install the vendor CLI (Codex CLI,
-Claude Code, Qwen Code, Gemini CLI), complete its login, and configure
-`appctl` to bridge to it:
+If you want to use your ChatGPT or Claude consumer subscription, use the
+**MCP bridge**: install the vendor CLI (Codex CLI, Claude Code, Qwen Code,
+Gemini CLI), sign in there, then point `appctl` at that client:
 
 ```toml
 [[provider]]
@@ -129,10 +127,9 @@ See the [Provider matrix](/docs/provider-matrix/) for the full list.
 
 ## Azure AD
 
-For providers with `auth.kind = "azure_ad"`, the device-code flow runs the
-first time the provider makes a request. `appctl auth provider login` prints
-a recovery hint but does not drive the flow itself — the next `chat` or
-`run` call will.
+For providers with `auth.kind = "azure_ad"`, the device-code flow starts on
+the first real request. `appctl auth provider login` only prints a recovery
+hint; run `appctl chat` or `appctl run` to begin the device-code prompt.
 
 ## Related
 

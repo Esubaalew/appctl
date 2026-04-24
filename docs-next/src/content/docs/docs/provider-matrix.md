@@ -52,9 +52,9 @@ login vertex` afterwards to sanity-check that the credentials are readable.
 
 For the Gemini preset with `auth.kind = "oauth2"`, running `appctl auth
 provider login gemini` performs a standard OAuth2 Authorization-Code-with-PKCE
-flow against `accounts.google.com`. You need `GOOGLE_CLIENT_ID` and
-`GOOGLE_CLIENT_SECRET` in the environment (or the keychain) for your own
-OAuth client — `appctl` does not ship an embedded public client for Gemini.
+flow against `accounts.google.com`. Supply `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` from your Google Cloud OAuth client (environment
+variables or keychain).
 
 ## What "Azure AD" means
 
@@ -103,5 +103,5 @@ appctl auth provider status
 ```
 
 It lists every provider, the auth method in use, and whether credentials are
-in place. It does not send a live request — if a key is wrong, the first
-real `appctl chat` message will surface the error from the provider itself.
+present locally. Wrong keys still show up on the first real `appctl chat`
+turn, when the provider responds.

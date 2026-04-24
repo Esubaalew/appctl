@@ -88,8 +88,8 @@ Keep a copy in version control alongside your app. CI can re-sync and diff.
 - MySQL
 - SQLite
 
-That support is deliberately narrow. If your real system uses another database
-engine, the recommended escape hatches are:
+Other database engines are not supported by `sync --db` yet. In that case,
+consider:
 
 - sync from an OpenAPI layer in front of the database
 - expose tools through MCP

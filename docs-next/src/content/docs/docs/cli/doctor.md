@@ -41,14 +41,10 @@ zero-UUID so the probe has a real URL.
 
 ## Scope
 
-`appctl doctor` only probes the HTTP surface of your synced schema. It is
-deliberately narrow:
-
-- To sanity-check the LLM provider, run `appctl chat` and send a short
-  message — the provider is contacted lazily on the first turn.
-- Mutating tools are probed with `OPTIONS` or `HEAD` first; a real `POST`
-  is sent only if the server rejects both.
-- The schema file is read-only unless you pass `--write`.
+`doctor` covers HTTP tools in `.appctl/schema.json`. To exercise the LLM,
+use `appctl chat` with a short message — the model is called on the first
+turn. Mutating routes still use `OPTIONS` or `HEAD` before any fallback
+`POST`. The schema file stays read-only unless you pass `--write`.
 
 ## `--strict` and provenance
 
