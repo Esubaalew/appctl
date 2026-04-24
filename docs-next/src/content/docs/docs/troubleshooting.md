@@ -10,10 +10,12 @@ Common issues and their fixes.
 You see an error like:
 
 ```text
-.appctl/schema.json already exists (pass --force to overwrite it and regenerate .appctl/tools.json)
+schema file already exists at /path/to/.appctl/schema.json (pass --force to replace…)
 ```
 
-**Why:** without `--force`, the CLI will not replace an existing `schema.json` (edits, wrong directory, and mistaken CI jobs all look the same as a real re-sync from the code’s point of view). Add `--force` when you really mean to refresh from the source.
+**Wrong directory:** `appctl` picks the **first** `.appctl` directory found walking **up** from your shell’s current path. If a **parent** folder (for example a repo or `~/` tree) already has a synced `schema.json`, you get this error even when the **current** subfolder has no local `.appctl`. Fix: run sync with an explicit app dir, e.g. `appctl sync --app-dir /absolute/path/to/this-api/.appctl --openapi …` (or `mkdir -p .appctl` in that project, then `appctl sync --app-dir .appctl …`).
+
+**Why `--force`:** without it, the CLI will not replace an existing `schema.json` when you *do* mean to overwrite. Add `--force` when re-syncing the same app from the same source.
 
 **Fix:** pass `--force` on the same `sync` line you use for your source:
 

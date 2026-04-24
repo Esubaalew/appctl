@@ -71,7 +71,10 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
 
     if !request.force && paths.schema.exists() {
         bail!(
-            ".appctl/schema.json already exists (pass --force to overwrite it and regenerate .appctl/tools.json)"
+            "schema file already exists at {} (pass --force to replace it and regenerate tools.json).\n\
+             Hint: if you expected a new project here, a parent directory may be selected — `appctl` uses the first `.appctl` found walking up from the current working directory. Use `--app-dir` for this project’s `.appctl` (e.g. `appctl sync --app-dir {} …`).",
+            paths.schema.display(),
+            paths.root.display()
         );
     }
 

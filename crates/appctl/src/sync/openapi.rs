@@ -66,7 +66,10 @@ fn expand_header_value_resolved(value: &str) -> Result<String> {
     let t = value.trim();
     if let Some(var) = t.strip_prefix("env:") {
         return std::env::var(var.trim()).with_context(|| {
-            format!("environment variable '{}' (from --auth-header value) is not set", var.trim())
+            format!(
+                "environment variable '{}' (from --auth-header value) is not set",
+                var.trim()
+            )
         });
     }
     if let Some(rest) = t.strip_prefix("Bearer ") {
@@ -139,7 +142,8 @@ async fn fetch_openapi_get(
 
 async fn fetch_openapi_url(user_url: &str, auth_header: Option<&str>) -> Result<String> {
     let client = build_http_client()?;
-    let primary = Url::parse(user_url).with_context(|| format!("invalid OpenAPI URL {user_url}"))?;
+    let primary =
+        Url::parse(user_url).with_context(|| format!("invalid OpenAPI URL {user_url}"))?;
 
     let mut candidates: Vec<String> = vec![user_url.to_string()];
     for extra in open_api_probe_urls(&primary) {
@@ -162,9 +166,7 @@ async fn fetch_openapi_url(user_url: &str, auth_header: Option<&str>) -> Result<
             last_err = Some(anyhow!("{u} -> 404"));
             continue;
         }
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            || status == reqwest::StatusCode::FORBIDDEN
-        {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             bail!(
                 "OpenAPI at {u} -> {status}. Pass --auth-header (e.g. 'Authorization: Bearer <token>' or 'Authorization: Bearer env:STAGING_API_TOKEN')."
             );
@@ -183,11 +185,17 @@ async fn fetch_openapi_url(user_url: &str, auth_header: Option<&str>) -> Result<
 
     if let Some(e) = last_err {
         if candidates.len() > 1 {
-            bail!("could not load OpenAPI from {user_url} (candidates: {}); last error: {e:#}", candidates.join(", "));
+            bail!(
+                "could not load OpenAPI from {user_url} (candidates: {}); last error: {e:#}",
+                candidates.join(", ")
+            );
         }
         return Err(e.context(format!("failed to fetch OpenAPI from {user_url}")));
     }
-    Err(anyhow!("no OpenAPI document found (candidates: {})", candidates.join(", ")))
+    Err(anyhow!(
+        "no OpenAPI document found (candidates: {})",
+        candidates.join(", ")
+    ))
 }
 
 #[async_trait::async_trait]
