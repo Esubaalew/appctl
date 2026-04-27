@@ -640,7 +640,7 @@ function ErrorMessage({ body }: { body: string }) {
       </div>
       <div className="min-w-0 flex-1 rounded-2xl border px-4 py-3 msg-error">
         <div className="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-rose-200">
-          runtime error
+          chat request failed
         </div>
         <div className="whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-rose-50">
           {body}

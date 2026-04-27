@@ -7,11 +7,10 @@ use uuid::Uuid;
 
 use crate::{
     config::{AppConfig, ConfigPaths},
-    executor::{
-        ExecutionContext, ExecutionRequest, Executor, tool_result_is_error, tool_result_summary,
-    },
+    executor::{ExecutionContext, ExecutionRequest, Executor, tool_result_is_error},
     safety::SafetyMode,
     sync::{load_runtime_tools, load_schema},
+    tool_result_format::tool_result_capped_for_clients,
     tools::ToolDef,
 };
 
@@ -64,24 +63,6 @@ pub async fn run_mcp_server(paths: ConfigPaths, options: McpServeOptions) -> Res
     }
 
     Ok(())
-}
-
-fn render_result_text(value: &Value) -> String {
-    if let Some(summary) = tool_result_summary(value) {
-        return match value {
-            Value::Null => summary.to_string(),
-            Value::String(text) => format!("{summary}\n\n{text}"),
-            _ => format!(
-                "{summary}\n\n{}",
-                serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
-            ),
-        };
-    }
-    match value {
-        Value::Null => "null".to_string(),
-        Value::String(text) => text.clone(),
-        _ => serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
-    }
 }
 
 async fn handle_mcp_request(
@@ -159,18 +140,31 @@ async fn handle_mcp_request(
                         )
                         .await;
                     match execution {
-                        Ok(result) => json!({
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "result": {
-                                "content": [{
-                                    "type": "text",
-                                    "text": render_result_text(&result.output),
-                                }],
-                                "structuredContent": result.output,
-                                "isError": tool_result_is_error(&result.output),
-                            }
-                        }),
+                        Ok(result) => {
+                            let (text, structured) = match tool_result_capped_for_clients(
+                                &result.output,
+                                &config.behavior,
+                            ) {
+                                Ok(pair) => pair,
+                                Err(_) => (
+                                    serde_json::to_string_pretty(&result.output)
+                                        .unwrap_or_else(|_| result.output.to_string()),
+                                    result.output.clone(),
+                                ),
+                            };
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{
+                                        "type": "text",
+                                        "text": text,
+                                    }],
+                                    "structuredContent": structured,
+                                    "isError": tool_result_is_error(&result.output),
+                                }
+                            })
+                        }
                         Err(err) => json!({
                             "jsonrpc": "2.0",
                             "id": id,

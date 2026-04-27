@@ -17,4 +17,5 @@ pub mod schema;
 pub mod serve;
 pub mod sync;
 pub mod term;
+mod tool_result_format;
 pub mod tools;

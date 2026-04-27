@@ -89,6 +89,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
         behavior: BehaviorConfig {
             max_iterations: 4,
             history_limit: 50,
+            ..Default::default()
         },
         tooling: Default::default(),
         display_name: None,

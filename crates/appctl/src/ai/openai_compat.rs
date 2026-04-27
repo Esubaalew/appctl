@@ -20,6 +20,24 @@ impl OpenAiCompatProvider {
             config,
         }
     }
+
+    fn endpoint_description(&self) -> String {
+        format!(
+            r#""{}" at {}"#,
+            self.config.name,
+            self.config.base_url.trim_end_matches('/')
+        )
+    }
+}
+
+/// Short hint when the base URL looks local (Ollama, LM Studio, vLLM, etc.).
+fn local_model_server_hint(config: &ResolvedProvider) -> &'static str {
+    let u = config.base_url.to_lowercase();
+    if u.contains("127.0.0.1") || u.contains("localhost") {
+        " Is the local model server running (e.g. `ollama serve`)? The DB connection only provides tools; chat still needs that HTTP endpoint."
+    } else {
+        " Database tools are ready separately; this step only talks to the model’s HTTP API."
+    }
 }
 
 #[async_trait::async_trait]
@@ -53,33 +71,44 @@ impl LlmProvider for OpenAiCompatProvider {
             "tool_choice": "auto"
         });
 
-        let response = request
-            .json(&payload)
-            .send()
-            .await
-            .context("failed to call OpenAI-compatible API")?;
+        let endpoint = self.endpoint_description();
+        let response = request.json(&payload).send().await.map_err(|e| {
+            anyhow::anyhow!(
+                "Could not reach the model HTTP endpoint ({}): {}{}",
+                endpoint,
+                e,
+                local_model_server_hint(&self.config)
+            )
+        })?;
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("failed to read OpenAI-compatible response body")?;
+        let body = response.text().await.with_context(|| {
+            format!(
+                "Failed to read response body from the model at {}.",
+                endpoint
+            )
+        })?;
         if !status.is_success() {
             bail!(
-                "OpenAI-compatible API returned {}: {}",
+                "Model HTTP API returned status {} ({}). {}",
                 status,
+                endpoint,
                 format_api_error_summary(&body)
             );
         }
         let response: Value = serde_json::from_str(&body).with_context(|| {
             format!(
-                "failed to parse OpenAI-compatible response as JSON: {}",
+                "Could not parse JSON from the model at {}: {}",
+                endpoint,
                 format_api_error_summary(&body)
             )
         })?;
 
-        let message = response
-            .pointer("/choices/0/message")
-            .context("OpenAI-compatible response missing choices[0].message")?;
+        let message = response.pointer("/choices/0/message").with_context(|| {
+            format!(
+                "The model at {} returned no assistant message (empty or unexpected layout).",
+                endpoint
+            )
+        })?;
 
         if let Some(tool_calls) = message
             .get("tool_calls")

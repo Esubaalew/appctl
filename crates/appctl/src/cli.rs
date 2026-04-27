@@ -313,6 +313,15 @@ pub struct SyncArgs {
     /// CSS selector used to target the login form during `--url` sync.
     #[arg(long)]
     pub login_form_selector: Option<String>,
+    /// `sync --db` (Postgres): only these schemas. Repeat the flag for each. Empty = all non-system.
+    #[arg(long = "db-schema", value_name = "SCHEMA", action = clap::ArgAction::Append)]
+    pub db_schemas: Vec<String>,
+    /// Exclude a table: `name` (any schema) or `schema.table`
+    #[arg(long = "db-exclude", value_name = "PATTERN", action = clap::ArgAction::Append)]
+    pub db_exclude: Vec<String>,
+    /// Opt-in: skip `__EFMigrationsHistory` and `spatial_ref_sys` from tools
+    #[arg(long = "db-skip-infra")]
+    pub db_skip_infra: bool,
 }
 
 #[derive(Debug, Args)]
@@ -502,6 +511,9 @@ impl Cli {
                         login_user: args.login_user,
                         login_password: args.login_password,
                         login_form_selector: args.login_form_selector,
+                        db_schemas: args.db_schemas,
+                        db_exclude: args.db_exclude,
+                        db_skip_infra: args.db_skip_infra,
                     };
                     run_sync(paths, request).await?;
                 }

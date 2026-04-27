@@ -106,6 +106,7 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
         behavior: BehaviorConfig {
             max_iterations: 4,
             history_limit: 50,
+            ..Default::default()
         },
         tooling: Default::default(),
         display_name: None,

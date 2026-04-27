@@ -9,12 +9,11 @@ use tokio::sync::mpsc;
 use crate::{
     config::{AppConfig, ConfigPaths, ProviderKind, ResolvedProvider},
     events::{AgentEvent, ToolStatus},
-    executor::{
-        ExecutionContext, ExecutionRequest, Executor, tool_result_is_error, tool_result_summary,
-    },
+    executor::{ExecutionContext, ExecutionRequest, Executor, tool_result_is_error},
     history::HistoryStore,
     schema::Schema,
     term::session_sync_line,
+    tool_result_format::format_tool_result_message,
     tools::ToolDef,
 };
 
@@ -208,10 +207,11 @@ pub async fn run_agent(
                                     },
                                 )
                                 .await;
-                                let tool_content = format_tool_result_message(&result.output)
-                                    .map_err(|e| {
-                                        anyhow::anyhow!("failed to serialize tool output: {e}")
-                                    })?;
+                                let tool_content =
+                                    format_tool_result_message(&result.output, &config.behavior)
+                                        .map_err(|e| {
+                                            anyhow::anyhow!("failed to serialize tool output: {e}")
+                                        })?;
                                 messages.push(Message {
                                     role: "tool".to_string(),
                                     content: tool_content,
@@ -313,17 +313,6 @@ Response style rules:
 - Tool results may include `status`, `classification`, and `summary`. Treat the summary as the best appctl diagnosis.
 - Do not infer permissions, admin access, or login state from `405 Method Not Allowed` alone. A 405 can mean wrong HTTP method, route mismatch, or backend policy."#
         .to_string()
-}
-
-fn format_tool_result_message(output: &Value) -> Result<String> {
-    let raw = serde_json::to_string(output)?;
-    if let Some(summary) = tool_result_summary(output) {
-        Ok(format!(
-            "appctl tool summary: {summary}\nraw_tool_result_json: {raw}"
-        ))
-    } else {
-        Ok(raw)
-    }
 }
 
 fn build_turn_messages(

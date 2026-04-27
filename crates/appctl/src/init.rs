@@ -246,6 +246,11 @@ fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
         .display_name
         .clone()
         .unwrap_or_else(|| app_name_from_dir(&paths.root));
+    if registry_default_looks_like_os_username(&default_label, &paths.root) {
+        print_tip(
+            "The suggested label is the folder name above this `.appctl`—for a home-dir app that is often your login name, and that text is used in the chat title and prompt (e.g. [label · provider]). Type a project or app name if you do not want that here.",
+        );
+    }
     let label: String = Input::new()
         .with_prompt("Display label (chat / serve; Enter to keep the folder name)")
         .default(default_label)
@@ -347,12 +352,49 @@ fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
             "global app registered as '{}' in ~/.appctl/apps.toml",
             chosen
         ));
+        offer_display_name_match_registry(paths, &chosen)?;
     } else {
         print_tip(
             "Skipped global registration. Run `appctl app add` later if you want this app in `appctl app list`.",
         );
     }
 
+    Ok(())
+}
+
+/// If the user kept the home-folder default as display name, offer to use the new registry name for chat.
+fn offer_display_name_match_registry(paths: &ConfigPaths, registry_name: &str) -> Result<()> {
+    if !io::stdin().is_terminal() || !paths.config.exists() {
+        return Ok(());
+    }
+    let mut config = match AppConfig::load(paths) {
+        Ok(c) => c,
+        Err(_) => return Ok(()),
+    };
+    let home = app_name_from_dir(&paths.root);
+    let current = config
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(home.as_str());
+    if current == home && !registry_name.is_empty() && registry_name != home {
+        if !Confirm::new()
+            .with_prompt(format!(
+                "Use the registry name '{registry_name}' as the chat display label (instead of '{current}')?"
+            ))
+            .default(true)
+            .interact()?
+        {
+            return Ok(());
+        }
+        config.display_name = Some(registry_name.to_string());
+        config.save(paths)?;
+        print_status_success(&format!(
+            "Display label set to '{registry_name}' in {}",
+            paths.config.display()
+        ));
+    }
     Ok(())
 }
 

@@ -119,6 +119,9 @@ pub enum Transport {
     },
     Sql {
         database_kind: DatabaseKind,
+        /// PostgreSQL / MySQL schema (database) name, or unset for unqualified / SQLite.
+        #[serde(default)]
+        schema: Option<String>,
         table: String,
         operation: SqlOperation,
         #[serde(default)]

@@ -107,6 +107,7 @@ async fn sync_django_fixture_then_agent_calls_create_parcel() {
         behavior: BehaviorConfig {
             max_iterations: 4,
             history_limit: 50,
+            ..Default::default()
         },
         tooling: Default::default(),
         display_name: None,

@@ -148,6 +148,7 @@ impl Executor {
             }
             Transport::Sql {
                 table,
+                schema,
                 primary_key,
                 database_kind,
                 ..
@@ -156,7 +157,7 @@ impl Executor {
                     primary_key,
                     arguments.get(primary_key.as_deref().unwrap_or("id")),
                 ) {
-                    self.fetch_sql_row(database_kind, table, pk, id)
+                    self.fetch_sql_row(database_kind, schema.as_deref(), table, pk, id)
                         .await
                         .unwrap_or(Value::Null)
                 } else {
@@ -272,6 +273,7 @@ impl Executor {
     async fn execute_sql(&self, action: &Action, arguments: &Value) -> Result<ExecutionResult> {
         let Transport::Sql {
             database_kind,
+            schema,
             table,
             operation,
             primary_key,
@@ -294,15 +296,30 @@ impl Executor {
                     .max_connections(5)
                     .connect(&connection_string)
                     .await?;
-                execute_sql_postgres(&pool, table, operation, primary_key.as_deref(), arguments)
-                    .await
+                execute_sql_postgres(
+                    &pool,
+                    schema.as_deref(),
+                    table,
+                    operation,
+                    primary_key.as_deref(),
+                    arguments,
+                )
+                .await
             }
             DatabaseKind::Mysql => {
                 let pool = sqlx::mysql::MySqlPoolOptions::new()
                     .max_connections(5)
                     .connect(&connection_string)
                     .await?;
-                execute_sql_mysql(&pool, table, operation, primary_key.as_deref(), arguments).await
+                execute_sql_mysql(
+                    &pool,
+                    schema.as_deref(),
+                    table,
+                    operation,
+                    primary_key.as_deref(),
+                    arguments,
+                )
+                .await
             }
             DatabaseKind::Sqlite => {
                 let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -454,16 +471,17 @@ impl Executor {
     async fn fetch_sql_row(
         &self,
         database_kind: &DatabaseKind,
+        schema: Option<&str>,
         table: &str,
         primary_key: &str,
         id: &Value,
     ) -> Result<Value> {
         let connection_string =
             runtime_database_source(&self.config).context("database connection string missing")?;
-        let qt = sql_ident_ansi(table);
         let pkq = sql_ident_ansi(primary_key);
         match database_kind {
             DatabaseKind::Postgres => {
+                let qt = sql_qualified_table_ansi(&DatabaseKind::Postgres, schema, table);
                 let pool = sqlx::postgres::PgPoolOptions::new()
                     .connect(&connection_string)
                     .await?;
@@ -476,8 +494,23 @@ impl Executor {
                     .await?;
                 Ok(row.unwrap_or(Value::Null))
             }
-            DatabaseKind::Mysql => Ok(Value::Null),
+            DatabaseKind::Mysql => {
+                let qt = sql_qualified_table_ansi(&DatabaseKind::Mysql, schema, table);
+                let pool = sqlx::mysql::MySqlPoolOptions::new()
+                    .connect(&connection_string)
+                    .await?;
+                let sql = format!("select * from {qt} where {pkq} = ? limit 1");
+                let rows = sqlx::query(&sql)
+                    .bind(value_to_string(id))
+                    .fetch_all(&pool)
+                    .await?;
+                Ok(rows_to_json(rows)
+                    .as_array()
+                    .and_then(|rows| rows.first().cloned())
+                    .unwrap_or(Value::Null))
+            }
             DatabaseKind::Sqlite => {
+                let qt = sql_ident_ansi(table);
                 let pool = sqlx::sqlite::SqlitePoolOptions::new()
                     .connect(&connection_string)
                     .await?;
@@ -732,9 +765,42 @@ fn sql_ident_ansi(s: &str) -> String {
     format!("\"{}\"", s.replace('\"', "\"\""))
 }
 
+fn sql_qualified_table_ansi(kind: &DatabaseKind, schema: Option<&str>, table: &str) -> String {
+    match kind {
+        DatabaseKind::Postgres | DatabaseKind::Mysql => {
+            if let Some(s) = schema {
+                if s.is_empty() {
+                    sql_ident_ansi(table)
+                } else {
+                    format!("{}.{}", sql_ident_ansi(s), sql_ident_ansi(table))
+                }
+            } else {
+                sql_ident_ansi(table)
+            }
+        }
+        _ => sql_ident_ansi(table),
+    }
+}
+
 /// MySQL / MariaDB style `` `identifier` `` (reserved words, etc.).
 fn sql_ident_mysql_quoted(s: &str) -> String {
     format!("`{}`", s.replace('`', "``"))
+}
+
+fn sql_qualified_table_mysql(schema: Option<&str>, table: &str) -> String {
+    if let Some(s) = schema {
+        if s.is_empty() {
+            sql_ident_mysql_quoted(table)
+        } else {
+            format!(
+                "{}.{}",
+                sql_ident_mysql_quoted(s),
+                sql_ident_mysql_quoted(table)
+            )
+        }
+    } else {
+        sql_ident_mysql_quoted(table)
+    }
 }
 
 fn summarize_http_status(status: u16, method: &HttpMethod, path: &str) -> String {
@@ -770,13 +836,14 @@ fn summarize_http_status(status: u16, method: &HttpMethod, path: &str) -> String
 
 async fn execute_sql_postgres(
     pool: &sqlx::Pool<sqlx::Postgres>,
+    schema: Option<&str>,
     table: &str,
     operation: &SqlOperation,
     primary_key: Option<&str>,
     arguments: &Value,
 ) -> Result<ExecutionResult> {
     let primary_key = primary_key.unwrap_or("id");
-    let qt = sql_ident_ansi(table);
+    let qt = sql_qualified_table_ansi(&DatabaseKind::Postgres, schema, table);
     let pkq = sql_ident_ansi(primary_key);
     match operation {
         SqlOperation::Select => {
@@ -896,13 +963,14 @@ async fn execute_sql_postgres(
 
 async fn execute_sql_mysql(
     pool: &sqlx::Pool<sqlx::MySql>,
+    schema: Option<&str>,
     table: &str,
     operation: &SqlOperation,
     primary_key: Option<&str>,
     arguments: &Value,
 ) -> Result<ExecutionResult> {
     let primary_key = primary_key.unwrap_or("id");
-    let qt = sql_ident_mysql_quoted(table);
+    let qt = sql_qualified_table_mysql(schema, table);
     let pkq = sql_ident_mysql_quoted(primary_key);
     match operation {
         SqlOperation::Select => {
@@ -1703,9 +1771,9 @@ fn dynamo_attr_to_json(value: &AttributeValue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        HttpMethod, dynamo_attr_to_json, firestore_fields_from_json, firestore_fields_to_json,
-        resolve_target_default_query_value, sql_ident_ansi, summarize_http_status,
-        tool_result_is_error,
+        DatabaseKind, HttpMethod, dynamo_attr_to_json, firestore_fields_from_json,
+        firestore_fields_to_json, resolve_target_default_query_value, sql_ident_ansi,
+        sql_qualified_table_ansi, summarize_http_status, tool_result_is_error,
     };
     use aws_sdk_dynamodb::types::AttributeValue;
     use serde_json::json;
@@ -1715,6 +1783,18 @@ mod tests {
         assert_eq!(sql_ident_ansi("order"), "\"order\"");
         assert_eq!(sql_ident_ansi("user"), "\"user\"");
         assert_eq!(sql_ident_ansi("a\"b"), "\"a\"\"b\"");
+    }
+
+    #[test]
+    fn sql_qualified_ansi_rejects_single_token_for_schema_table() {
+        assert_eq!(
+            sql_qualified_table_ansi(&DatabaseKind::Postgres, Some("app"), "orders"),
+            r#""app"."orders""#
+        );
+        assert_eq!(
+            sql_qualified_table_ansi(&DatabaseKind::Postgres, None, "orders"),
+            r#""orders""#
+        );
     }
 
     #[test]

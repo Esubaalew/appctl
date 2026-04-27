@@ -52,6 +52,12 @@ pub struct SyncRequest {
     pub login_user: Option<String>,
     pub login_password: Option<String>,
     pub login_form_selector: Option<String>,
+    /// `sync --db` (Postgres): only these schemas (empty = all non-system). Merged with `[target].db_schemas`.
+    pub db_schemas: Vec<String>,
+    /// Exclude `table` or `schema.table`. Merged with `[target].db_exclude_tables`.
+    pub db_exclude: Vec<String>,
+    /// Skip common infra tables when true; merged with `[target].db_skip_infra`.
+    pub db_skip_infra: bool,
 }
 
 #[async_trait]
@@ -91,7 +97,8 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
             .introspect()
             .await?
     } else if let Some(connection_string) = &request.db {
-        db::DbSync::new(connection_string.clone())
+        let options = db_introspect_options_from_config_and_request(&paths, request);
+        db::DbSync::with_options(connection_string.clone(), options)
             .introspect()
             .await?
     } else if let Some(source_url) = &request.url {
@@ -152,12 +159,71 @@ async fn run_sync_once(paths: ConfigPaths, request: &SyncRequest) -> Result<()> 
 
     print_section_title("Sync complete");
     print_path_row("app directory", &paths.root);
-    print_status_success(&format!(
-        "{:?}: {} resources, {} tools written under .appctl",
-        schema.source,
-        schema.resources.len(),
-        tools.len()
-    ));
+    if matches!(schema.source, SyncSource::Db) {
+        if let Some(scope) = schema
+            .metadata
+            .get("db_introspect_scope")
+            .and_then(|v| v.as_str())
+        {
+            let n_schema = schema
+                .metadata
+                .get("db_introspect_schema_count")
+                .and_then(|v| v.as_u64());
+            let n_tables = schema
+                .metadata
+                .get("db_introspect_table_count")
+                .and_then(|v| v.as_u64());
+            if let (Some(n_schema), Some(n_tables)) = (n_schema, n_tables) {
+                if scope == "all_non_system" {
+                    print_status_success(&format!(
+                        "Db: {} schemas, {} base tables (all non-system) → {} resources, {} tools",
+                        n_schema,
+                        n_tables,
+                        schema.resources.len(),
+                        tools.len()
+                    ));
+                } else {
+                    print_status_success(&format!(
+                        "Db: {} schemas, {} base tables (user filter) → {} resources, {} tools",
+                        n_schema,
+                        n_tables,
+                        schema.resources.len(),
+                        tools.len()
+                    ));
+                }
+            } else {
+                print_status_success(&format!(
+                    "Db: {} resources, {} tools written under .appctl",
+                    schema.resources.len(),
+                    tools.len()
+                ));
+            }
+        } else {
+            print_status_success(&format!(
+                "Db: {} resources, {} tools written under .appctl",
+                schema.resources.len(),
+                tools.len()
+            ));
+        }
+        if let Some(n) = schema
+            .metadata
+            .get("db_introspect_table_count")
+            .and_then(|v| v.as_u64())
+        {
+            if n > 200 {
+                print_tip(
+                    "Many database tables are exposed as tools. Narrow with `sync --db-schema` / [target] db_schemas, or `sync --db-exclude`.",
+                );
+            }
+        }
+    } else {
+        print_status_success(&format!(
+            "{:?}: {} resources, {} tools written under .appctl",
+            schema.source,
+            schema.resources.len(),
+            tools.len()
+        ));
+    }
     if !paths.config.exists() {
         print_tip(&format!(
             "No provider config at {} yet — run `appctl init` (or `appctl --app-dir {} init`) before chat/run.",
@@ -206,6 +272,41 @@ fn stable_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Merge `sync` CLI database filters with `[target]` in config (CLI wins when it sets lists).
+fn db_introspect_options_from_config_and_request(
+    paths: &ConfigPaths,
+    request: &SyncRequest,
+) -> db::DbIntrospectOptions {
+    let from_file = if paths.config.exists() {
+        AppConfig::load(paths).ok()
+    } else {
+        None
+    };
+    let schema_allowlist = if !request.db_schemas.is_empty() {
+        request.db_schemas.clone()
+    } else {
+        from_file
+            .as_ref()
+            .map(|c| c.target.db_schemas.clone())
+            .unwrap_or_default()
+    };
+    let table_excludes = if !request.db_exclude.is_empty() {
+        request.db_exclude.clone()
+    } else {
+        from_file
+            .as_ref()
+            .map(|c| c.target.db_exclude_tables.clone())
+            .unwrap_or_default()
+    };
+    let skip_infra =
+        request.db_skip_infra || from_file.as_ref().is_some_and(|c| c.target.db_skip_infra);
+    db::DbIntrospectOptions {
+        schema_allowlist,
+        table_excludes,
+        skip_infra,
+    }
 }
 
 /// `appctl sync --db` uses a connection string for introspection, but `appctl chat` / run read

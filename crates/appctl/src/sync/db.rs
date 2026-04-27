@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
+
 use anyhow::{Context, Result, bail};
 use mongodb::bson::Document;
-use serde_json::Map;
+use serde_json::{Map, json};
 use sqlx::Row;
 use url::Url;
 
@@ -11,42 +13,58 @@ use crate::schema::{
 
 use super::SyncPlugin;
 
+/// Options for `sync --db` merged from CLI and `[target]` in config.
+#[derive(Debug, Clone, Default)]
+pub struct DbIntrospectOptions {
+    /// Postgres: only these schemas. Empty = all user-visible non-system schemas.
+    pub schema_allowlist: Vec<String>,
+    /// Exclude by `table` (any schema) or `schema.table`
+    pub table_excludes: Vec<String>,
+    /// When true, skip a few common framework / PostGIS internal tables
+    pub skip_infra: bool,
+}
+
 pub struct DbSync {
     connection_string: String,
+    options: DbIntrospectOptions,
 }
 
 impl DbSync {
     pub fn new(connection_string: String) -> Self {
-        Self { connection_string }
+        Self::with_options(connection_string, DbIntrospectOptions::default())
+    }
+
+    pub fn with_options(connection_string: String, options: DbIntrospectOptions) -> Self {
+        Self {
+            connection_string,
+            options,
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl SyncPlugin for DbSync {
     async fn introspect(&self) -> Result<Schema> {
-        let (db_kind, resources) = if self.connection_string.starts_with("postgres://")
+        let (db_kind, resources, metadata_extra) = if self
+            .connection_string
+            .starts_with("postgres://")
             || self.connection_string.starts_with("postgresql://")
         {
-            (
-                DatabaseKind::Postgres,
-                introspect_postgres(&self.connection_string).await?,
-            )
+            let (r, m) = introspect_postgres(&self.connection_string, &self.options).await?;
+            (DatabaseKind::Postgres, r, m)
         } else if self.connection_string.starts_with("mysql://") {
-            (
-                DatabaseKind::Mysql,
-                introspect_mysql(&self.connection_string).await?,
-            )
+            let (r, m) = introspect_mysql(&self.connection_string, &self.options).await?;
+            (DatabaseKind::Mysql, r, m)
         } else if self.connection_string.starts_with("sqlite:") {
-            (
-                DatabaseKind::Sqlite,
-                introspect_sqlite(&self.connection_string).await?,
-            )
+            let (r, m) = introspect_sqlite(&self.connection_string, &self.options).await?;
+            (DatabaseKind::Sqlite, r, m)
         } else if self.connection_string.starts_with("mongodb://")
             || self.connection_string.starts_with("mongodb+srv://")
         {
             (
                 DatabaseKind::Mongodb,
                 introspect_mongodb(&self.connection_string).await?,
+                Map::new(),
             )
         } else if self.connection_string.starts_with("redis://")
             || self.connection_string.starts_with("rediss://")
@@ -54,16 +72,19 @@ impl SyncPlugin for DbSync {
             (
                 DatabaseKind::Redis,
                 introspect_redis(&self.connection_string).await?,
+                Map::new(),
             )
         } else if self.connection_string.starts_with("firestore://") {
             (
                 DatabaseKind::Firestore,
                 introspect_firestore(&self.connection_string).await?,
+                Map::new(),
             )
         } else if self.connection_string.starts_with("dynamodb://") {
             (
                 DatabaseKind::Dynamodb,
                 introspect_dynamodb(&self.connection_string).await?,
+                Map::new(),
             )
         } else {
             bail!(
@@ -71,32 +92,93 @@ impl SyncPlugin for DbSync {
             );
         };
 
+        let mut metadata = {
+            let mut meta = Map::new();
+            meta.insert(
+                "database_kind".to_string(),
+                serde_json::Value::String(match db_kind {
+                    DatabaseKind::Postgres => "postgres".to_string(),
+                    DatabaseKind::Mysql => "mysql".to_string(),
+                    DatabaseKind::Sqlite => "sqlite".to_string(),
+                    DatabaseKind::Mongodb => "mongodb".to_string(),
+                    DatabaseKind::Redis => "redis".to_string(),
+                    DatabaseKind::Firestore => "firestore".to_string(),
+                    DatabaseKind::Dynamodb => "dynamodb".to_string(),
+                }),
+            );
+            meta
+        };
+        metadata.extend(metadata_extra);
+
         Ok(Schema {
             source: SyncSource::Db,
             base_url: None,
             auth: AuthStrategy::None,
             resources,
-            metadata: {
-                let mut meta = Map::new();
-                meta.insert(
-                    "database_kind".to_string(),
-                    serde_json::Value::String(match db_kind {
-                        DatabaseKind::Postgres => "postgres".to_string(),
-                        DatabaseKind::Mysql => "mysql".to_string(),
-                        DatabaseKind::Sqlite => "sqlite".to_string(),
-                        DatabaseKind::Mongodb => "mongodb".to_string(),
-                        DatabaseKind::Redis => "redis".to_string(),
-                        DatabaseKind::Firestore => "firestore".to_string(),
-                        DatabaseKind::Dynamodb => "dynamodb".to_string(),
-                    }),
-                );
-                meta
-            },
+            metadata,
         })
     }
 }
 
-async fn introspect_postgres(connection_string: &str) -> Result<Vec<Resource>> {
+fn db_sync_metadata_for_sql(
+    options: &DbIntrospectOptions,
+    schema_count: u64,
+    table_count: u64,
+) -> Map<String, serde_json::Value> {
+    let mut m = Map::new();
+    let scope = if options.schema_allowlist.is_empty()
+        && options.table_excludes.is_empty()
+        && !options.skip_infra
+    {
+        "all_non_system"
+    } else {
+        "filtered"
+    };
+    m.insert("db_introspect_scope".to_string(), json!(scope));
+    m.insert(
+        "db_introspect_schema_count".to_string(),
+        json!(schema_count),
+    );
+    m.insert("db_introspect_table_count".to_string(), json!(table_count));
+    m
+}
+
+/// Postgres / MySQL: rows from information_schema; SQLite: (None, name).
+fn should_skip_table(options: &DbIntrospectOptions, schema: Option<&str>, table: &str) -> bool {
+    if is_user_excluded(options, schema, table) {
+        return true;
+    }
+    if options.skip_infra && is_opt_in_infra_table(table) {
+        return true;
+    }
+    false
+}
+
+fn is_user_excluded(options: &DbIntrospectOptions, schema: Option<&str>, table: &str) -> bool {
+    for pat in &options.table_excludes {
+        let pat = pat.trim();
+        if pat.is_empty() {
+            continue;
+        }
+        if let Some((s, t)) = pat.split_once('.') {
+            if Some(s) == schema && t == table {
+                return true;
+            }
+        } else if pat == table {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_opt_in_infra_table(name: &str) -> bool {
+    matches!(name, "__EFMigrationsHistory" | "spatial_ref_sys")
+}
+
+async fn introspect_postgres(
+    connection_string: &str,
+    options: &DbIntrospectOptions,
+) -> Result<(Vec<Resource>, Map<String, serde_json::Value>)> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(connection_string)
@@ -104,14 +186,42 @@ async fn introspect_postgres(connection_string: &str) -> Result<Vec<Resource>> {
         .context("failed to connect to postgres")?;
 
     let tables = sqlx::query(
-        "select table_name from information_schema.tables where table_schema = 'public' and table_type='BASE TABLE' order by table_name",
+        "select table_schema, table_name from information_schema.tables \
+         where table_type = 'BASE TABLE' \
+         and table_schema not in ('pg_catalog', 'information_schema', 'pg_toast') \
+         order by table_schema, table_name",
     )
     .fetch_all(&pool)
     .await?;
 
+    let want_schemas: Option<BTreeSet<String>> = if options.schema_allowlist.is_empty() {
+        None
+    } else {
+        let s: BTreeSet<String> = options
+            .schema_allowlist
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if s.is_empty() { None } else { Some(s) }
+    };
+
+    let mut included_schemas = BTreeSet::new();
     let mut resources = Vec::new();
     for row in tables {
+        let schema: String = row.try_get("table_schema")?;
+        if schema.starts_with("pg_temp") {
+            continue;
+        }
+        if let Some(set) = &want_schemas
+            && !set.contains(&schema)
+        {
+            continue;
+        }
         let table: String = row.try_get("table_name")?;
+        if should_skip_table(options, Some(&schema), &table) {
+            continue;
+        }
         let columns = sqlx::query(
             "select c.column_name, c.data_type, c.is_nullable, tc.constraint_type
              from information_schema.columns c
@@ -119,13 +229,14 @@ async fn introspect_postgres(connection_string: &str) -> Result<Vec<Resource>> {
                on c.table_name = kcu.table_name and c.column_name = kcu.column_name and c.table_schema = kcu.table_schema
              left join information_schema.table_constraints tc
                on kcu.constraint_name = tc.constraint_name and kcu.table_schema = tc.table_schema
-             where c.table_schema = 'public' and c.table_name = $1
+             where c.table_schema = $1 and c.table_name = $2
              order by c.ordinal_position",
         )
+        .bind(&schema)
         .bind(&table)
         .fetch_all(&pool)
         .await?;
-        let columns = columns
+        let columns: Vec<ColumnInfo> = columns
             .into_iter()
             .map(|row| ColumnInfo {
                 column_name: row.try_get("column_name").unwrap_or_default(),
@@ -135,18 +246,26 @@ async fn introspect_postgres(connection_string: &str) -> Result<Vec<Resource>> {
                     .unwrap_or_else(|_| "YES".to_string()),
                 constraint_type: row.try_get("constraint_type").ok(),
             })
-            .collect::<Vec<_>>();
-
+            .collect();
+        included_schemas.insert(schema.clone());
+        let sch = Some(schema);
         resources.push(resource_from_table(
+            sch,
             &table,
             &columns,
             DatabaseKind::Postgres,
         ));
     }
-    Ok(resources)
+    let n_schema = included_schemas.len() as u64;
+    let n_table = resources.len() as u64;
+    let meta = db_sync_metadata_for_sql(options, n_schema, n_table);
+    Ok((resources, meta))
 }
 
-async fn introspect_mysql(connection_string: &str) -> Result<Vec<Resource>> {
+async fn introspect_mysql(
+    connection_string: &str,
+    options: &DbIntrospectOptions,
+) -> Result<(Vec<Resource>, Map<String, serde_json::Value>)> {
     let pool = sqlx::mysql::MySqlPoolOptions::new()
         .max_connections(5)
         .connect(connection_string)
@@ -168,6 +287,9 @@ async fn introspect_mysql(connection_string: &str) -> Result<Vec<Resource>> {
     let mut resources = Vec::new();
     for row in tables {
         let table: String = row.try_get("table_name")?;
+        if should_skip_table(options, Some(&db_name), &table) {
+            continue;
+        }
         let columns = sqlx::query(
             "select c.column_name, c.data_type, c.is_nullable, tc.constraint_type
              from information_schema.columns c
@@ -194,12 +316,22 @@ async fn introspect_mysql(connection_string: &str) -> Result<Vec<Resource>> {
             })
             .collect::<Vec<_>>();
 
-        resources.push(resource_from_table(&table, &columns, DatabaseKind::Mysql));
+        resources.push(resource_from_table(
+            Some(db_name.clone()),
+            &table,
+            &columns,
+            DatabaseKind::Mysql,
+        ));
     }
-    Ok(resources)
+    let n_table = resources.len() as u64;
+    let meta = db_sync_metadata_for_sql(options, 1, n_table);
+    Ok((resources, meta))
 }
 
-async fn introspect_sqlite(connection_string: &str) -> Result<Vec<Resource>> {
+async fn introspect_sqlite(
+    connection_string: &str,
+    options: &DbIntrospectOptions,
+) -> Result<(Vec<Resource>, Map<String, serde_json::Value>)> {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(5)
         .connect(connection_string)
@@ -215,6 +347,9 @@ async fn introspect_sqlite(connection_string: &str) -> Result<Vec<Resource>> {
     let mut resources = Vec::new();
     for row in tables {
         let table: String = row.try_get("name")?;
+        if should_skip_table(options, None, &table) {
+            continue;
+        }
         let pragma = format!("pragma table_info('{table}')");
         let columns = sqlx::query(&pragma).fetch_all(&pool).await?;
         let columns = columns
@@ -242,9 +377,16 @@ async fn introspect_sqlite(connection_string: &str) -> Result<Vec<Resource>> {
             })
             .collect::<Vec<_>>();
 
-        resources.push(resource_from_table(&table, &columns, DatabaseKind::Sqlite));
+        resources.push(resource_from_table(
+            None,
+            &table,
+            &columns,
+            DatabaseKind::Sqlite,
+        ));
     }
-    Ok(resources)
+    let n_table = resources.len() as u64;
+    let meta = db_sync_metadata_for_sql(options, 1, n_table);
+    Ok((resources, meta))
 }
 
 struct ColumnInfo {
@@ -254,7 +396,60 @@ struct ColumnInfo {
     constraint_type: Option<String>,
 }
 
-fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) -> Resource {
+fn sql_resource_label(
+    schema: Option<&str>,
+    table: &str,
+    db_kind: &DatabaseKind,
+) -> (String, String) {
+    let table_label = table.trim().to_string();
+    let desc = match (db_kind, schema) {
+        (DatabaseKind::Postgres | DatabaseKind::Mysql, Some(s)) if !s.is_empty() => {
+            format!("Table {s}.{}", table_label)
+        }
+        _ => format!("Table {table_label}"),
+    };
+    let name = match (db_kind, schema) {
+        (DatabaseKind::Postgres, Some(s)) if !s.is_empty() => {
+            let ts = table_singular_stem(&table_label);
+            format!("{}__{}", ident_part(s), ident_part(&ts))
+        }
+        (DatabaseKind::Mysql, Some(s)) if !s.is_empty() => {
+            let ts = table_singular_stem(&table_label);
+            format!("{}__{}", ident_part(s), ident_part(&ts))
+        }
+        _ => table_singular_stem(&table_label),
+    };
+    (name, desc)
+}
+
+fn table_singular_stem(table: &str) -> String {
+    // Mirror historic behavior for simple names; avoid mangling "address" etc. badly.
+    let t = table.trim();
+    if t.is_empty() {
+        return "table".to_string();
+    }
+    t.trim_end_matches('s').to_string()
+}
+
+fn ident_part(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// `schema` is the Postgres / MySQL namespace; `None` for SQLite (unqualified).
+fn resource_from_table(
+    schema: Option<String>,
+    table: &str,
+    rows: &[ColumnInfo],
+    db_kind: DatabaseKind,
+) -> Resource {
     let mut fields = Vec::new();
     let mut primary_key = None::<String>;
 
@@ -285,19 +480,25 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
         enum_values: Vec::new(),
     };
 
-    let resource_name = table.trim_end_matches('s').to_string();
+    let (resource_name, table_desc) = sql_resource_label(schema.as_deref(), table, &db_kind);
+    let sql_schema = match db_kind {
+        DatabaseKind::Sqlite => None,
+        _ => schema,
+    };
+    let transport_table = table.to_string();
     Resource {
         name: resource_name.clone(),
-        description: Some(format!("Table {}", table)),
+        description: Some(table_desc.clone()),
         fields: fields.clone(),
         actions: vec![
             Action {
                 name: format!("list_{}s", resource_name),
-                description: Some(format!("List rows from {}", table)),
+                description: Some(format!("List rows from {}", table_desc)),
                 verb: Verb::List,
                 transport: Transport::Sql {
                     database_kind: db_kind.clone(),
-                    table: table.to_string(),
+                    schema: sql_schema.clone(),
+                    table: transport_table.clone(),
                     operation: SqlOperation::Select,
                     primary_key: Some(pk.clone()),
                 },
@@ -309,11 +510,12 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
             },
             Action {
                 name: format!("get_{}", resource_name),
-                description: Some(format!("Fetch one row from {}", table)),
+                description: Some(format!("Fetch one row from {}", table_desc)),
                 verb: Verb::Get,
                 transport: Transport::Sql {
                     database_kind: db_kind.clone(),
-                    table: table.to_string(),
+                    schema: sql_schema.clone(),
+                    table: transport_table.clone(),
                     operation: SqlOperation::GetByPk,
                     primary_key: Some(pk.clone()),
                 },
@@ -325,11 +527,12 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
             },
             Action {
                 name: format!("create_{}", resource_name),
-                description: Some(format!("Insert one row into {}", table)),
+                description: Some(format!("Insert one row into {}", table_desc)),
                 verb: Verb::Create,
                 transport: Transport::Sql {
                     database_kind: db_kind.clone(),
-                    table: table.to_string(),
+                    schema: sql_schema.clone(),
+                    table: transport_table.clone(),
                     operation: SqlOperation::Insert,
                     primary_key: Some(pk.clone()),
                 },
@@ -345,11 +548,12 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
             },
             Action {
                 name: format!("update_{}", resource_name),
-                description: Some(format!("Update one row in {}", table)),
+                description: Some(format!("Update one row in {}", table_desc)),
                 verb: Verb::Update,
                 transport: Transport::Sql {
                     database_kind: db_kind.clone(),
-                    table: table.to_string(),
+                    schema: sql_schema.clone(),
+                    table: transport_table.clone(),
                     operation: SqlOperation::UpdateByPk,
                     primary_key: Some(pk.clone()),
                 },
@@ -365,11 +569,12 @@ fn resource_from_table(table: &str, rows: &[ColumnInfo], db_kind: DatabaseKind) 
             },
             Action {
                 name: format!("delete_{}", resource_name),
-                description: Some(format!("Delete one row from {}", table)),
+                description: Some(format!("Delete one row from {}", table_desc)),
                 verb: Verb::Delete,
                 transport: Transport::Sql {
                     database_kind: db_kind,
-                    table: table.to_string(),
+                    schema: sql_schema,
+                    table: transport_table,
                     operation: SqlOperation::DeleteByPk,
                     primary_key: Some(pk),
                 },

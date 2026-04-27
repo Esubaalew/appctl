@@ -36,7 +36,7 @@ jobs:
     environment: live-providers
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -52,13 +52,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Linux deps
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
       - name: Materialize Google service account JSON
-        if: ${{ env.GCP_SA_JSON != '' }}
         env:
           GCP_SA_JSON: ${{ secrets.GCP_SA_JSON }}
         run: |
-          printf '%s' "$GCP_SA_JSON" > "$RUNNER_TEMP/gcp-sa.json"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-sa.json" >> "$GITHUB_ENV"
+          if [ -n "$GCP_SA_JSON" ]; then
+            printf '%s' "$GCP_SA_JSON" > "$RUNNER_TEMP/gcp-sa.json"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-sa.json" >> "$GITHUB_ENV"
+          fi
 
       - name: Build appctl
         run: cargo build -p appctl --release

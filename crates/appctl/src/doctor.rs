@@ -331,18 +331,25 @@ async fn list_models_openai_compatible(provider: &ResolvedProvider) -> Result<Ve
     for (name, value) in &provider.extra_headers {
         request = request.header(name, value);
     }
-    let response = request
-        .send()
-        .await
-        .context("failed to call OpenAI-compatible /models endpoint")?;
+    let response = request.send().await.with_context(|| {
+        format!(
+            "failed to reach {}/models for provider \"{}\" — is the model HTTP server running?",
+            provider.base_url.trim_end_matches('/'),
+            provider.name
+        )
+    })?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .context("failed to read OpenAI-compatible /models response")?;
+    let body = response.text().await.with_context(|| {
+        format!(
+            r#"failed to read /models response body for provider "{}"#,
+            provider.name
+        )
+    })?;
     if !status.is_success() {
         anyhow::bail!(
-            "OpenAI-compatible /models returned {}: {}",
+            r#"GET /models for provider "{}" at {} returned {}: {}"#,
+            provider.name,
+            provider.base_url.trim_end_matches('/'),
             status,
             format_api_error_summary(&body)
         );

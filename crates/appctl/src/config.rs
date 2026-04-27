@@ -176,6 +176,15 @@ pub struct TargetConfig {
     pub default_query: BTreeMap<String, String>,
     #[serde(default)]
     pub database_url: Option<String>,
+    /// `appctl sync --db` only: limit Postgres to these schemas (empty = all non-system schemas).
+    #[serde(default)]
+    pub db_schemas: Vec<String>,
+    /// Exclude from sync: `table` (any schema) or `schema.table` (postfix match on schema)
+    #[serde(default)]
+    pub db_exclude_tables: Vec<String>,
+    /// Opt-in: skip a few well-known framework or PostGIS system tables
+    #[serde(default)]
+    pub db_skip_infra: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -192,6 +201,14 @@ pub struct BehaviorConfig {
     pub max_iterations: usize,
     #[serde(default = "default_history_limit")]
     pub history_limit: usize,
+    /// In chat and for MCP, only the first N rows of a list-style (JSON array) tool result are
+    /// sent back. Prevents "prompt too long" / huge payloads from `list_*` output. 0 = no cap.
+    #[serde(default = "default_max_tool_list_items")]
+    pub max_tool_list_items: usize,
+    /// Hard cap on each tool result string to the model and, for minified `structuredContent`,
+    /// a matching limit when the value would otherwise exceed the cap. 0 = no cap.
+    #[serde(default = "default_max_tool_result_chars")]
+    pub max_tool_result_chars: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -225,11 +242,21 @@ fn default_history_limit() -> usize {
     100
 }
 
+fn default_max_tool_list_items() -> usize {
+    30
+}
+
+fn default_max_tool_result_chars() -> usize {
+    120_000
+}
+
 impl Default for BehaviorConfig {
     fn default() -> Self {
         Self {
             max_iterations: default_max_iterations(),
             history_limit: default_history_limit(),
+            max_tool_list_items: default_max_tool_list_items(),
+            max_tool_result_chars: default_max_tool_result_chars(),
         }
     }
 }
