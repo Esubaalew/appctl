@@ -128,6 +128,7 @@ async fn run_agent_executes_tool_call_and_returns_follow_up_message() {
                 provenance: Provenance::Declared,
                 metadata: Default::default(),
             }],
+            metadata: Default::default(),
         }],
         metadata: Default::default(),
     };

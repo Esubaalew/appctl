@@ -54,6 +54,7 @@ impl SyncPlugin for RailsSync {
                         description: None,
                         fields: Vec::new(),
                         actions: Vec::new(),
+                        metadata: Default::default(),
                     });
                     resources.last_mut().unwrap()
                 }
@@ -93,6 +94,7 @@ fn parse_schema_rb(path: &std::path::Path) -> Result<Vec<Resource>> {
                 description: None,
                 fields: Vec::new(),
                 actions: Vec::new(),
+                metadata: Default::default(),
             });
             continue;
         }

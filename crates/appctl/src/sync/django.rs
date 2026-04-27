@@ -124,6 +124,7 @@ fn parse_models(root: &PathBuf) -> Result<Vec<Resource>> {
                         description: None,
                         fields: Vec::new(),
                         actions: Vec::new(),
+                        metadata: Default::default(),
                     });
                 } else {
                     current = None;

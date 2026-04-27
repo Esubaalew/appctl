@@ -6,8 +6,8 @@ use serde_json::{Map, Value, json};
 use url::Url;
 
 use crate::schema::{
-    Action, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation, Resource, Safety,
-    Schema, SyncSource, Transport, Verb,
+    Action, ApiKeyLocation, AuthStrategy, Field, FieldType, HttpMethod, ParameterLocation,
+    Resource, Safety, Schema, SyncSource, Transport, Verb,
 };
 
 use super::SyncPlugin;
@@ -265,6 +265,7 @@ fn build_resources(document: &Value) -> Result<Vec<Resource>> {
                         .map(ToString::to_string),
                     fields: Vec::new(),
                     actions: Vec::new(),
+                    metadata: Map::new(),
                 });
 
             let parameters = collect_parameters(document, &path_parameters, op)?;
@@ -507,66 +508,107 @@ fn detect_auth(document: &Value) -> AuthStrategy {
         return AuthStrategy::None;
     };
 
-    for (name, scheme) in schemes {
-        match scheme
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-        {
-            "apiKey" => {
-                let header = scheme
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Authorization")
-                    .to_string();
-                return AuthStrategy::ApiKey {
-                    header,
-                    env_ref: name.clone(),
-                };
-            }
-            "http" if scheme.get("scheme").and_then(Value::as_str) == Some("bearer") => {
-                return AuthStrategy::Bearer {
-                    env_ref: name.clone(),
-                };
-            }
-            "basic" => {
-                return AuthStrategy::Basic {
-                    username_ref: format!("{name}_username"),
-                    password_ref: format!("{name}_password"),
-                };
-            }
-            "oauth2" => {
-                let auth_url = scheme
-                    .pointer("/flows/authorizationCode/authorizationUrl")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let token_url = scheme
-                    .pointer("/flows/authorizationCode/tokenUrl")
-                    .or_else(|| scheme.pointer("/flows/clientCredentials/tokenUrl"))
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let scopes = scheme
-                    .pointer("/flows/authorizationCode/scopes")
-                    .and_then(Value::as_object)
-                    .map(|scopes| scopes.keys().cloned().collect())
-                    .unwrap_or_default();
-                return AuthStrategy::OAuth2 {
-                    provider: Some(name.clone()),
-                    client_id_ref: format!("{name}_client_id"),
-                    client_secret_ref: Some(format!("{name}_client_secret")),
-                    auth_url,
-                    token_url,
-                    scopes,
-                    redirect_port: 8421,
-                };
-            }
-            _ => {}
+    for name in preferred_security_scheme_names(document, schemes) {
+        let Some(scheme) = schemes.get(&name) else {
+            continue;
+        };
+        if let Some(strategy) = auth_strategy_from_scheme(&name, scheme) {
+            return strategy;
         }
     }
 
     AuthStrategy::None
+}
+
+fn preferred_security_scheme_names(document: &Value, schemes: &Map<String, Value>) -> Vec<String> {
+    let mut names = Vec::new();
+    if let Some(security) = document.get("security").and_then(Value::as_array) {
+        for requirement in security {
+            let Some(requirement) = requirement.as_object() else {
+                continue;
+            };
+            for name in requirement.keys() {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+    }
+    for name in schemes.keys() {
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names
+}
+
+fn auth_strategy_from_scheme(name: &str, scheme: &Value) -> Option<AuthStrategy> {
+    match scheme
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+    {
+        "apiKey" => {
+            let header = scheme
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Authorization")
+                .to_string();
+            let location = match scheme.get("in").and_then(Value::as_str) {
+                Some("query") => ApiKeyLocation::Query,
+                Some("cookie") => ApiKeyLocation::Cookie,
+                _ => ApiKeyLocation::Header,
+            };
+            Some(AuthStrategy::ApiKey {
+                header,
+                env_ref: name.to_string(),
+                location,
+            })
+        }
+        "http" if scheme.get("scheme").and_then(Value::as_str) == Some("bearer") => {
+            Some(AuthStrategy::Bearer {
+                env_ref: name.to_string(),
+            })
+        }
+        "http" if scheme.get("scheme").and_then(Value::as_str) == Some("basic") => {
+            Some(AuthStrategy::Basic {
+                username_ref: format!("{name}_username"),
+                password_ref: format!("{name}_password"),
+            })
+        }
+        "basic" => Some(AuthStrategy::Basic {
+            username_ref: format!("{name}_username"),
+            password_ref: format!("{name}_password"),
+        }),
+        "oauth2" => {
+            let auth_url = scheme
+                .pointer("/flows/authorizationCode/authorizationUrl")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let token_url = scheme
+                .pointer("/flows/authorizationCode/tokenUrl")
+                .or_else(|| scheme.pointer("/flows/clientCredentials/tokenUrl"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let scopes = scheme
+                .pointer("/flows/authorizationCode/scopes")
+                .and_then(Value::as_object)
+                .map(|scopes| scopes.keys().cloned().collect())
+                .unwrap_or_default();
+            Some(AuthStrategy::OAuth2 {
+                provider: Some(name.to_string()),
+                client_id_ref: format!("{name}_client_id"),
+                client_secret_ref: Some(format!("{name}_client_secret")),
+                auth_url,
+                token_url,
+                scopes,
+                redirect_port: 8421,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn operation_resource_name(path: &str, operation: &Map<String, Value>) -> String {
@@ -676,5 +718,42 @@ mod openapi_fetch_tests {
     fn probe_urls_empty_when_path_is_not_root() {
         let u = Url::parse("https://a.example/foo/bar.json").unwrap();
         assert!(open_api_probe_urls(&u).is_empty());
+    }
+
+    #[test]
+    fn detect_auth_prefers_declared_security_and_query_api_keys() {
+        let document = json!({
+            "openapi": "3.0.0",
+            "security": [{ "queryKey": [] }],
+            "components": {
+                "securitySchemes": {
+                    "unusedBearer": { "type": "http", "scheme": "bearer" },
+                    "queryKey": { "type": "apiKey", "in": "query", "name": "api_key" }
+                }
+            }
+        });
+
+        let AuthStrategy::ApiKey {
+            header, location, ..
+        } = detect_auth(&document)
+        else {
+            panic!("expected query api key");
+        };
+        assert_eq!(header, "api_key");
+        assert_eq!(location, ApiKeyLocation::Query);
+    }
+
+    #[test]
+    fn detect_auth_supports_openapi3_http_basic() {
+        let document = json!({
+            "openapi": "3.0.0",
+            "components": {
+                "securitySchemes": {
+                    "basicAuth": { "type": "http", "scheme": "basic" }
+                }
+            }
+        });
+
+        assert!(matches!(detect_auth(&document), AuthStrategy::Basic { .. }));
     }
 }

@@ -171,5 +171,6 @@ fn do_parse_controller(src: &str, path: &std::path::Path) -> Result<Resource> {
         description: Some(format!("ASP.NET controller at {}", path.display())),
         fields: Vec::new(),
         actions,
+        metadata: Map::new(),
     })
 }

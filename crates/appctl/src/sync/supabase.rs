@@ -7,7 +7,7 @@
 
 use anyhow::{Result, anyhow};
 
-use crate::schema::{AuthStrategy, Schema, SyncSource};
+use crate::schema::{ApiKeyLocation, AuthStrategy, Schema, SyncSource};
 
 use super::{SyncPlugin, openapi::OpenApiSync};
 
@@ -69,6 +69,7 @@ impl SyncPlugin for SupabaseSync {
         schema.auth = AuthStrategy::ApiKey {
             header: "apikey".to_string(),
             env_ref: self.anon_key_ref.clone(),
+            location: ApiKeyLocation::Header,
         };
         Ok(schema)
     }

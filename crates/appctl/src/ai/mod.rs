@@ -115,7 +115,16 @@ pub async fn run_agent(
 
     let loop_result: Result<()> = 'agent: {
         for _ in 0..config.behavior.max_iterations {
-            trim_transcript(&mut messages, config.behavior.history_limit);
+            let trimmed = trim_transcript(&mut messages, config.behavior.history_limit);
+            if trimmed > 0 {
+                send_agent_event(
+                    &events,
+                    AgentEvent::ContextNotice {
+                        message: format!("Trimmed {trimmed} older message(s) from model context."),
+                    },
+                )
+                .await;
+            }
             match provider.chat(&messages, tools).await? {
                 AgentStep::Message { content } => {
                     final_response = Value::String(content.clone());
@@ -357,9 +366,9 @@ fn build_turn_messages(
     messages
 }
 
-fn trim_transcript(messages: &mut Vec<Message>, history_limit: usize) {
+fn trim_transcript(messages: &mut Vec<Message>, history_limit: usize) -> usize {
     if history_limit == 0 {
-        return;
+        return 0;
     }
     let system = messages
         .iter()
@@ -371,15 +380,17 @@ fn trim_transcript(messages: &mut Vec<Message>, history_limit: usize) {
         .cloned()
         .collect();
     if non_system.len() <= history_limit {
-        return;
+        return 0;
     }
     let start = non_system.len().saturating_sub(history_limit);
+    let removed = start;
     let mut trimmed = Vec::with_capacity(history_limit + usize::from(system.is_some()));
     if let Some(system) = system {
         trimmed.push(system);
     }
     trimmed.extend(non_system.into_iter().skip(start));
     *messages = trimmed;
+    removed
 }
 
 #[cfg(test)]

@@ -39,5 +39,14 @@ pub enum AgentEvent {
     Error {
         message: String,
     },
+    SessionState {
+        session_id: String,
+        transcript_len: usize,
+        #[serde(default)]
+        resumed: bool,
+    },
+    ContextNotice {
+        message: String,
+    },
     Done,
 }

@@ -50,6 +50,7 @@ impl SyncPlugin for LaravelSync {
                         description: None,
                         fields: Vec::new(),
                         actions: Vec::new(),
+                        metadata: Default::default(),
                     });
                     resources.last_mut().unwrap()
                 }
@@ -106,6 +107,7 @@ fn parse_migrations(dir: &std::path::Path) -> Result<Vec<Resource>> {
             description: Some(format!("Laravel model from {}", path.display())),
             fields,
             actions: Vec::new(),
+            metadata: Default::default(),
         });
     }
     Ok(resources)

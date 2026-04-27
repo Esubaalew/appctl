@@ -5,7 +5,7 @@ use appctl::{
     ai::run_agent,
     auth::provider::ProviderAuthConfig,
     config::{AppConfig, BehaviorConfig, ConfigPaths, ProviderConfig, ProviderKind, TargetConfig},
-    executor::ExecutionContext,
+    executor::{ExecutionContext, ExecutionRequest, Executor},
     safety::SafetyMode,
     sync::{SyncRequest, load_tools, run_sync},
 };
@@ -14,7 +14,7 @@ use tempfile::tempdir;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{body_string_contains, method, path},
+    matchers::{body_string_contains, header, method, path, query_param},
 };
 
 #[tokio::test]
@@ -143,4 +143,99 @@ async fn sync_openapi_demo_then_agent_calls_http_tool() {
     .expect("agent");
 
     assert_eq!(outcome.response, json!("Created widget Demo"));
+}
+
+#[tokio::test]
+async fn sync_openapi_protected_route_sends_runtime_auth_query_and_header_params() {
+    let api = MockServer::start().await;
+    unsafe {
+        std::env::set_var("APPCTL_TEST_QUERY_API_KEY", "query-secret");
+    }
+
+    Mock::given(method("GET"))
+        .and(path("/protected"))
+        .and(query_param("api_key", "query-secret"))
+        .and(header("Authorization", "Bearer runtime-token"))
+        .and(header("X-Trace", "trace-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "ok": true
+        })))
+        .mount(&api)
+        .await;
+
+    let dir = tempdir().unwrap();
+    let root = dir.path().join(".appctl");
+    let paths = ConfigPaths::new(root);
+    let spec_path = dir.path().join("openapi.json");
+    std::fs::write(
+        &spec_path,
+        serde_json::to_string(&json!({
+            "openapi": "3.0.0",
+            "info": { "title": "Protected", "version": "1.0.0" },
+            "servers": [{ "url": api.uri() }],
+            "security": [{ "APPCTL_TEST_QUERY_API_KEY": [] }],
+            "components": {
+                "securitySchemes": {
+                    "APPCTL_TEST_QUERY_API_KEY": {
+                        "type": "apiKey",
+                        "in": "query",
+                        "name": "api_key"
+                    }
+                }
+            },
+            "paths": {
+                "/protected": {
+                    "get": {
+                        "operationId": "getProtected",
+                        "tags": ["protected"],
+                        "parameters": [{
+                            "name": "X-Trace",
+                            "in": "header",
+                            "required": true,
+                            "schema": { "type": "string" }
+                        }],
+                        "responses": { "200": { "description": "ok" } }
+                    }
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    run_sync(
+        paths.clone(),
+        SyncRequest {
+            openapi: Some(spec_path.to_string_lossy().to_string()),
+            auth_header: Some("Authorization: Bearer runtime-token".to_string()),
+            force: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("sync");
+    AppConfig::default().save(&paths).unwrap();
+
+    let schema = appctl::sync::load_schema(&paths).unwrap();
+    let executor = Executor::new(&paths).unwrap();
+    let result = executor
+        .execute(
+            &schema,
+            ExecutionContext {
+                session_id: Uuid::new_v4().to_string(),
+                session_name: None,
+                safety: SafetyMode {
+                    read_only: false,
+                    dry_run: false,
+                    confirm: true,
+                    strict: false,
+                },
+            },
+            ExecutionRequest::new("getprotected".to_string(), json!({ "X-Trace": "trace-1" })),
+        )
+        .await
+        .expect("execute");
+
+    assert_eq!(result.output["ok"], true);
+    assert_eq!(result.output["status"], 200);
 }

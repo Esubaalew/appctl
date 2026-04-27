@@ -60,10 +60,11 @@ app with four tabs:
 
 The UI connects over `WS /chat` for streaming; if WebSocket is blocked it
 falls back to `POST /run` for non-streaming completions. Both paths keep
-multi-turn **conversation memory** in the server process: WebSocket uses one
-transcript per open connection, and `POST /run` accepts an optional
-`session_id` in the request and always returns a `session_id` (the web console
-stores the last value for the HTTP path).
+multi-turn **conversation memory** in the server process using the same
+`session_id`. WebSocket and HTTP requests can resume the same transcript, and
+the web console keeps the id across reconnects so the displayed thread matches
+the model context. If the configured history limit trims older turns, the event
+stream includes a notice.
 
 ## HTTP endpoints
 

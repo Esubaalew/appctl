@@ -12,6 +12,7 @@ falls back to small `GET` requests, never mutating verbs.
 
 ```bash
 appctl doctor [OPTIONS]
+appctl doctor models [--provider <NAME>]
 ```
 
 ## Options
@@ -46,6 +47,20 @@ use `appctl chat` with a short message — the model is called on the first
 turn. Mutating routes still use `OPTIONS` or `HEAD` before any fallback
 `POST`. The schema file stays read-only unless you pass `--write`.
 
+## Model checks
+
+`appctl doctor models` verifies the configured LLM provider path without
+executing application tools. Use it after `appctl init`, after changing
+provider config, or when chat fails before any tool call.
+
+```bash
+appctl doctor models
+appctl doctor models --provider openai
+```
+
+This is separate from route probing: `appctl doctor` checks the synced app
+surface, while `appctl doctor models` checks the model/provider connection.
+
 ## `--strict` and provenance
 
 The chat and serve loops accept a `--strict` flag that blocks any tool with
@@ -64,6 +79,9 @@ appctl doctor --timeout-secs 30
 
 # Record a verified snapshot after a clean run
 appctl doctor --write
+
+# Check provider/model connectivity
+appctl doctor models
 ```
 
 ## Output

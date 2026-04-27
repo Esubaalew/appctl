@@ -16,8 +16,8 @@ use crate::{
     config::{AppConfig, ConfigPaths, load_secret},
     safety::SafetyMode,
     schema::{
-        Action, AuthStrategy, DatabaseKind, HttpMethod, NoSqlOperation, Schema, SqlOperation,
-        Transport,
+        Action, ApiKeyLocation, AuthStrategy, DatabaseKind, Field, HttpMethod, NoSqlOperation,
+        ParameterLocation, Schema, SqlOperation, Transport,
     },
 };
 
@@ -209,7 +209,14 @@ impl Executor {
             unreachable!();
         };
         let response = self
-            .http_json_with_query(schema, method.clone(), path, query, arguments)
+            .http_json_with_query(
+                schema,
+                method.clone(),
+                path,
+                query,
+                &action.parameters,
+                arguments,
+            )
             .await?;
         Ok(ExecutionResult {
             output: response,
@@ -401,7 +408,7 @@ impl Executor {
         path: &str,
         body: &Value,
     ) -> Result<Value> {
-        self.http_json_with_query(schema, method, path, &[], body)
+        self.http_json_with_query(schema, method, path, &[], &[], body)
             .await
     }
 
@@ -411,6 +418,7 @@ impl Executor {
         method: HttpMethod,
         path: &str,
         query_fields: &[String],
+        parameters: &[Field],
         arguments: &Value,
     ) -> Result<Value> {
         let base_url = schema
@@ -442,11 +450,23 @@ impl Executor {
         }
 
         let mut request = self.client.request(reqwest_method(&method), &url);
-        let headers = build_headers(
+        let mut headers = build_headers(
             &schema.auth,
             &self.config,
             schema.metadata.get("auth_header"),
         )?;
+        for field in parameters {
+            if !matches!(field.location, Some(ParameterLocation::Header)) {
+                continue;
+            }
+            if let Some(value) = body_map.remove(&field.name) {
+                headers.insert(
+                    HeaderName::from_bytes(field.name.as_bytes())?,
+                    HeaderValue::from_str(&value_to_string(&value))?,
+                );
+            }
+        }
+        append_query_auth(&schema.auth, &mut query)?;
         request = request.headers(headers);
         if !query.is_empty() {
             request = request.query(&query);
@@ -623,23 +643,38 @@ pub(crate) fn build_headers(
 ) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
     if let Some(header_value) = inline_auth_header.and_then(Value::as_str) {
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(header_value)?);
+        insert_runtime_auth_header(&mut headers, header_value)?;
         return Ok(headers);
     }
 
     if let Some(auth_header) = &config.target.auth_header {
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(auth_header)?);
+        insert_runtime_auth_header(&mut headers, auth_header)?;
         return Ok(headers);
     }
 
     match auth {
         AuthStrategy::None => {}
-        AuthStrategy::ApiKey { header, env_ref } => {
+        AuthStrategy::ApiKey {
+            header,
+            env_ref,
+            location,
+        } => {
             let key = secret_or_env(env_ref)?;
-            headers.insert(
-                HeaderName::from_bytes(header.as_bytes())?,
-                HeaderValue::from_str(&key)?,
-            );
+            match location {
+                ApiKeyLocation::Header => {
+                    headers.insert(
+                        HeaderName::from_bytes(header.as_bytes())?,
+                        HeaderValue::from_str(&key)?,
+                    );
+                }
+                ApiKeyLocation::Cookie => {
+                    headers.insert(
+                        HeaderName::from_static("cookie"),
+                        HeaderValue::from_str(&format!("{header}={key}"))?,
+                    );
+                }
+                ApiKeyLocation::Query => {}
+            }
         }
         AuthStrategy::Bearer { env_ref } => {
             let token = secret_or_env(env_ref)?;
@@ -687,6 +722,55 @@ pub(crate) fn build_headers(
         }
     }
     Ok(headers)
+}
+
+fn append_query_auth(auth: &AuthStrategy, query: &mut Vec<(String, String)>) -> Result<()> {
+    if let AuthStrategy::ApiKey {
+        header,
+        env_ref,
+        location: ApiKeyLocation::Query,
+    } = auth
+    {
+        query.push((header.clone(), secret_or_env(env_ref)?));
+    }
+    Ok(())
+}
+
+fn insert_runtime_auth_header(headers: &mut HeaderMap, raw: &str) -> Result<()> {
+    if let Some((name, value)) = raw.split_once(':') {
+        let name = name.trim();
+        if !name.is_empty() {
+            headers.insert(
+                HeaderName::from_bytes(name.as_bytes())?,
+                HeaderValue::from_str(&expand_runtime_header_value(value.trim())?)?,
+            );
+            return Ok(());
+        }
+    }
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&expand_runtime_header_value(raw.trim())?)?,
+    );
+    Ok(())
+}
+
+fn expand_runtime_header_value(raw: &str) -> Result<String> {
+    if let Some(name) = raw.strip_prefix("env:") {
+        let name = name.trim();
+        return std::env::var(name).with_context(|| {
+            format!("environment variable '{name}' (from auth header) is not set")
+        });
+    }
+    if let Some(rest) = raw.strip_prefix("Bearer ")
+        && let Some(name) = rest.trim().strip_prefix("env:")
+    {
+        let name = name.trim();
+        let token = std::env::var(name).with_context(|| {
+            format!("environment variable '{name}' (from Bearer auth header) is not set")
+        })?;
+        return Ok(format!("Bearer {token}"));
+    }
+    Ok(raw.to_string())
 }
 
 fn secret_or_env(name: &str) -> Result<String> {

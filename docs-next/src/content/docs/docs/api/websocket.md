@@ -29,21 +29,24 @@ Each client message is a JSON text frame:
   "read_only": false,
   "dry_run": false,
   "confirm": true,
-  "strict": false
+  "strict": false,
+  "session_id": "optional-existing-session"
 }
 ```
 
 Only `message` is required. Safety fields can request stricter handling for this
-turn, but they cannot relax a server-enforced mode.
+turn, but they cannot relax a server-enforced mode. Send `session_id` to resume
+the same in-process transcript used by `POST /run`.
 
 ## Receive
 
-Each prompt on the **same WebSocket** shares one conversation transcript (same model context as a multi-turn [`appctl chat`](/docs/cli/chat/) run). Reconnecting or opening a new WebSocket starts a new transcript.
+Each prompt with the same `session_id` shares one conversation transcript (same model context as a multi-turn [`appctl chat`](/docs/cli/chat/) run). If you omit `session_id`, the server creates one and emits it as a `session_state` event.
 
 The server writes one JSON text frame per [`AgentEvent`](/docs/api/agent-events/). Examples:
 
 ```json
 {"kind":"user_prompt","text":"list parcels delivered today"}
+{"kind":"session_state","session_id":"...","transcript_len":0,"resumed":false}
 {"kind":"tool_call","id":"call_01","name":"list_parcels","arguments":{"delivered":true}}
 {"kind":"tool_result","id":"call_01","result":{"count":3},"status":"ok","duration_ms":120}
 {"kind":"assistant_message","text":"Three parcels were delivered today."}

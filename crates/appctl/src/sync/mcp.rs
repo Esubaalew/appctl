@@ -62,6 +62,7 @@ impl SyncPlugin for McpSync {
                     provenance: Provenance::Declared,
                     metadata: Map::new(),
                 }],
+                metadata: Map::new(),
             }],
             metadata: Map::new(),
         })

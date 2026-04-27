@@ -78,7 +78,7 @@ struct AppState {
     paths: ConfigPaths,
     config: AppConfig,
     options: ServeOptions,
-    /// `POST /run` sessions only (key = client-supplied or server-issued `session_id`).
+    /// In-process chat transcripts keyed by browser/client session id.
     http_transcripts: Arc<Mutex<HashMap<String, Vec<Message>>>>,
 }
 
@@ -94,6 +94,21 @@ struct RunPayload {
     #[serde(default)]
     strict: Option<bool>,
     /// When set, continue the same conversation as earlier `/run` requests in this process.
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WsPayload {
+    message: String,
+    #[serde(default)]
+    read_only: Option<bool>,
+    #[serde(default)]
+    dry_run: Option<bool>,
+    #[serde(default)]
+    confirm: Option<bool>,
+    #[serde(default)]
+    strict: Option<bool>,
     #[serde(default)]
     session_id: Option<String>,
 }
@@ -401,9 +416,12 @@ async fn post_run(
             .map_err(|e| internal_error(format!("http session store: {e}")))?;
         map.get(&session_id).cloned().unwrap_or_default()
     };
+    let resumed = !prior.is_empty();
+    let prior_len = prior.len();
 
     let app_name = state.app_name.clone();
     let sid_run = session_id.clone();
+    let prior_for_agent = prior.clone();
     let agent = tokio::spawn(async move {
         run_agent(
             &paths,
@@ -412,7 +430,7 @@ async fn post_run(
             prov.as_deref(),
             model.as_deref(),
             &msg,
-            &prior,
+            &prior_for_agent,
             &tools,
             &schema,
             ExecutionContext {
@@ -425,7 +443,14 @@ async fn post_run(
         .await
     });
 
-    let mut events = Vec::new();
+    let mut events = vec![
+        serde_json::to_value(AgentEvent::SessionState {
+            session_id: session_id.clone(),
+            transcript_len: prior_len,
+            resumed,
+        })
+        .unwrap_or(Value::Null),
+    ];
     while let Some(ev) = rx.recv().await {
         if let Ok(v) = serde_json::to_value(&ev) {
             events.push(v);
@@ -472,21 +497,54 @@ async fn handle_socket(
     state: Arc<AppState>,
     client_id: Option<String>,
 ) {
-    let session_id = Uuid::new_v4().to_string();
-    let mut transcript: Vec<Message> = Vec::new();
+    let mut current_session_id: Option<String> = None;
     let (mut sink, mut stream) = socket.split();
     while let Some(Ok(msg)) = stream.next().await {
         let axum::extract::ws::Message::Text(text) = msg else {
             continue;
         };
         let raw = text.as_str();
-        let (message, safety) = merge_safety_ws(raw, &state.options);
+        let (message, safety, requested_session_id) = merge_safety_ws(raw, &state.options);
+        let session_id = requested_session_id
+            .or_else(|| current_session_id.clone())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        current_session_id = Some(session_id.clone());
+        let prior = match state
+            .http_transcripts
+            .lock()
+            .map(|map| map.get(&session_id).cloned().unwrap_or_default())
+            .map_err(|error| format!("chat session store: {error}"))
+        {
+            Ok(prior) => prior,
+            Err(message) => {
+                let line = serde_json::to_string(&AgentEvent::Error { message });
+                if let Ok(line) = line {
+                    let _ = sink
+                        .send(axum::extract::ws::Message::Text(line.into()))
+                        .await;
+                }
+                continue;
+            }
+        };
+        let resumed = !prior.is_empty();
+        if let Ok(line) = serde_json::to_string(&AgentEvent::SessionState {
+            session_id: session_id.clone(),
+            transcript_len: prior.len(),
+            resumed,
+        }) {
+            if sink
+                .send(axum::extract::ws::Message::Text(line.into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
         let (tx, mut rx) = mpsc::channel::<AgentEvent>(128);
         let paths = state.paths.clone();
         let config = state.config.clone();
         let prov = state.options.provider.clone();
         let model = state.options.model.clone();
-        let prior = transcript.clone();
         let sid = session_id.clone();
         let request_client_id = client_id.clone();
         let app_name = state.app_name.clone();
@@ -534,7 +592,22 @@ async fn handle_socket(
         }
         match agent.await {
             Ok(Ok(outcome)) => {
-                transcript = outcome.transcript;
+                let store_result = state
+                    .http_transcripts
+                    .lock()
+                    .map_err(|error| format!("chat session store: {error}"))
+                    .map(|mut map| {
+                        evict_http_sessions_if_needed(&mut map);
+                        map.insert(session_id.clone(), outcome.transcript);
+                    });
+                if let Err(message) = store_result {
+                    let line = serde_json::to_string(&AgentEvent::Error { message });
+                    if let Ok(line) = line {
+                        let _ = sink
+                            .send(axum::extract::ws::Message::Text(line.into()))
+                            .await;
+                    }
+                }
             }
             Ok(Err(error)) => {
                 let line = serde_json::to_string(&AgentEvent::Error {
@@ -585,23 +658,29 @@ fn merge_safety(
     }
 }
 
-/// Plain string prompts are accepted; JSON `{"message":"...","read_only":true}` overrides safety for that turn.
-fn merge_safety_ws(raw: &str, opts: &ServeOptions) -> (String, SafetyMode) {
-    if let Ok(v) = serde_json::from_str::<Value>(raw) {
-        if let Some(obj) = v.as_object() {
-            if let Some(msg) = obj.get("message").and_then(|x| x.as_str()) {
-                let read_only = obj.get("read_only").and_then(|x| x.as_bool());
-                let dry_run = obj.get("dry_run").and_then(|x| x.as_bool());
-                let confirm = obj.get("confirm").and_then(|x| x.as_bool());
-                let strict = obj.get("strict").and_then(|x| x.as_bool());
-                return (
-                    msg.to_string(),
-                    merge_safety(opts, read_only, dry_run, confirm, strict),
-                );
-            }
-        }
+/// Plain string prompts are accepted; JSON can override safety and carry a resumable `session_id`.
+fn merge_safety_ws(raw: &str, opts: &ServeOptions) -> (String, SafetyMode, Option<String>) {
+    if let Ok(payload) = serde_json::from_str::<WsPayload>(raw) {
+        return (
+            payload.message,
+            merge_safety(
+                opts,
+                payload.read_only,
+                payload.dry_run,
+                payload.confirm,
+                payload.strict,
+            ),
+            payload
+                .session_id
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+        );
     }
-    (raw.to_string(), merge_safety(opts, None, None, None, None))
+    (
+        raw.to_string(),
+        merge_safety(opts, None, None, None, None),
+        None,
+    )
 }
 
 fn evict_http_sessions_if_needed(sessions: &mut HashMap<String, Vec<Message>>) {

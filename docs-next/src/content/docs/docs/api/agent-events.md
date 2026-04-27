@@ -78,6 +78,28 @@ Unrecoverable error during the loop.
 { "kind": "error", "message": "max iterations reached" }
 ```
 
+### `session_state`
+
+The active in-process chat transcript for HTTP or WebSocket clients.
+
+```json
+{
+  "kind": "session_state",
+  "session_id": "9f8...",
+  "transcript_len": 4,
+  "resumed": true
+}
+```
+
+### `context_notice`
+
+Informational context management message, for example when older turns were
+trimmed by `behavior.history_limit`.
+
+```json
+{ "kind": "context_notice", "message": "Trimmed 2 older message(s) from model context." }
+```
+
 ### `done`
 
 Loop finished. No more events will be emitted for this turn.
@@ -89,7 +111,7 @@ Loop finished. No more events will be emitted for this turn.
 ## Ordering guarantees
 
 - Exactly one `user_prompt` starts the stream.
-- Zero or more `tool_call` / `tool_result` pairs interleave with `assistant_delta`/`assistant_message`.
+- Zero or more `session_state`, `context_notice`, and `tool_call` / `tool_result` events interleave with `assistant_delta`/`assistant_message`.
 - Every `tool_call` is followed by a `tool_result` with the same `id` (unless the loop errors first).
 - Exactly one `done` terminates the stream.
 

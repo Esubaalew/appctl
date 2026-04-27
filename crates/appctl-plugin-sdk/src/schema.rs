@@ -23,6 +23,8 @@ pub struct Resource {
     pub fields: Vec<Field>,
     #[serde(default)]
     pub actions: Vec<Action>,
+    #[serde(default)]
+    pub metadata: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
@@ -194,6 +196,8 @@ pub enum AuthStrategy {
     ApiKey {
         header: String,
         env_ref: String,
+        #[serde(default = "default_api_key_location")]
+        location: ApiKeyLocation,
     },
     Bearer {
         env_ref: String,
@@ -225,6 +229,18 @@ pub enum AuthStrategy {
 
 fn default_redirect_port() -> u16 {
     8421
+}
+
+fn default_api_key_location() -> ApiKeyLocation {
+    ApiKeyLocation::Header
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiKeyLocation {
+    Header,
+    Query,
+    Cookie,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

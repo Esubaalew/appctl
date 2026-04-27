@@ -27,6 +27,13 @@ type AgentEvent =
       duration_ms?: number;
     }
   | { kind: "error"; message: string }
+  | {
+      kind: "session_state";
+      session_id: string;
+      transcript_len: number;
+      resumed?: boolean;
+    }
+  | { kind: "context_notice"; message: string }
   | { kind: "done" };
 
 type ChatEntry =
@@ -47,7 +54,8 @@ type ChatEntry =
       duration_ms?: number;
       result?: unknown;
     }
-  | { kind: "error"; id: string; body: string };
+  | { kind: "error"; id: string; body: string }
+  | { kind: "notice"; id: string; body: string };
 
 type PublicConfig = {
   /** Global registry (or folder) name from `~/.appctl/apps.toml`. */
@@ -64,6 +72,7 @@ type PublicConfig = {
   dry_run?: boolean;
   strict?: boolean;
   confirm_default?: boolean;
+  description?: string | null;
 };
 
 type ProviderRuntimeStatus = {
@@ -650,6 +659,14 @@ function ErrorMessage({ body }: { body: string }) {
   );
 }
 
+function NoticeMessage({ body }: { body: string }) {
+  return (
+    <div className="ml-10 rounded-md border border-border bg-panel px-3 py-2 text-[12px] text-muted">
+      {body}
+    </div>
+  );
+}
+
 /* ---------- nav rail & chrome ---------- */
 
 function RailButton({
@@ -693,6 +710,7 @@ function Toggle({
     <button
       type="button"
       disabled={disabled}
+      aria-pressed={checked}
       onClick={() => onChange(!checked)}
       title={hint}
       className={`group flex items-center gap-2 rounded-md border px-2 py-1 text-[12px] transition ${
@@ -738,7 +756,7 @@ export default function App() {
   );
   const [lastError, setLastError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  /** For `POST /run` only: server-issued id so the HTTP fallback keeps chat context. */
+  /** Server-issued id shared by WebSocket and HTTP fallback so chat context stays real. */
   const runSessionIdRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -881,6 +899,32 @@ export default function App() {
         return rows;
       });
       setSending(false);
+      return;
+    }
+
+    if (event.kind === "session_state") {
+      runSessionIdRef.current = event.session_id;
+      if (!event.resumed && event.transcript_len === 0) {
+        return;
+      }
+      setChatLog((rows) => [
+        ...rows,
+        {
+          kind: "notice",
+          id: randId(),
+          body: event.resumed
+            ? `Resumed server context with ${event.transcript_len} message(s).`
+            : "Started a fresh server context.",
+        },
+      ]);
+      return;
+    }
+
+    if (event.kind === "context_notice") {
+      setChatLog((rows) => [
+        ...rows,
+        { kind: "notice", id: randId(), body: event.message },
+      ]);
       return;
     }
 
@@ -1286,6 +1330,9 @@ function ChatWorkspace({
                   />
                 );
               }
+              if (entry.kind === "notice") {
+                return <NoticeMessage key={entry.id} body={entry.body} />;
+              }
               return <ErrorMessage key={entry.id} body={entry.body} />;
             })
           )}
@@ -1318,6 +1365,7 @@ function ChatWorkspace({
 
           <div className="rounded-lg border border-border bg-surface shadow-sm transition focus-within:border-border-strong focus-within:ring-1 focus-within:ring-border-strong">
             <textarea
+              aria-label="Chat message"
               className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14px] leading-relaxed text-fg outline-none placeholder:text-muted"
               rows={2}
               placeholder="Message appctl…"
@@ -1389,7 +1437,7 @@ function ChatWorkspace({
           <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-muted">
             <span>appctl operator console</span>
             <span className="flex items-center gap-1.5">
-              <span className={`dot dot-${wsStatus === "open" ? "live" : "err"}`} />
+              <span className={`dot dot-${wsStatus === "open" ? "live" : wsStatus === "err" ? "err" : "idle"}`} />
               {wsStatus}
             </span>
           </div>
@@ -1741,6 +1789,7 @@ function SettingsPanel({
             </div>
             <div className="rounded-lg border border-border bg-surface p-5 max-w-2xl">
               <div className="space-y-4">
+                <KV k="Description" v={publicCfg?.description ?? "not set"} />
                 <KV k="Schema source" v={sourceLabel(schema?.source ?? publicCfg?.sync_source)} />
                 <KV
                   k="Target URL"
@@ -1756,7 +1805,7 @@ function SettingsPanel({
                 />
                 <KV
                   k="Request safety"
-                  v="The browser can add extra safety, but it cannot relax server-enforced flags."
+                  v={`The browser can add extra safety, but it cannot relax server-enforced flags. Mutating confirmation is ${publicCfg?.confirm_default ? "auto-approved by this server" : "controlled by the server process"}.`}
                 />
                 <KV
                   k="Local files"

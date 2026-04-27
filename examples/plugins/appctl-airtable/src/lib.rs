@@ -73,6 +73,7 @@ async fn introspect(_input: SyncInput) -> Result<Schema> {
             description: Some("An Airtable record".to_string()),
             fields,
             actions,
+            metadata: Map::new(),
         }],
         metadata: Map::new(),
     })

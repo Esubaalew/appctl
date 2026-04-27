@@ -60,8 +60,13 @@ appctl plugin list
 Sync with the plugin:
 
 ```bash
-appctl sync --plugin airtable --force
+appctl sync --plugin airtable
 ```
+
+Dynamic plugin sync writes the schema returned by the plugin for that run. The
+normal built-in sync sources require `--force` before replacing an existing
+`schema.json`; plugin sync currently treats the plugin result as the desired
+replacement and does not require `--force`.
 
 ## Host lifecycle
 

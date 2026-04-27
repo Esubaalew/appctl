@@ -258,6 +258,7 @@ mod tests {
                     provenance: Provenance::Declared,
                     metadata: Default::default(),
                 }],
+                metadata: Default::default(),
             }],
             metadata: Default::default(),
         };

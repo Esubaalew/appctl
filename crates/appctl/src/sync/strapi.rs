@@ -113,6 +113,7 @@ fn parse_schema_file(path: &std::path::Path) -> Result<Option<Resource>> {
         description: Some(format!("Strapi content-type at {}", path.display())),
         fields,
         actions,
+        metadata: Default::default(),
     }))
 }
 

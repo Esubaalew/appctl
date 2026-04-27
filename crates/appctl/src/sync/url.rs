@@ -226,6 +226,7 @@ impl SyncPlugin for UrlSync {
                     provenance: Provenance::Inferred,
                     metadata: Map::new(),
                 }],
+                metadata: Map::new(),
             });
         }
 

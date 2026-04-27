@@ -257,11 +257,13 @@ async fn run_sync_watch(paths: ConfigPaths, request: SyncRequest) -> Result<()> 
     ));
 
     let mut last_hash: Option<u64> = None;
+    let mut watch_request = request.clone();
+    watch_request.force = true;
     loop {
         let raw = openapi::load_openapi_source(source, request.auth_header.as_deref()).await?;
         let next_hash = stable_hash(&raw);
         if last_hash != Some(next_hash) {
-            run_sync_once(paths.clone(), &request).await?;
+            run_sync_once(paths.clone(), &watch_request).await?;
             last_hash = Some(next_hash);
         }
         tokio::time::sleep(Duration::from_secs(interval_secs)).await;
@@ -321,6 +323,11 @@ fn merge_target_database_url_from_sync(paths: &ConfigPaths, connection_string: &
         .map(str::trim)
         .is_none_or(|s| s.is_empty());
     if !missing {
+        if config.target.database_url.as_deref() != Some(connection_string) {
+            print_tip(
+                "This sync used a different DB connection than [target] database_url; chat/run will use the configured target URL.",
+            );
+        }
         return Ok(());
     }
     config.target.database_url = Some(connection_string.to_string());

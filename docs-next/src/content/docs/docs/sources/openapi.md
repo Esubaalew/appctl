@@ -9,9 +9,9 @@ If your app serves an OpenAPI document, this is the source to use. It produces t
 
 - **File path** — pass a local `.json` or `.yaml` path; no network.
 - **http(s) URL** — `appctl` uses a normal GET with a clear `User-Agent` (`appctl/<version>`), follows redirects, and sends `Accept: application/json, application/yaml, …`.
-- **Authenticated spec URL** — pass the same header you use for tool calls:  
+- **Authenticated spec URL** — pass the header needed to download the spec:  
   `appctl sync --openapi https://api.example.com/v3/api-docs --auth-header 'Authorization: Bearer env:STAGING_API_KEY'`  
-  The header is used **both** to download the spec and, unless overridden in config, in `schema` metadata for HTTP tools. Supported forms:
+  The header is used to download the spec and is stored in `schema` metadata for runtime HTTP tools unless you override target auth in config. Supported forms:
   - `Header-Name: literal`
   - `Header-Name: env:VAR` (value is read from the environment at sync time)
   - `Authorization: Bearer env:VAR` (expands to `Bearer <value>`)
@@ -105,7 +105,7 @@ Pass `--write` to mark reachable routes as `provenance=verified` in the schema.
 - Fetches the OpenAPI document, or reads it from disk.
 - For each path and operation, creates one tool with JSON Schema parameters.
 - Marks tools as `provenance=declared`. This is the highest trust level because the server itself published the contract.
-- Reads `securitySchemes` from the spec and picks the matching `AuthStrategy`.
+- Reads `securitySchemes` and top-level `security` from the spec and picks the matching `AuthStrategy`.
 
 ## OpenAPI and protected (authenticated) APIs
 
@@ -113,15 +113,18 @@ Pass `--write` to mark reachable routes as `provenance=verified` in the schema.
 
 ### Header-based auth (typical: Bearer, API key)
 
-- **`[target] auth_header` in [`.appctl/config.toml`](../cli/config/)** — a single `Authorization` (or other) header value sent on **every** HTTP tool call. Prefer storing secrets in the [keychain or env](/docs/deploy/secrets-and-keys/) and referencing them rather than pasting in chat.
-- **`appctl sync ... --auth-header "Bearer ..."`** — bakes a header into the synced schema’s `metadata.auth_header`; the executor prefers that when building headers. Avoid committing long-lived tokens in the repo; use `auth_header` in config for production.
-- **Security schemes** in the spec (when the sync can map them) set `schema.auth` (bearer, API key, etc.) and read secrets from the env or keychain.
+- **`[target] auth_header` in [`.appctl/config.toml`](../cli/config/)** — a header sent on **every** HTTP tool call. It can be either a raw `Authorization` value (`Bearer env:API_TOKEN`) or a full `Header-Name: value` line (`X-Api-Key: env:API_KEY`).
+- **`appctl sync ... --auth-header "Authorization: Bearer env:API_TOKEN"`** — stores the same header line in the synced schema’s `metadata.auth_header`; the executor resolves `env:` again at call time. Avoid committing long-lived tokens in the repo; use `auth_header` in config for production.
+- **Security schemes** in the spec set `schema.auth` where possible. `appctl` maps bearer, basic, and API-key auth in `header`, `query`, or `cookie` locations and reads secrets from the env or keychain.
 
 If your backend accepts **`Authorization: Bearer <token>`**, set **`[target] auth_header`** (or a mapped `schema.auth` bearer) so the **LLM** does not need the secret. It only chooses tools and body/query **arguments the spec still exposes as parameters**.
 
 ### Query-based tokens (e.g. `?access_token=`)
 
-If your OpenAPI file lists `access_token` (or similar) as a **query** parameter, it becomes a **normal tool parameter**. The model may ask you for a value, or you pass it in a prompt.
+If your OpenAPI file declares an `apiKey` security scheme with `in: query`,
+`appctl` now injects that query parameter from env/keychain at runtime. If the
+spec lists `access_token` (or similar) as a normal **query** parameter instead,
+it becomes a normal tool parameter.
 
 To supply a value **without** typing it in chat, use **`[target.default_query]`** in `config.toml`: a map of query **names to values** merged into every relevant HTTP call. Tool arguments from the model **override** these defaults for the same key. Values can be a literal or `env:VAR` to read from the environment, for example:
 
@@ -147,7 +150,8 @@ In short: **auth for the target API is not “in the model’s head”** — it 
 ## Known limits
 
 - Incomplete specs produce incomplete tools. Lint your spec with Spectral before syncing.
-- If the spec is served behind login, save it to a file and pass the file path.
+- If the spec is served behind an HTML login flow, either save it to a file and pass the file path, or configure cookies/session auth separately. `appctl` does not complete arbitrary browser logins during OpenAPI sync.
+- Operation-specific security is represented best when the OpenAPI document uses clear global or per-operation `security` entries. If different endpoints need unrelated credentials, prefer `[target] auth_header` for the server instance or split schemas per auth domain.
 - Webhook and callback operations are ignored.
 
 ## See also

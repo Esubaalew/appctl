@@ -31,7 +31,7 @@ Not sure which flag to use? Start with [Choosing a sync source](/docs/sources/ch
 | Source | Documentation |
 | --- | --- |
 | OpenAPI | [OpenAPI](/docs/sources/openapi/) |
-| Django (DRF) | [Django](/docs/sources/django/) |
+| Django (DRF), Flask | [Django](/docs/sources/django/), [`appctl sync --flask`](/docs/cli/sync/#examples) |
 | Rails, Laravel, ASP.NET, Strapi | [Rails](/docs/sources/rails/), [Laravel](/docs/sources/laravel/), [ASP.NET](/docs/sources/aspnet/), [Strapi](/docs/sources/strapi/) |
 | Supabase / PostgREST | [Supabase](/docs/sources/supabase/) |
 | SQL and other datastores | [Databases](/docs/sources/db/) |

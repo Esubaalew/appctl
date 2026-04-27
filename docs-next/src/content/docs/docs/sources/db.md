@@ -35,8 +35,9 @@ appctl sync --db "firestore://my-gcp-project" --force
 appctl sync --db "dynamodb://us-east-1" --force
 ```
 
-For every supported backend, the sync produces the same five logical tools:
-`list_*`, `get_*`, `create_*`, `update_*`, and `delete_*`.
+For every supported backend, sync produces stable tool IDs from the real table,
+collection, or keyspace name: `list_*`, `get_*`, `create_*`, `update_*`, and
+`delete_*` where the backend can safely address a single record.
 
 - **SQL** sources generate typed CRUD tools per table and execute them as prepared statements. Table and column names that clash with **reserved words** (for example SQLite’s `order`, `user`, or `group`) are **quoted** in generated SQL so `list_order` and similar tools work.
 - **MongoDB** generates CRUD tools per collection, keyed by `_id`.
@@ -81,7 +82,7 @@ Synced Db: 1 resources, 5 tools written to .appctl
 Generated tools:
 
 ```
-widget: list_widgets, get_widget, create_widget, update_widget, delete_widget
+widgets: list_widgets, get_widgets, create_widgets, update_widgets, delete_widgets
 ```
 
 ### 3. Inspect a generated tool
@@ -123,10 +124,10 @@ docker compose down -v
 ## Known limits
 
 - The SQL tools use prepared statements against the table and primary key. There is no free-form raw SQL tool in this source.
-- Only single-column primary keys are modeled today.
+- Single-column primary keys get `get_*`, `update_*`, and `delete_*` tools. Composite primary keys are detected and recorded in resource metadata, but single-row mutation tools are skipped until multi-key execution is supported.
 - Views and materialized views are not introspected.
 - Stored procedures are not auto-registered.
-- Multi-schema databases only expose the default schema unless the connection string selects one.
+- Large Postgres schemas should use `--db-schema`, `--db-exclude`, and `--db-skip-infra` to keep the generated tool list understandable. Postgres schema names are included in SQL resource IDs to avoid collisions.
 - Redis support is generic key/value access, not a schema-aware hash/stream model.
 - Firestore and DynamoDB use document/item payloads rather than per-column typing.
 

@@ -17,7 +17,7 @@ appctl sync [OPTIONS]
 | --- | --- | --- |
 | `--openapi <URL\|file>` | OpenAPI 2/3 document | [OpenAPI](/docs/sources/openapi/) |
 | `--django <dir>` | Django project folder | [Django](/docs/sources/django/) |
-| `--flask <dir>` | Flask project folder | [SQL / datastores](/docs/sources/db/) |
+| `--flask <dir>` | Flask project folder | [Flask source via `appctl sync --flask`](#examples) |
 | `--rails <dir>` | Rails project folder | [Rails](/docs/sources/rails/) |
 | `--laravel <dir>` | Laravel project folder | [Laravel](/docs/sources/laravel/) |
 | `--aspnet <dir>` | ASP.NET project folder | [ASP.NET](/docs/sources/aspnet/) |
@@ -32,7 +32,7 @@ appctl sync [OPTIONS]
 
 - `--base-url <URL>` — override the `base_url` written to the schema. Include any API mount prefix (for example `http://127.0.0.1:8001/api`).
 - `--force` — allow overwriting an existing `schema.json` and regenerating `tools.json`. **Required** whenever a schema file is already on disk, except for the first sync in a new project. See [When to use `--force`](#when-to-use-force).
-- `--watch` — keep polling an OpenAPI source and re-sync whenever the document changes.
+- `--watch` — keep polling an OpenAPI source and re-sync whenever the document changes. Watch mode treats each detected change as an intentional regeneration.
 - `--watch-interval-secs <N>` — polling interval for `--watch` (default `2`).
 - `--doctor-write` — run `appctl doctor --write` immediately after a successful sync.
 - `--auth-header '<Header>: <Value>'` — for OpenAPI, used when **downloading** the spec over HTTP(S) and stored for HTTP tool calls. Values can use `env:VAR` or `Bearer env:VAR` (see [OpenAPI](/docs/sources/openapi/#fetching-the-document)). For other sources, it mainly sets schema metadata for the executor.
@@ -56,8 +56,7 @@ tree or a CI job could wipe a checked-in file. The CLI requires `--force` for
 that overwrite.
 
 Use `--force` when you are deliberately refreshing from the source: after API
-or schema changes, in OpenAPI [watch mode](#examples) once the file exists, in
-batch jobs, or with `appctl app add ... --openapi ...` when the app dir
+or schema changes, in batch jobs, or with `appctl app add ... --openapi ...` when the app dir
 [already has a contract](/docs/cli/app/). Omit it for the first sync in an
 empty `.appctl/`.
 
@@ -91,7 +90,7 @@ appctl sync --db "redis://127.0.0.1:6379" --force
 
 # OpenAPI watch mode
 appctl sync --openapi http://127.0.0.1:8000/openapi.json \
-  --base-url http://127.0.0.1:8000 --watch --doctor-write --force
+  --base-url http://127.0.0.1:8000 --watch --doctor-write
 
 # Supabase
 appctl sync --supabase https://YOUR-PROJECT.supabase.co \

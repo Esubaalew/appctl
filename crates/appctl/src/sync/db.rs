@@ -350,7 +350,8 @@ async fn introspect_sqlite(
         if should_skip_table(options, None, &table) {
             continue;
         }
-        let pragma = format!("pragma table_info('{table}')");
+        let escaped_table = table.replace('\'', "''");
+        let pragma = format!("pragma table_info('{escaped_table}')");
         let columns = sqlx::query(&pragma).fetch_all(&pool).await?;
         let columns = columns
             .into_iter()
@@ -423,12 +424,11 @@ fn sql_resource_label(
 }
 
 fn table_singular_stem(table: &str) -> String {
-    // Mirror historic behavior for simple names; avoid mangling "address" etc. badly.
     let t = table.trim();
     if t.is_empty() {
         return "table".to_string();
     }
-    t.trim_end_matches('s').to_string()
+    ident_part(t)
 }
 
 fn ident_part(s: &str) -> String {
@@ -451,11 +451,17 @@ fn resource_from_table(
     db_kind: DatabaseKind,
 ) -> Resource {
     let mut fields = Vec::new();
-    let mut primary_key = None::<String>;
+    let mut seen_columns = BTreeSet::<String>::new();
+    let mut primary_keys = Vec::<String>::new();
 
     for row in rows {
-        if row.constraint_type.as_deref() == Some("PRIMARY KEY") && primary_key.is_none() {
-            primary_key = Some(row.column_name.clone());
+        if row.constraint_type.as_deref() == Some("PRIMARY KEY")
+            && !primary_keys.contains(&row.column_name)
+        {
+            primary_keys.push(row.column_name.clone());
+        }
+        if !seen_columns.insert(row.column_name.clone()) {
+            continue;
         }
 
         fields.push(Field {
@@ -469,15 +475,10 @@ fn resource_from_table(
         });
     }
 
-    let pk = primary_key.unwrap_or_else(|| "id".to_string());
-    let pk_field = Field {
-        name: pk.clone(),
-        description: Some("Primary key".to_string()),
-        field_type: FieldType::Integer,
-        required: true,
-        location: Some(ParameterLocation::Path),
-        default: None,
-        enum_values: Vec::new(),
+    let single_primary_key = match primary_keys.as_slice() {
+        [pk] => Some(pk.clone()),
+        [] => Some("id".to_string()),
+        _ => None,
     };
 
     let (resource_name, table_desc) = sql_resource_label(schema.as_deref(), table, &db_kind);
@@ -486,28 +487,62 @@ fn resource_from_table(
         _ => schema,
     };
     let transport_table = table.to_string();
-    Resource {
-        name: resource_name.clone(),
-        description: Some(table_desc.clone()),
-        fields: fields.clone(),
-        actions: vec![
-            Action {
-                name: format!("list_{}s", resource_name),
-                description: Some(format!("List rows from {}", table_desc)),
-                verb: Verb::List,
-                transport: Transport::Sql {
-                    database_kind: db_kind.clone(),
-                    schema: sql_schema.clone(),
-                    table: transport_table.clone(),
-                    operation: SqlOperation::Select,
-                    primary_key: Some(pk.clone()),
-                },
-                parameters: Vec::new(),
-                safety: Safety::ReadOnly,
-                resource: Some(resource_name.clone()),
-                provenance: Provenance::Declared,
-                metadata: Map::new(),
+    let mut actions = vec![
+        Action {
+            name: format!("list_{}", resource_name),
+            description: Some(format!("List rows from {}", table_desc)),
+            verb: Verb::List,
+            transport: Transport::Sql {
+                database_kind: db_kind.clone(),
+                schema: sql_schema.clone(),
+                table: transport_table.clone(),
+                operation: SqlOperation::Select,
+                primary_key: single_primary_key.clone(),
             },
+            parameters: Vec::new(),
+            safety: Safety::ReadOnly,
+            resource: Some(resource_name.clone()),
+            provenance: Provenance::Declared,
+            metadata: Map::new(),
+        },
+        Action {
+            name: format!("create_{}", resource_name),
+            description: Some(format!("Insert one row into {}", table_desc)),
+            verb: Verb::Create,
+            transport: Transport::Sql {
+                database_kind: db_kind.clone(),
+                schema: sql_schema.clone(),
+                table: transport_table.clone(),
+                operation: SqlOperation::Insert,
+                primary_key: single_primary_key.clone(),
+            },
+            parameters: fields
+                .iter()
+                .filter(|field| {
+                    single_primary_key
+                        .as_ref()
+                        .is_none_or(|pk| field.name != *pk)
+                })
+                .cloned()
+                .collect(),
+            safety: Safety::Mutating,
+            resource: Some(resource_name.clone()),
+            provenance: Provenance::Declared,
+            metadata: Map::new(),
+        },
+    ];
+
+    if let Some(pk) = single_primary_key {
+        let pk_field = Field {
+            name: pk.clone(),
+            description: Some("Primary key".to_string()),
+            field_type: FieldType::Integer,
+            required: true,
+            location: Some(ParameterLocation::Path),
+            default: None,
+            enum_values: Vec::new(),
+        };
+        actions.extend([
             Action {
                 name: format!("get_{}", resource_name),
                 description: Some(format!("Fetch one row from {}", table_desc)),
@@ -521,27 +556,6 @@ fn resource_from_table(
                 },
                 parameters: vec![pk_field.clone()],
                 safety: Safety::ReadOnly,
-                resource: Some(resource_name.clone()),
-                provenance: Provenance::Declared,
-                metadata: Map::new(),
-            },
-            Action {
-                name: format!("create_{}", resource_name),
-                description: Some(format!("Insert one row into {}", table_desc)),
-                verb: Verb::Create,
-                transport: Transport::Sql {
-                    database_kind: db_kind.clone(),
-                    schema: sql_schema.clone(),
-                    table: transport_table.clone(),
-                    operation: SqlOperation::Insert,
-                    primary_key: Some(pk.clone()),
-                },
-                parameters: fields
-                    .iter()
-                    .filter(|field| field.name != pk)
-                    .cloned()
-                    .collect(),
-                safety: Safety::Mutating,
                 resource: Some(resource_name.clone()),
                 provenance: Provenance::Declared,
                 metadata: Map::new(),
@@ -572,19 +586,36 @@ fn resource_from_table(
                 description: Some(format!("Delete one row from {}", table_desc)),
                 verb: Verb::Delete,
                 transport: Transport::Sql {
-                    database_kind: db_kind,
-                    schema: sql_schema,
-                    table: transport_table,
+                    database_kind: db_kind.clone(),
+                    schema: sql_schema.clone(),
+                    table: transport_table.clone(),
                     operation: SqlOperation::DeleteByPk,
                     primary_key: Some(pk),
                 },
                 parameters: vec![pk_field],
                 safety: Safety::Destructive,
-                resource: Some(resource_name),
+                resource: Some(resource_name.clone()),
                 provenance: Provenance::Declared,
                 metadata: Map::new(),
             },
-        ],
+        ]);
+    }
+
+    let mut metadata = Map::new();
+    if primary_keys.len() > 1 {
+        metadata.insert(
+            "primary_key_warning".to_string(),
+            json!("composite primary key detected; get/update/delete tools are not generated yet"),
+        );
+        metadata.insert("primary_keys".to_string(), json!(primary_keys));
+    }
+
+    Resource {
+        name: resource_name.clone(),
+        description: Some(table_desc.clone()),
+        fields: fields.clone(),
+        actions,
+        metadata,
     }
 }
 
@@ -743,7 +774,7 @@ fn resource_from_document_store(
     primary_key: &str,
     secondary_key: Option<&str>,
 ) -> Resource {
-    let resource_name = collection.trim_end_matches('s').replace('-', "_");
+    let resource_name = ident_part(collection);
     let mut fields = vec![Field {
         name: primary_key.to_string(),
         description: Some("Primary key".to_string()),
@@ -799,7 +830,7 @@ fn resource_from_document_store(
         fields,
         actions: vec![
             Action {
-                name: format!("list_{}s", resource_name),
+                name: format!("list_{}", resource_name),
                 description: Some(format!("List records from {}", collection)),
                 verb: Verb::List,
                 transport: Transport::NoSql {
@@ -903,6 +934,7 @@ fn resource_from_document_store(
                 metadata: Map::new(),
             },
         ],
+        metadata: Map::new(),
     }
 }
 
@@ -988,7 +1020,7 @@ mod tests {
         assert_eq!(schema.resources.len(), 1);
         assert_eq!(schema.metadata["database_kind"], "sqlite");
         let resource = &schema.resources[0];
-        assert_eq!(resource.name, "product");
+        assert_eq!(resource.name, "products");
         assert!(
             resource
                 .actions
@@ -999,13 +1031,13 @@ mod tests {
             resource
                 .actions
                 .iter()
-                .any(|action| action.name == "get_product")
+                .any(|action| action.name == "get_products")
         );
         assert!(
             resource
                 .actions
                 .iter()
-                .any(|action| action.name == "delete_product")
+                .any(|action| action.name == "delete_products")
         );
     }
 
@@ -1018,7 +1050,7 @@ mod tests {
         assert_eq!(schema.metadata["database_kind"], "redis");
         assert_eq!(schema.resources.len(), 1);
         let resource = &schema.resources[0];
-        assert_eq!(resource.name, "redis_key");
+        assert_eq!(resource.name, "redis_keys");
         assert!(
             resource
                 .actions
@@ -1029,7 +1061,62 @@ mod tests {
             resource
                 .actions
                 .iter()
-                .any(|action| action.name == "get_redis_key")
+                .any(|action| action.name == "get_redis_keys")
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_composite_primary_key_skips_single_row_mutations() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("composite.db");
+        let connection = format!("sqlite://{}?mode=rwc", db_path.display());
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&connection)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "create table memberships (
+                account_id integer not null,
+                user_id integer not null,
+                role text not null,
+                primary key (account_id, user_id)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        drop(pool);
+
+        let schema = DbSync::new(connection).introspect().await.unwrap();
+        let resource = &schema.resources[0];
+        assert_eq!(resource.name, "memberships");
+        assert_eq!(resource.fields.len(), 3);
+        assert!(resource.metadata.get("primary_keys").is_some());
+        assert!(
+            resource
+                .actions
+                .iter()
+                .any(|action| action.name == "list_memberships")
+        );
+        assert!(
+            resource
+                .actions
+                .iter()
+                .any(|action| action.name == "create_memberships")
+        );
+        assert!(
+            !resource
+                .actions
+                .iter()
+                .any(|action| action.name == "get_memberships")
+        );
+        assert!(
+            !resource
+                .actions
+                .iter()
+                .any(|action| action.name == "delete_memberships")
         );
     }
 

@@ -519,6 +519,12 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
                 printer.stop_spinner();
                 print_status_error(&message);
             }
+            AgentEvent::SessionState { .. } => {}
+            AgentEvent::ContextNotice { message } => {
+                printer.stop_spinner();
+                print_tip(&message);
+                printer.start_spinner("thinking…");
+            }
             AgentEvent::Done => break,
         }
     }
