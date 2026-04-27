@@ -425,7 +425,11 @@ impl Executor {
             .base_url
             .clone()
             .or_else(|| runtime_base_url(&self.config))
-            .context("schema has no base URL; pass --base-url or set target.base_url")?;
+            .context(
+                "no API base URL for HTTP tools. Do one of: re-sync with `--base-url` (e.g. \
+                 `appctl sync --flask <dir> --base-url http://127.0.0.1:5000 --force`), or set \
+                 `target.base_url` in .appctl/config.toml, or set env `APPCTL_BASE_URL`",
+            )?;
         let mut url = format!("{}{}", base_url.trim_end_matches('/'), path);
         let mut body_map = arguments.as_object().cloned().unwrap_or_default();
 
@@ -797,6 +801,64 @@ fn value_to_string(value: &Value) -> String {
     }
 }
 
+const SQL_LIST_DEFAULT_LIMIT: u32 = 100;
+const SQL_LIST_MAX_LIMIT: u32 = 500;
+const SQL_LIST_MAX_OFFSET: u32 = 1_000_000;
+
+#[derive(Debug, Clone)]
+struct SqlListArgs {
+    /// `AND` equality filters. `Value::Null` means `IS NULL` for that column.
+    filters: Vec<(String, Value)>,
+    limit: u32,
+    offset: u32,
+}
+
+fn parse_sql_list_arguments(arguments: &Value) -> Result<SqlListArgs> {
+    let Some(obj) = arguments.as_object() else {
+        return Ok(SqlListArgs {
+            filters: Vec::new(),
+            limit: SQL_LIST_DEFAULT_LIMIT,
+            offset: 0,
+        });
+    };
+
+    let mut filters: Vec<(String, Value)> = Vec::new();
+    if let Some(f) = obj.get("filter") {
+        if !f.is_null() {
+            let m = f
+                .as_object()
+                .context("list: filter must be a JSON object mapping column names to values")?;
+            for (k, v) in m {
+                if k.is_empty() {
+                    bail!("list: empty column name in filter");
+                }
+                filters.push((k.clone(), v.clone()));
+            }
+        }
+    }
+    filters.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let limit = obj
+        .get("limit")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32)
+        .unwrap_or(SQL_LIST_DEFAULT_LIMIT)
+        .clamp(1, SQL_LIST_MAX_LIMIT);
+
+    let offset = obj
+        .get("offset")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32)
+        .unwrap_or(0)
+        .min(SQL_LIST_MAX_OFFSET);
+
+    Ok(SqlListArgs {
+        filters,
+        limit,
+        offset,
+    })
+}
+
 fn classify_http_status(status: u16) -> &'static str {
     match status {
         401 => "unauthorized",
@@ -931,10 +993,39 @@ async fn execute_sql_postgres(
     let pkq = sql_ident_ansi(primary_key);
     match operation {
         SqlOperation::Select => {
-            let sql = format!(
-                "select coalesce(json_agg(t), '[]'::json) as rows from (select * from {qt} limit 100) t"
-            );
-            let rows: Value = sqlx::query_scalar(&sql).fetch_one(pool).await?;
+            let SqlListArgs {
+                filters,
+                limit,
+                offset,
+            } = parse_sql_list_arguments(arguments)?;
+            let mut clauses = Vec::new();
+            let mut bind_idx = 1u32;
+            let mut bind_values: Vec<String> = Vec::new();
+            for (col, val) in &filters {
+                let cq = sql_ident_ansi(col);
+                if val.is_null() {
+                    clauses.push(format!("{cq} is null"));
+                } else {
+                    clauses.push(format!("{cq} = ${bind_idx}"));
+                    bind_idx += 1;
+                    bind_values.push(value_to_string(val));
+                }
+            }
+            let where_part = if clauses.is_empty() {
+                String::new()
+            } else {
+                format!(" where {}", clauses.join(" and "))
+            };
+            let lim_ph = bind_idx;
+            let off_ph = bind_idx + 1;
+            let inner = format!("select * from {qt}{where_part} limit ${lim_ph} offset ${off_ph}");
+            let sql = format!("select coalesce(json_agg(t), '[]'::json) as rows from ({inner}) t");
+            let mut q = sqlx::query_scalar::<_, Value>(&sql);
+            for b in bind_values {
+                q = q.bind(b);
+            }
+            q = q.bind(i64::from(limit)).bind(i64::from(offset));
+            let rows: Value = q.fetch_one(pool).await?;
             Ok(ExecutionResult {
                 output: rows,
                 request_snapshot: Value::Null,
@@ -1058,8 +1149,34 @@ async fn execute_sql_mysql(
     let pkq = sql_ident_mysql_quoted(primary_key);
     match operation {
         SqlOperation::Select => {
-            let sql = format!("select * from {qt} limit 100");
-            let rows = sqlx::query(&sql).fetch_all(pool).await?;
+            let SqlListArgs {
+                filters,
+                limit,
+                offset,
+            } = parse_sql_list_arguments(arguments)?;
+            let mut clauses = Vec::new();
+            let mut bind_values: Vec<String> = Vec::new();
+            for (col, val) in &filters {
+                let cq = sql_ident_mysql_quoted(col);
+                if val.is_null() {
+                    clauses.push(format!("{cq} is null"));
+                } else {
+                    clauses.push(format!("{cq} = ?"));
+                    bind_values.push(value_to_string(val));
+                }
+            }
+            let where_part = if clauses.is_empty() {
+                String::new()
+            } else {
+                format!(" where {}", clauses.join(" and "))
+            };
+            let sql = format!("select * from {qt}{where_part} limit ? offset ?");
+            let mut q = sqlx::query(&sql);
+            for b in bind_values {
+                q = q.bind(b);
+            }
+            q = q.bind(i64::from(limit)).bind(i64::from(offset));
+            let rows = q.fetch_all(pool).await?;
             Ok(ExecutionResult {
                 output: rows_to_json(rows),
                 request_snapshot: Value::Null,
@@ -1166,8 +1283,34 @@ async fn execute_sql_sqlite(
     let pkq = sql_ident_ansi(primary_key);
     match operation {
         SqlOperation::Select => {
-            let sql = format!("select * from {qt} limit 100");
-            let rows = sqlx::query(&sql).fetch_all(pool).await?;
+            let SqlListArgs {
+                filters,
+                limit,
+                offset,
+            } = parse_sql_list_arguments(arguments)?;
+            let mut clauses = Vec::new();
+            let mut bind_values: Vec<String> = Vec::new();
+            for (col, val) in &filters {
+                let cq = sql_ident_ansi(col);
+                if val.is_null() {
+                    clauses.push(format!("{cq} is null"));
+                } else {
+                    clauses.push(format!("{cq} = ?"));
+                    bind_values.push(value_to_string(val));
+                }
+            }
+            let where_part = if clauses.is_empty() {
+                String::new()
+            } else {
+                format!(" where {}", clauses.join(" and "))
+            };
+            let sql = format!("select * from {qt}{where_part} limit ? offset ?");
+            let mut q = sqlx::query(&sql);
+            for b in bind_values {
+                q = q.bind(b);
+            }
+            q = q.bind(i64::from(limit)).bind(i64::from(offset));
+            let rows = q.fetch_all(pool).await?;
             Ok(ExecutionResult {
                 output: rows_to_json_sqlite(rows),
                 request_snapshot: Value::Null,
@@ -1856,8 +1999,8 @@ fn dynamo_attr_to_json(value: &AttributeValue) -> Value {
 mod tests {
     use super::{
         DatabaseKind, HttpMethod, dynamo_attr_to_json, firestore_fields_from_json,
-        firestore_fields_to_json, resolve_target_default_query_value, sql_ident_ansi,
-        sql_qualified_table_ansi, summarize_http_status, tool_result_is_error,
+        firestore_fields_to_json, parse_sql_list_arguments, resolve_target_default_query_value,
+        sql_ident_ansi, sql_qualified_table_ansi, summarize_http_status, tool_result_is_error,
     };
     use aws_sdk_dynamodb::types::AttributeValue;
     use serde_json::json;
@@ -1955,5 +2098,32 @@ mod tests {
             dynamo_attr_to_json(&value),
             json!({ "profile": { "name": "Ada" } })
         );
+    }
+
+    #[test]
+    fn parse_sql_list_defaults() {
+        let a = parse_sql_list_arguments(&json!({})).unwrap();
+        assert_eq!(a.limit, 100);
+        assert_eq!(a.offset, 0);
+        assert!(a.filters.is_empty());
+    }
+
+    #[test]
+    fn parse_sql_list_filter_and_pagination() {
+        let a = parse_sql_list_arguments(&json!({
+            "filter": { "uic": "X", "old_code": "Y" },
+            "limit": 10,
+            "offset": 20
+        }))
+        .unwrap();
+        assert_eq!(a.limit, 10);
+        assert_eq!(a.offset, 20);
+        assert_eq!(a.filters.len(), 2);
+    }
+
+    #[test]
+    fn parse_sql_list_rejects_non_object_filter() {
+        let e = parse_sql_list_arguments(&json!({ "filter": "nope" })).unwrap_err();
+        assert!(e.to_string().contains("filter"), "{e}");
     }
 }

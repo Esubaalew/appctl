@@ -7,6 +7,9 @@ description: Execute a single prompt and exit. Non-interactive, pipeline-friendl
 tools, and provider, runs the full plan-call-observe loop for one prompt, then
 exits with the final answer on stdout.
 
+If this is your first time in a project, run [`appctl setup`](/docs/cli/setup/)
+before `run` so the provider and tools exist.
+
 Use it for scripts, CI jobs, and Makefile targets where you do not want a REPL.
 
 ## Usage

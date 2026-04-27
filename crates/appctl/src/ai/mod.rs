@@ -11,7 +11,7 @@ use crate::{
     events::{AgentEvent, ToolStatus},
     executor::{ExecutionContext, ExecutionRequest, Executor, tool_result_is_error},
     history::HistoryStore,
-    schema::Schema,
+    schema::{Action, Field, Resource, Schema, Transport},
     term::session_sync_line,
     tool_result_format::format_tool_result_message,
     tools::ToolDef,
@@ -304,6 +304,7 @@ fn compose_system_message(
         "- **Tools / schema from**: {}\n",
         session_sync_line(schema)
     ));
+    s.push_str(&compose_tool_guide(schema));
     s
 }
 
@@ -311,6 +312,15 @@ fn system_prompt() -> String {
     r#"Critical identity: you are only "appctl" (the end-user’s application operations agent). You must not name or imply Gemini, Google, OpenAI, Anthropic, a model name, a vendor, a cloud, or a subscription product. If asked who/what you are, answer exactly: I am appctl, your application operations agent. One short reply; do not add a second self-introduction paragraph.
 
 You help users with the tools synced for this app (see the appctl banner for the sync source). Prefer direct tool use. Never invent parameters.
+
+Operating rules:
+- Work step by step like an IDE agent: choose a tool, inspect the result, then decide the next tool call.
+- Use returned IDs, foreign keys, URLs, names, and other values from one tool result as inputs to later calls.
+- For database `list_*` tools, do not assume the first page is complete. If a target row is missing, retry with `filter`, then use `offset`/`limit` when needed.
+- When the user gives a business identifier instead of a primary key, try likely columns such as `uic`, `old_code`, `code`, `slug`, `name`, `email`, or fields shown in the tool guide.
+- To answer relationship questions, follow join-style fields: for example use `parcel_id`, `party_id`, `user_id`, or any `*_id` returned by one tool in a related list/get tool.
+- Ask the user for more information only after the available read-only tools cannot find or disambiguate the needed data.
+- If a read-only lookup fails, explain the specific tool path tried and the missing key/field; do not simply say the data is unavailable.
 
 For HTTP tools, appctl may add Authorization headers and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; do not ask the user to paste API tokens or secrets if a tool can run with optional parameters that appctl supplies. Only ask for a value when a tool result shows an auth or permission error and the spec requires a parameter the user must supply in chat.
 
@@ -322,6 +332,153 @@ Response style rules:
 - Tool results may include `status`, `classification`, and `summary`. Treat the summary as the best appctl diagnosis.
 - Do not infer permissions, admin access, or login state from `405 Method Not Allowed` alone. A 405 can mean wrong HTTP method, route mismatch, or backend policy."#
         .to_string()
+}
+
+fn compose_tool_guide(schema: &Schema) -> String {
+    if schema.resources.is_empty() {
+        return String::new();
+    }
+
+    const MAX_RESOURCES: usize = 12;
+    const MAX_FIELDS: usize = 12;
+    const MAX_ACTIONS: usize = 8;
+
+    let mut out = String::from(
+        "\n## Tool guide\nUse this compact catalog to choose tools and chain values. Tool schemas remain the source of truth for exact parameter names.\n",
+    );
+
+    for resource in schema.resources.iter().take(MAX_RESOURCES) {
+        out.push_str(&format!("- Resource `{}`", resource.name));
+        if let Some(description) = resource
+            .description
+            .as_deref()
+            .filter(|d| !d.trim().is_empty())
+        {
+            out.push_str(&format!(" ({})", description.trim()));
+        }
+        out.push('\n');
+
+        let fields = summarize_fields(&resource.fields, MAX_FIELDS);
+        if !fields.is_empty() {
+            out.push_str(&format!("  - Fields: {fields}\n"));
+        }
+
+        let join_fields = summarize_join_fields(&resource.fields);
+        if !join_fields.is_empty() {
+            out.push_str(&format!(
+                "  - Chain these ID/relationship fields into related tools: {join_fields}\n"
+            ));
+        }
+
+        let actions = summarize_actions(&resource.actions, MAX_ACTIONS);
+        if !actions.is_empty() {
+            out.push_str(&format!("  - Actions: {actions}\n"));
+        }
+
+        for action in resource
+            .actions
+            .iter()
+            .filter(|action| is_filterable_sql_list(action))
+            .take(2)
+        {
+            let candidate_columns = candidate_filter_columns(resource);
+            out.push_str(&format!(
+                "  - `{}` supports `filter` for exact column matches",
+                action.name
+            ));
+            if !candidate_columns.is_empty() {
+                out.push_str(&format!(" such as {candidate_columns}"));
+            }
+            out.push_str("; use `limit` and `offset` to page.\n");
+        }
+    }
+
+    if schema.resources.len() > MAX_RESOURCES {
+        out.push_str(&format!(
+            "- appctl: {} more resource(s) are available through the tool list.\n",
+            schema.resources.len() - MAX_RESOURCES
+        ));
+    }
+
+    out
+}
+
+fn summarize_fields(fields: &[Field], max: usize) -> String {
+    let mut names: Vec<String> = fields
+        .iter()
+        .take(max)
+        .map(|field| format!("`{}`", field.name))
+        .collect();
+    if fields.len() > max {
+        names.push(format!("... +{}", fields.len() - max));
+    }
+    names.join(", ")
+}
+
+fn summarize_join_fields(fields: &[Field]) -> String {
+    fields
+        .iter()
+        .filter(|field| field.name == "id" || field.name.ends_with("_id"))
+        .take(10)
+        .map(|field| format!("`{}`", field.name))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn summarize_actions(actions: &[Action], max: usize) -> String {
+    let mut names: Vec<String> = actions
+        .iter()
+        .take(max)
+        .map(|action| format!("`{}`", action.name))
+        .collect();
+    if actions.len() > max {
+        names.push(format!("... +{}", actions.len() - max));
+    }
+    names.join(", ")
+}
+
+fn is_filterable_sql_list(action: &Action) -> bool {
+    matches!(
+        &action.transport,
+        Transport::Sql {
+            operation: crate::schema::SqlOperation::Select,
+            ..
+        }
+    ) && action.parameters.iter().any(|field| field.name == "filter")
+}
+
+fn candidate_filter_columns(resource: &Resource) -> String {
+    let preferred = [
+        "uic",
+        "old_code",
+        "code",
+        "slug",
+        "name",
+        "email",
+        "id",
+        "parcel_id",
+        "party_id",
+        "user_id",
+        "owner_id",
+    ];
+    let mut names = Vec::<String>::new();
+    for wanted in preferred {
+        if resource.fields.iter().any(|field| field.name == wanted) {
+            names.push(format!("`{wanted}`"));
+        }
+    }
+    for field in &resource.fields {
+        if names.len() >= 8 {
+            break;
+        }
+        if field.name.ends_with("_id") {
+            let quoted = format!("`{}`", field.name);
+            if !names.contains(&quoted) {
+                names.push(quoted);
+            }
+        }
+    }
+    names.join(", ")
 }
 
 fn build_turn_messages(
@@ -395,7 +552,11 @@ fn trim_transcript(messages: &mut Vec<Message>, history_limit: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{Message, build_turn_messages, trim_transcript};
+    use super::{Message, build_turn_messages, compose_tool_guide, system_prompt, trim_transcript};
+    use crate::schema::{
+        Action, AuthStrategy, DatabaseKind, Field, FieldType, ParameterLocation, Provenance,
+        Resource, Safety, Schema, SqlOperation, SyncSource, Transport, Verb,
+    };
 
     fn msg(role: &str, content: &str) -> Message {
         Message {
@@ -436,5 +597,77 @@ mod tests {
         assert_eq!(messages[0].role, "system");
         assert_eq!(messages[1].content, "u2");
         assert_eq!(messages[2].content, "a2");
+    }
+
+    #[test]
+    fn system_prompt_teaches_iterative_tool_use() {
+        let prompt = system_prompt();
+        assert!(prompt.contains("Work step by step like an IDE agent"));
+        assert!(prompt.contains("Use returned IDs"));
+        assert!(prompt.contains("retry with `filter`"));
+    }
+
+    #[test]
+    fn tool_guide_summarizes_filterable_db_resources() {
+        let schema = Schema {
+            source: SyncSource::Db,
+            base_url: None,
+            auth: AuthStrategy::None,
+            resources: vec![Resource {
+                name: "cis_core__land_record".to_string(),
+                description: Some("Table cis_core.land_record".to_string()),
+                fields: vec![
+                    field("id", FieldType::Uuid),
+                    field("parcel_id", FieldType::Uuid),
+                    field("uic", FieldType::String),
+                    field("old_code", FieldType::String),
+                ],
+                actions: vec![Action {
+                    name: "list_cis_core__land_record".to_string(),
+                    description: Some("List rows".to_string()),
+                    verb: Verb::List,
+                    transport: Transport::Sql {
+                        database_kind: DatabaseKind::Postgres,
+                        schema: Some("cis_core".to_string()),
+                        table: "land_record".to_string(),
+                        operation: SqlOperation::Select,
+                        primary_key: Some("id".to_string()),
+                    },
+                    parameters: vec![Field {
+                        name: "filter".to_string(),
+                        description: None,
+                        field_type: FieldType::Object,
+                        required: false,
+                        location: Some(ParameterLocation::Body),
+                        default: None,
+                        enum_values: vec![],
+                    }],
+                    safety: Safety::ReadOnly,
+                    resource: Some("cis_core__land_record".to_string()),
+                    provenance: Provenance::Declared,
+                    metadata: Default::default(),
+                }],
+                metadata: Default::default(),
+            }],
+            metadata: Default::default(),
+        };
+
+        let guide = compose_tool_guide(&schema);
+        assert!(guide.contains("Resource `cis_core__land_record`"));
+        assert!(guide.contains("`parcel_id`"));
+        assert!(guide.contains("supports `filter`"));
+        assert!(guide.contains("`old_code`"));
+    }
+
+    fn field(name: &str, field_type: FieldType) -> Field {
+        Field {
+            name: name.to_string(),
+            description: None,
+            field_type,
+            required: false,
+            location: Some(ParameterLocation::Body),
+            default: None,
+            enum_values: vec![],
+        }
     }
 }

@@ -162,6 +162,14 @@ type HistoryEntry = {
   undone: boolean;
 };
 
+type OnboardingState = {
+  hasProvider: boolean;
+  hasTools: boolean;
+  hasTarget: boolean;
+  ready: boolean;
+  steps: { label: string; done: boolean; command: string; help: string }[];
+};
+
 /* ---------- helpers ---------- */
 
 function authHeaders(token: string): HeadersInit {
@@ -210,6 +218,48 @@ function formatTs(ts: string): string {
 function sourceLabel(source?: string | null): string {
   if (!source) return "not synced";
   return source.replace(/_/g, " ");
+}
+
+function onboardingState(
+  publicCfg: PublicConfig | null,
+  schema: SchemaShape | null,
+  actionCount: number,
+): OnboardingState {
+  const hasProvider = (publicCfg?.provider_statuses?.length ?? 0) > 0;
+  const hasTools = actionCount > 0 && !!schema;
+  const hasTarget = !!(schema?.base_url ?? publicCfg?.base_url) || schema?.source === "db";
+  return {
+    hasProvider,
+    hasTools,
+    hasTarget,
+    ready: hasProvider && hasTools,
+    steps: [
+      {
+        label: "Choose an AI provider",
+        done: hasProvider,
+        command: "appctl setup",
+        help: "Guided setup stores provider config and secrets safely.",
+      },
+      {
+        label: "Sync app tools",
+        done: hasTools,
+        command: "appctl setup",
+        help: "Setup inspects this folder first, suggests likely sources, then asks only for missing values.",
+      },
+      {
+        label: "Check routes when possible",
+        done: hasTarget || schema?.source === "db",
+        command: "appctl doctor --write",
+        help: "For HTTP tools, confirm the app is reachable and mark verified routes.",
+      },
+      {
+        label: "Start chatting",
+        done: hasProvider && hasTools,
+        command: "appctl chat",
+        help: "Or use this web console after starting with appctl serve --open.",
+      },
+    ],
+  };
 }
 
 function authKindLabel(kind?: ProviderRuntimeStatus["auth_status"]["kind"]): string {
@@ -1101,6 +1151,10 @@ export default function App() {
   const activeProvider = publicCfg?.provider_statuses?.find(
     (p) => p.name === activeProviderName,
   );
+  const onboarding = useMemo(
+    () => onboardingState(publicCfg, schema, actions.length),
+    [actions.length, publicCfg, schema],
+  );
 
 
   /* ---------- render ---------- */
@@ -1233,9 +1287,11 @@ export default function App() {
               suggestions={suggestions}
               wsStatus={wsStatus}
               connectWs={connectWs}
+              onboarding={onboarding}
+              openSettings={() => setTab("settings")}
             />
           )}
-          {tab === "tools" && <ToolsPanel actions={actions} tools={tools} />}
+          {tab === "tools" && <ToolsPanel actions={actions} tools={tools} hasSyncedTools={onboarding.hasTools} />}
           {tab === "history" && <HistoryPanel history={history} />}
           {tab === "settings" && (
             <SettingsPanel
@@ -1245,6 +1301,7 @@ export default function App() {
               schema={schema}
               summary={summary}
               refreshAll={refreshAll}
+              onboarding={onboarding}
             />
           )}
         </main>
@@ -1274,6 +1331,8 @@ function ChatWorkspace({
   suggestions,
   wsStatus,
   connectWs,
+  onboarding,
+  openSettings,
 }: {
   chatLog: ChatEntry[];
   scrollRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -1293,6 +1352,8 @@ function ChatWorkspace({
   suggestions: string[];
   wsStatus: string;
   connectWs: () => void;
+  onboarding: OnboardingState;
+  openSettings: () => void;
 }) {
   const isEmpty = chatLog.length === 0;
   const readOnlyLocked = serverReadOnly;
@@ -1303,7 +1364,12 @@ function ChatWorkspace({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[860px] space-y-5 px-6 py-6">
           {isEmpty ? (
-            <EmptyHero />
+            <>
+              {!onboarding.ready && (
+                <OnboardingChecklist onboarding={onboarding} openSettings={openSettings} />
+              )}
+              <EmptyHero ready={onboarding.ready} />
+            </>
           ) : (
             chatLog.map((entry) => {
               if (entry.kind === "user") {
@@ -1447,12 +1513,73 @@ function ChatWorkspace({
   );
 }
 
-function EmptyHero() {
+function EmptyHero({ ready }: { ready: boolean }) {
   return (
     <div className="pt-12 pb-4 text-center">
-      <h2 className="text-[14px] font-medium text-fg">Chat</h2>
-      <p className="mt-2 text-[13px] text-muted">Messages go to the model; appctl runs the tool calls.</p>
+      <h2 className="text-[14px] font-medium text-fg">
+        {ready ? "Chat" : "Finish setup, then chat"}
+      </h2>
+      <p className="mt-2 text-[13px] text-muted">
+        {ready
+          ? "Messages go to the model; appctl runs the tool calls."
+          : "Run the guided setup once, or follow the checklist above to make this app ready."}
+      </p>
     </div>
+  );
+}
+
+function OnboardingChecklist({
+  onboarding,
+  openSettings,
+  showSettingsButton = true,
+}: {
+  onboarding: OnboardingState;
+  openSettings: () => void;
+  showSettingsButton?: boolean;
+}) {
+  return (
+    <section className="max-w-[min(100%,44rem)] rounded-lg border border-border bg-panel px-4 py-3 text-left msg-user">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[14px] font-semibold text-fg">Setup checklist</h2>
+          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
+            One guided command: provider, scan your project folder for likely sources, checks, then
+            chat or web.
+          </p>
+        </div>
+        {showSettingsButton && (
+          <button
+            type="button"
+            onClick={openSettings}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-fg transition hover:border-border-strong"
+          >
+            Open Settings
+          </button>
+        )}
+      </div>
+      <pre className="mt-4 overflow-x-auto rounded-md border border-border bg-bg p-3 font-mono text-[12px] text-fg-dim">
+        appctl setup
+      </pre>
+      <div className="mt-4 grid gap-2 md:grid-cols-2">
+        {onboarding.steps.map((step) => (
+          <div
+            key={step.label}
+            className="rounded-md border border-border bg-surface/60 p-3"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`h-2 w-2 rounded-full ${step.done ? "bg-emerald-400" : "bg-amber-400"}`}
+              />
+              <span className="text-[13px] font-medium text-fg">{step.label}</span>
+            </div>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted">{step.help}</p>
+            {!step.done && (
+              <code className="mt-2 block font-mono text-[11px] text-amber-50">{step.command}</code>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1482,9 +1609,11 @@ function StatMini({
 function ToolsPanel({
   actions,
   tools,
+  hasSyncedTools,
 }: {
   actions: (Action & { resourceName: string })[];
   tools: ToolDef[];
+  hasSyncedTools: boolean;
 }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -1518,8 +1647,14 @@ function ToolsPanel({
 
         {filtered.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface p-10 text-center text-[13px] text-muted">
-            No tools match your search. Try another term or run{" "}
-            <code className="font-mono text-fg">appctl sync</code>.
+            {hasSyncedTools ? (
+              <>No tools match your search. Try another term.</>
+            ) : (
+              <>
+                No tools are synced yet. Run{" "}
+                <code className="font-mono text-fg">appctl setup</code> to inspect this folder, choose a source, and build tools.
+              </>
+            )}
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-2">
@@ -1681,6 +1816,7 @@ function SettingsPanel({
   schema,
   summary,
   refreshAll,
+  onboarding,
 }: {
   token: string;
   saveToken: (v: string) => void;
@@ -1688,6 +1824,7 @@ function SettingsPanel({
   schema: SchemaShape | null;
   summary: { resources: number; actionCount: number; writes: number; destructive: number };
   refreshAll: () => void;
+  onboarding: OnboardingState;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-6">
@@ -1698,6 +1835,16 @@ function SettingsPanel({
             Manage daemon configuration, providers, and project sync state.
           </p>
         </div>
+
+        {!onboarding.ready && (
+          <div className="mb-6">
+            <OnboardingChecklist
+              onboarding={onboarding}
+              openSettings={() => undefined}
+              showSettingsButton={false}
+            />
+          </div>
+        )}
 
         <div className="divide-y divide-border border-t border-border">
           {/* Usage & Limits */}
@@ -1727,7 +1874,7 @@ function SettingsPanel({
             <div className="grid gap-4 md:grid-cols-2">
               {(publicCfg?.provider_statuses?.length ?? 0) === 0 ? (
                 <div className="rounded-md border border-border bg-surface col-span-full p-5 text-[13px] text-muted">
-                  No providers configured yet. Run <code className="font-mono text-fg">appctl init</code> to add one.
+                  No providers configured yet. Run <code className="font-mono text-fg">appctl setup</code> to add one.
                 </div>
               ) : (
                 publicCfg?.provider_statuses?.map((provider) => (

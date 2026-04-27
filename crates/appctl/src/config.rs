@@ -56,9 +56,11 @@ impl ConfigPaths {
 
     fn runtime_setup_message(&self, command: &str) -> String {
         format!(
-            "No provider configured for app dir {}.\n\
-This app dir already has synced schema/tools, but it does not have a usable {}.\n\
-Run `appctl --app-dir {} init` to configure a provider, or copy a working config.toml into this folder, then retry `appctl --app-dir {} {}`.",
+            "Setup is incomplete for app dir: {}\n\
+What happened: tools are synced, but no AI provider is configured in {}.\n\
+Run this next: appctl --app-dir {} setup\n\
+Then retry: appctl --app-dir {} {}\n\
+Advanced: if you already have a working config.toml, copy it into this app dir.",
             self.root.display(),
             self.config.display(),
             self.root.display(),
@@ -387,11 +389,13 @@ impl AppConfig {
         model_override: Option<&str>,
     ) -> Result<ResolvedProvider> {
         if self.providers.is_empty() {
-            bail!("No provider configured. Run `appctl init`.")
+            bail!("Setup is incomplete: no AI provider is configured.\nRun this next: appctl setup")
         }
         let provider_name = provider_name.unwrap_or(&self.default);
         if provider_name.is_empty() {
-            bail!("No provider configured. Run `appctl init`.")
+            bail!(
+                "Setup is incomplete: no default AI provider is configured.\nRun this next: appctl setup"
+            )
         }
         let provider = self
             .providers
@@ -572,9 +576,10 @@ mod tests {
 
         let err = AppConfig::load_for_runtime(&paths, "chat").unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("No provider configured for app dir"));
+        assert!(msg.contains("Setup is incomplete for app dir"));
+        assert!(msg.contains("Run this next"));
         assert!(msg.contains("appctl --app-dir"));
-        assert!(msg.contains("init"));
+        assert!(msg.contains("setup"));
         assert!(msg.contains("chat"));
     }
 
@@ -588,7 +593,8 @@ mod tests {
 
         let err = AppConfig::load_for_runtime(&paths, "run").unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("No provider configured for app dir"));
+        assert!(msg.contains("Setup is incomplete for app dir"));
+        assert!(msg.contains("Run this next"));
         assert!(msg.contains("run"));
     }
 

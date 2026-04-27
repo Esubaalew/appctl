@@ -10,7 +10,11 @@ pub fn format_tool_result_message(
     behavior: &BehaviorConfig,
 ) -> std::result::Result<String, serde_json::Error> {
     let (text, _) = tool_result_capped_for_clients(output, behavior)?;
-    Ok(text)
+    Ok(add_model_next_step_hints(
+        text,
+        output,
+        behavior.max_tool_result_chars,
+    ))
 }
 
 /// Capped `text` for the MCP `content[0].text` field and capped `structuredContent` (JSON `Value`).
@@ -52,6 +56,51 @@ fn shrink_list_at_root(value: &Value, max_list_items: usize) -> (Value, Option<S
         }
         _ => (value.clone(), None),
     }
+}
+
+fn add_model_next_step_hints(text: String, output: &Value, max_chars: usize) -> String {
+    let mut hints = Vec::new();
+
+    if text.contains("showing first") {
+        hints.push(
+            "If the target row is not visible, call the same list tool again with `filter`, or page with `offset`/`limit`.",
+        );
+    }
+
+    match output {
+        Value::Array(rows) if rows.is_empty() => {
+            hints.push(
+                "This list result is empty. Try another likely filter column, relax the filter, or explain which lookup path failed.",
+            );
+        }
+        Value::Array(rows) if rows.iter().take(5).any(row_has_id_like_key) => {
+            hints.push(
+                "Use returned `id` or `*_id` values as inputs to related `get_*` or filtered `list_*` tools before answering.",
+            );
+        }
+        _ => {}
+    }
+
+    if hints.is_empty() {
+        return text;
+    }
+
+    let mut out = text;
+    out.push_str("\nappctl next step hints:\n");
+    for hint in hints {
+        out.push_str("- ");
+        out.push_str(hint);
+        out.push('\n');
+    }
+    apply_max_tool_result_chars(out, max_chars)
+}
+
+fn row_has_id_like_key(row: &Value) -> bool {
+    let Some(obj) = row.as_object() else {
+        return false;
+    };
+    obj.keys()
+        .any(|key| key == "id" || key.ends_with("_id") || key.ends_with("_ids"))
 }
 
 fn apply_max_tool_result_chars(s: String, max: usize) -> String {
@@ -104,6 +153,33 @@ mod tests {
         let arr = structured.as_array().expect("structural cap off");
         assert_eq!(arr.len(), 2);
         assert!(text.contains("first 2 of 5"));
+    }
+
+    #[test]
+    fn model_message_adds_list_next_step_hints() {
+        let v = json!([
+            { "id": "record-1", "parcel_id": "parcel-1", "old_code": "DD001" },
+            { "id": "record-2", "parcel_id": "parcel-2", "old_code": "DD002" }
+        ]);
+        let b = BehaviorConfig {
+            max_tool_list_items: 1,
+            max_tool_result_chars: 0,
+            ..Default::default()
+        };
+        let text = format_tool_result_message(&v, &b).unwrap();
+        assert!(text.contains("appctl next step hints"));
+        assert!(text.contains("filter"));
+        assert!(text.contains("`*_id`"));
+    }
+
+    #[test]
+    fn model_message_adds_empty_list_hint() {
+        let b = BehaviorConfig {
+            max_tool_result_chars: 0,
+            ..Default::default()
+        };
+        let text = format_tool_result_message(&json!([]), &b).unwrap();
+        assert!(text.contains("This list result is empty"));
     }
 
     #[test]

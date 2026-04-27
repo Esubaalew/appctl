@@ -30,6 +30,18 @@ use crate::{
     sync::{load_runtime_tools, load_schema},
 };
 
+/// HTTP URL the OS browser (and local tools like `cloudflared --url`) should use for this listener.
+/// When the socket is `0.0.0.0` / `::`, [`SocketAddr`]'s string form is not a valid page URL.
+fn loopback_http_base_url(listen: SocketAddr) -> String {
+    if !listen.ip().is_unspecified() {
+        return format!("http://{listen}");
+    }
+    match listen {
+        SocketAddr::V4(s) => format!("http://127.0.0.1:{}", s.port()),
+        SocketAddr::V6(s) => format!("http://[::1]:{}", s.port()),
+    }
+}
+
 fn try_open_in_browser(url: &str) {
     #[cfg(target_os = "macos")]
     {
@@ -152,17 +164,26 @@ pub async fn run_server(
     let addr: SocketAddr = format!("{}:{}", state.options.bind, state.options.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local = listener.local_addr().context("listener local_addr")?;
-    let base_url = format!("http://{local}");
-    println!("appctl serve — {base_url}  (use Ctrl+C to stop)");
+    // `local` is often `0.0.0.0:port` when binding all interfaces. Browsers must not be opened
+    // to `http://0.0.0.0/...` — that commonly yields a blank page; use loopback for local UI
+    // and for cloudflared's upstream URL.
+    let open_base_url = loopback_http_base_url(local);
+    println!("appctl serve — {open_base_url}  (listening on {local}, Ctrl+C to stop)");
+    if local.ip().is_unspecified() {
+        println!(
+            "  (from other devices on the LAN, use this machine’s IP, e.g. http://<ip>:{})",
+            local.port()
+        );
+    }
     if state.options.open_browser {
-        let open_url = base_url.clone();
+        let open_url = open_base_url.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(200));
             try_open_in_browser(&open_url);
         });
     }
     if state.options.tunnel {
-        let target = base_url.clone();
+        let target = open_base_url.clone();
         Command::new("cloudflared")
             .args(["tunnel", "--url", &target, "--no-autoupdate"])
             .spawn()?;
@@ -705,6 +726,22 @@ fn internal_error(error: impl ToString) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
+
+    #[test]
+    fn loopback_url_maps_unspecified_bind_to_localhost() {
+        let a = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 4242));
+        assert_eq!(loopback_http_base_url(a), "http://127.0.0.1:4242");
+        let a6 = SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 4242, 0, 0));
+        assert_eq!(loopback_http_base_url(a6), "http://[::1]:4242");
+    }
+
+    #[test]
+    fn loopback_url_keeps_concrete_bind_address() {
+        let a = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 4242));
+        assert_eq!(loopback_http_base_url(a), "http://10.0.0.1:4242");
+    }
 
     #[test]
     fn browser_origin_allows_non_browser_clients() {

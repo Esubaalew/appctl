@@ -487,10 +487,57 @@ fn resource_from_table(
         _ => schema,
     };
     let transport_table = table.to_string();
+    let filter_columns = fields
+        .iter()
+        .take(16)
+        .map(|field| format!("`{}`", field.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let filter_description = if filter_columns.is_empty() {
+        "Exact-match filters (AND): map column names to values. Use for business keys that are not the primary key."
+            .to_string()
+    } else {
+        format!(
+            "Exact-match filters (AND): map column names to values. Available columns include {filter_columns}. Use for business keys that are not the primary key."
+        )
+    };
+    let list_params = vec![
+        Field {
+            name: "filter".to_string(),
+            description: Some(filter_description),
+            field_type: FieldType::Object,
+            required: false,
+            location: Some(ParameterLocation::Body),
+            default: None,
+            enum_values: vec![],
+        },
+        Field {
+            name: "limit".to_string(),
+            description: Some("Maximum rows to return (default 100, max 500).".to_string()),
+            field_type: FieldType::Integer,
+            required: false,
+            location: Some(ParameterLocation::Body),
+            default: Some(json!(100)),
+            enum_values: vec![],
+        },
+        Field {
+            name: "offset".to_string(),
+            description: Some(
+                "Number of rows to skip before returning results (pagination).".to_string(),
+            ),
+            field_type: FieldType::Integer,
+            required: false,
+            location: Some(ParameterLocation::Body),
+            default: Some(json!(0)),
+            enum_values: vec![],
+        },
+    ];
     let mut actions = vec![
         Action {
             name: format!("list_{}", resource_name),
-            description: Some(format!("List rows from {}", table_desc)),
+            description: Some(format!(
+                "List rows from {table_desc}. Use `filter` for exact column lookup by keys such as {filter_columns}; use `offset`/`limit` to page through large tables."
+            )),
             verb: Verb::List,
             transport: Transport::Sql {
                 database_kind: db_kind.clone(),
@@ -499,7 +546,7 @@ fn resource_from_table(
                 operation: SqlOperation::Select,
                 primary_key: single_primary_key.clone(),
             },
-            parameters: Vec::new(),
+            parameters: list_params,
             safety: Safety::ReadOnly,
             resource: Some(resource_name.clone()),
             provenance: Provenance::Declared,
@@ -533,10 +580,15 @@ fn resource_from_table(
     ];
 
     if let Some(pk) = single_primary_key {
+        let pk_field_type = fields
+            .iter()
+            .find(|field| field.name == pk)
+            .map(|field| field.field_type.clone())
+            .unwrap_or(FieldType::String);
         let pk_field = Field {
             name: pk.clone(),
             description: Some("Primary key".to_string()),
-            field_type: FieldType::Integer,
+            field_type: pk_field_type,
             required: true,
             location: Some(ParameterLocation::Path),
             default: None,
@@ -1118,6 +1170,62 @@ mod tests {
                 .iter()
                 .any(|action| action.name == "delete_memberships")
         );
+    }
+
+    #[tokio::test]
+    async fn sqlite_sync_uses_real_pk_type_and_describes_list_filters() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("land.db");
+        let connection = format!("sqlite://{}?mode=rwc", db_path.display());
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&connection)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "create table land_record (
+                id text primary key,
+                parcel_id text not null,
+                uic text,
+                old_code text
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        drop(pool);
+
+        let schema = DbSync::new(connection).introspect().await.unwrap();
+        let resource = &schema.resources[0];
+        let list = resource
+            .actions
+            .iter()
+            .find(|action| action.name == "list_land_record")
+            .unwrap();
+        let filter = list
+            .parameters
+            .iter()
+            .find(|field| field.name == "filter")
+            .unwrap();
+        assert!(
+            filter
+                .description
+                .as_deref()
+                .unwrap()
+                .contains("`old_code`")
+        );
+        assert!(list.description.as_deref().unwrap().contains("`parcel_id`"));
+
+        let get = resource
+            .actions
+            .iter()
+            .find(|action| action.name == "get_land_record")
+            .unwrap();
+        assert!(matches!(
+            get.parameters.first().map(|field| &field.field_type),
+            Some(crate::schema::FieldType::String)
+        ));
     }
 
     #[test]

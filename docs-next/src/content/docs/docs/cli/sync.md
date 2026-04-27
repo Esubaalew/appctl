@@ -5,6 +5,9 @@ description: Introspect your app and write .appctl/schema.json.
 
 Introspect your app and write `.appctl/schema.json`.
 
+New users should usually start with [`appctl setup`](/docs/cli/setup/), which
+helps choose the right sync source and then runs the matching sync path.
+
 ## Usage
 
 ```

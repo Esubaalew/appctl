@@ -14,6 +14,9 @@ The server runs the same planner, executor, and safety rails as the CLI. All
 tools, logs, and configuration live in the current app directory
 (`--app-dir`, default `.appctl`).
 
+If the web console shows “Provider missing” or “Tools not synced,” run
+[`appctl setup`](/docs/cli/setup/) in the same project and restart `serve`.
+
 ## Usage
 
 ```bash
@@ -26,6 +29,7 @@ appctl serve [OPTIONS]
 | --- | --- | --- |
 | `--bind <ADDR>` | `127.0.0.1` | Interface to listen on. Use `0.0.0.0` only with `--token`. Can be set with env `APPCTL_BIND`. |
 | `--port <N>` | `4242` | TCP port. Use `0` to let the OS pick a free port (the printed URL includes the real port). Env: `APPCTL_PORT`. |
+| `--open` | on | Explicitly open the browser to the web console. This is the default, but the flag is useful in copyable setup steps. |
 | `--no-open` | off | By default, appctl opens the local UI in your default browser after the server is listening. Pass this to skip that. |
 | `--token <STRING>` | unset | Require this bearer token on every request. When set, the web UI prompts for it. |
 | `--identity-header <NAME>` | `x-appctl-client-id` | Header used to tag requests with a caller identity in the activity log. |

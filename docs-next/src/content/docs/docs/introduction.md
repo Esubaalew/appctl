@@ -13,7 +13,9 @@ schema. Call history is stored locally (e.g. `.appctl/history.db`).
 
 ## Primary commands
 
-1. [`appctl init`](/docs/init/) — create `.appctl/config.toml` and store provider credentials.
+Start with [`appctl setup`](/docs/cli/setup/) if you want the guided path.
+
+1. [`appctl setup`](/docs/cli/setup/) — provider, sync source, checks, and next steps in one flow.
 2. [`appctl sync`](/docs/cli/sync/) — generate the schema and tools from one selected source. If `.appctl/schema.json` already exists, [`--force`](/docs/cli/sync/#when-to-use-force) is required to replace it.
 3. [`appctl chat`](/docs/cli/chat/) or [`appctl run`](/docs/cli/run/) — send user text; the model may emit tool calls which `appctl` executes.
 4. [`appctl serve`](/docs/cli/serve/) — expose HTTP/WebSocket and the embedded web console.
@@ -42,5 +44,6 @@ Not sure which flag to use? Start with [Choosing a sync source](/docs/sources/ch
 ## See also
 
 - [Installation](/docs/installation/)
+- [First 10 minutes](/docs/first-10-minutes/)
 - [Quickstart](/docs/quickstart/)
 - [Mental model](/docs/concepts/mental-model/)

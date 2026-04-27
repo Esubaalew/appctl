@@ -15,6 +15,7 @@ pub mod run;
 pub mod safety;
 pub mod schema;
 pub mod serve;
+pub mod setup;
 pub mod sync;
 pub mod term;
 mod tool_result_format;

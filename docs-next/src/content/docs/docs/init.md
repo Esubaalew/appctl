@@ -3,7 +3,11 @@ title: appctl init
 description: Interactive first-time setup for providers, secrets, and verification.
 ---
 
-`appctl init` is the interactive way to configure a provider. It writes
+For most users, start with [`appctl setup`](/docs/cli/setup/). It calls the same
+provider setup and then continues through sync, doctor, and first chat/web
+guidance.
+
+`appctl init` is the lower-level interactive way to configure only a provider. It writes
 `.appctl/config.toml`, stores secrets in the OS keychain, runs the real auth
 flow, and ends with a live verify call before printing `done`. If the verify
 call fails, the config is still written but the provider is marked
@@ -88,7 +92,9 @@ refresh the matching global app registration if one already exists.
 
 ## See also
 
-- [Installation → Configure a provider](/docs/installation/#configure-a-provider)
+- [First 10 minutes](/docs/first-10-minutes/)
+- [`appctl setup`](/docs/cli/setup/)
+- [Installation → Configure a provider manually](/docs/installation/#configure-a-provider-manually)
 - [Provider matrix](/docs/provider-matrix/)
 - [`appctl auth`](/docs/cli/auth/)
 - [`appctl app`](/docs/cli/app/) — register this project as a named context.

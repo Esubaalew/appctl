@@ -65,10 +65,22 @@ mv appctl /usr/local/bin/
 
 Or grab them from the [Releases page](https://github.com/Esubaalew/appctl/releases).
 
-## Configure a provider
+## Start the guided setup
+
+After install, the simplest path is:
+
+```bash
+appctl setup
+```
+
+It guides you through provider setup, source selection, sync, checks, and the
+next command for terminal or web chat. See [First 10 minutes](/docs/first-10-minutes/)
+for the full happy path.
+
+## Configure a provider manually
 
 `appctl` needs at least one language-model provider to run `chat`, `run`, or
-`serve`. Start with the interactive wizard:
+`serve`. If you only want to configure the provider and sync manually, use:
 
 ```bash
 appctl init
@@ -161,6 +173,7 @@ You should see every subcommand:
 
 ```text
 Commands:
+  setup     Guided first-run setup: provider, sync source, checks, and next steps.
   init      Set up a `.appctl` directory (models, auth, and provider) interactively.
   sync      Introspect your app and regenerate the tool schema.
   chat      Interactive REPL against the synced schema.
@@ -177,6 +190,7 @@ Commands:
 
 ## Next
 
+- [First 10 minutes](/docs/first-10-minutes/) — the recommended setup path.
 - [Quickstart](/docs/quickstart/) — run a demo app end-to-end.
 - [Provider matrix](/docs/provider-matrix/) — choose the right auth path.
 - [Sources](/docs/sources/openapi/) — pick a sync source for your app.

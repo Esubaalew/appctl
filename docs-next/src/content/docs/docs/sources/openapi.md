@@ -83,7 +83,7 @@ widgets ['create_widget_widgets_post']
 appctl chat "create a widget named Demo"
 ```
 
-This step requires a language model configured. See [Installation](/docs/installation/#configure-a-provider).
+This step requires a language model configured. The easiest path is [First 10 minutes](/docs/first-10-minutes/), or see [Installation](/docs/installation/#configure-a-provider-manually) for manual provider setup.
 
 ## Verify the tools are reachable
 

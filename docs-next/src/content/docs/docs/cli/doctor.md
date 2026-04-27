@@ -8,6 +8,10 @@ and probes every HTTP tool against the live base URL. It is safe to run
 against production: the probe uses `HEAD` and `OPTIONS` where possible and
 falls back to small `GET` requests, never mutating verbs.
 
+The guided [`appctl setup`](/docs/cli/setup/) flow runs `doctor --write` for
+HTTP-like sources when it has enough information. Run `doctor` manually after
+changing a base URL, auth header, or synced routes.
+
 ## Usage
 
 ```bash

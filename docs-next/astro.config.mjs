@@ -91,6 +91,7 @@ export default defineConfig({
       sidebar: [
         { label: 'Introduction', slug: 'docs/introduction' },
         { label: 'Installation', slug: 'docs/installation' },
+        { label: 'First 10 minutes', slug: 'docs/first-10-minutes' },
         { label: 'Init', slug: 'docs/init' },
         { label: 'Provider matrix', slug: 'docs/provider-matrix' },
         { label: 'Quickstart', slug: 'docs/quickstart' },
@@ -124,6 +125,7 @@ export default defineConfig({
         {
           label: 'CLI reference',
           items: [
+            { label: 'setup', slug: 'docs/cli/setup' },
             { label: 'sync', slug: 'docs/cli/sync' },
             { label: 'chat', slug: 'docs/cli/chat' },
             { label: 'run', slug: 'docs/cli/run' },

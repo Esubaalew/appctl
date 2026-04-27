@@ -201,14 +201,8 @@ pub async fn run_init(paths: &ConfigPaths) -> Result<()> {
     }
 
     print_section_title("App identity");
-    print_tip(
-        "The display label defaults to the project folder (parent of `.appctl`). The global registry name (next) is what you pass to `appctl app use` / `app list`.",
-    );
     refine_app_label_and_description(paths)?;
     prompt_register_app(paths)?;
-    print_tip(
-        "Database tools: `appctl sync --db` with your sqlite: or postgres:// URL; that URL is saved under [target] in config for chat/run (no need to hand-edit).",
-    );
 
     Ok(())
 }
@@ -237,7 +231,7 @@ fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
 
     if !io::stdin().is_terminal() {
         print_tip(
-            "No TTY: skipped display name / description prompts — folder-based label was applied. In a real terminal, run `appctl init` again, or: `appctl app add` with `--display-name` and `--description`.",
+            "No TTY: applied folder-based display label. Run `appctl init` in a terminal to set a label.",
         );
         return config.save(paths);
     }
@@ -247,9 +241,7 @@ fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
         .clone()
         .unwrap_or_else(|| app_name_from_dir(&paths.root));
     if registry_default_looks_like_os_username(&default_label, &paths.root) {
-        print_tip(
-            "The suggested label is the folder name above this `.appctl`—for a home-dir app that is often your login name, and that text is used in the chat title and prompt (e.g. [label · provider]). Type a project or app name if you do not want that here.",
-        );
+        print_tip("Tip: that default is your home folder name; set a project label if you prefer.");
     }
     let label: String = Input::new()
         .with_prompt("Display label (chat / serve; Enter to keep the folder name)")
@@ -289,22 +281,15 @@ fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
                 detected_name
             ));
         } else {
-            print_tip(
-                "No TTY: skipped registry name prompt — this .appctl is already in ~/.appctl/apps.toml.",
-            );
+            print_tip("No TTY: this .appctl is already in ~/.appctl/apps.toml.");
         }
-        print_tip(
-            "For interactive registration naming, use a real terminal: `appctl app add` from this app.",
-        );
+        print_tip("In a TTY, use `appctl app add` to set a custom registration name.");
         return Ok(());
     }
 
-    print_tip(
-        "Global registry name: used for `appctl app use <name>`, `app list`, and the first part of the chat title (before '·'). It is not your API URL — pick something you will recognize.",
-    );
     if registry_default_looks_like_os_username(&detected_name, &paths.root) {
         print_tip(
-            "This .appctl lives under your home directory, so the suggested name matches your login folder (e.g. your macOS username). If this app is not «you», type a clearer name (e.g. home-agents, personal-api).",
+            "Tip: default matches your user folder; change it if this is a project, not a personal home app.",
         );
     }
 
@@ -354,9 +339,7 @@ fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
         ));
         offer_display_name_match_registry(paths, &chosen)?;
     } else {
-        print_tip(
-            "Skipped global registration. Run `appctl app add` later if you want this app in `appctl app list`.",
-        );
+        print_tip("Skipped. Run `appctl app add` to register later.");
     }
 
     Ok(())

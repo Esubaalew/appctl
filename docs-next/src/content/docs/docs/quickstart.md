@@ -10,7 +10,7 @@ applies to any app that exposes an OpenAPI document.
 
 - [`appctl` installed](/docs/installation/)
 - Python 3.11+
-- A configured LLM provider; run `appctl init` (see [`appctl init`](/docs/init/)). Accepting the optional app registration at the end adds this demo to `~/.appctl/apps.toml` for global `appctl chat` / `appctl serve`.
+- For the simplest setup, run [`appctl setup`](/docs/cli/setup/) from the demo folder after starting the app. The manual commands below are for users who want each step shown explicitly.
 
 ## 1. Clone and start the demo
 
@@ -35,7 +35,20 @@ Output:
 {"openapi":"3.1.0","info":{"title":"appctl demo API","ve
 ```
 
-## 2. Sync
+## 2. Guided setup or manual sync
+
+Recommended:
+
+```bash
+appctl setup
+```
+
+Choose “OpenAPI document,” then enter:
+
+- OpenAPI URL: `http://127.0.0.1:8000/openapi.json`
+- Base URL: `http://127.0.0.1:8000`
+
+Manual equivalent:
 
 In the same folder, point `appctl` at the live document:
 
@@ -116,7 +129,7 @@ deactivate   # exit venv
 ## Sequence summary
 
 1. The demo app serves an OpenAPI document.
-2. `appctl sync` maps operations to tools in `.appctl/schema.json` (here `provenance=declared`).
+2. `appctl setup` guides provider setup and sync; manual `appctl sync` maps operations to tools in `.appctl/schema.json` (here `provenance=declared`).
 3. `appctl doctor` checks reachability against the live base URL.
 4. `appctl chat` / `appctl run` send the tool list to the model and execute the calls it requests.
 

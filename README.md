@@ -22,15 +22,23 @@ Build from a clone, or install with a custom web UI bundle: see
 
 | Command | Purpose |
 | --- | --- |
+| `appctl setup` | Guided first-run flow: provider, sync source, checks, and next steps. |
 | `appctl init` | Create `.appctl/config.toml` and store provider secrets. |
 | `appctl sync` | Generate `.appctl/schema.json` and `tools.json` from a source (e.g. `--openapi`, `--django`, `--db`). |
 | `appctl chat` / `appctl run` | Send a prompt; the model may call tools via `appctl`. |
 | `appctl serve` | HTTP and WebSocket API plus bundled web UI. |
 
 ```bash
+appctl setup
+appctl chat
+```
+
+Advanced manual setup is still available:
+
+```bash
 appctl init
 appctl sync --openapi https://api.example.com/openapi.json --base-url https://api.example.com
-appctl chat
+appctl doctor --write
 ```
 
 Full CLI reference, sync sources, providers, `serve`, and plugins are covered

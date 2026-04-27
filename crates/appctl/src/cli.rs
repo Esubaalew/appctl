@@ -28,6 +28,7 @@ use crate::{
     plugins,
     run::{RunOptions, run_once},
     serve::{ServeOptions, run_server},
+    setup::run_setup,
     sync::{SyncRequest, run_sync},
 };
 
@@ -51,6 +52,8 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 pub enum Command {
+    /// Guided first-run setup: provider, sync source, checks, and next steps.
+    Setup,
     /// Set up a `.appctl` directory (models, auth, and provider) interactively.
     Init,
     /// Introspect your stack and (re)build schema and OpenAPI tool definitions.
@@ -74,6 +77,7 @@ pub enum Command {
     /// Run a built-in MCP (Model Context Protocol) stdio server for this app.
     Mcp(McpArgs),
     /// Manage known app contexts and the global active app.
+    #[command(visible_alias = "apps")]
     App(AppArgs),
 }
 
@@ -403,6 +407,9 @@ pub struct ServeArgs {
     /// Auto-approve mutating tools (on by default for non-interactive `serve`).
     #[arg(long, default_value_t = true)]
     pub confirm: bool,
+    /// Explicitly open the default web browser to the local UI (this is the default).
+    #[arg(long, conflicts_with = "no_open")]
+    pub open: bool,
     /// Do not open the default web browser to the local UI when the server is ready.
     #[arg(long)]
     pub no_open: bool,
@@ -473,6 +480,10 @@ impl Cli {
         init_tracing(&log_level)?;
 
         match command {
+            Command::Setup => {
+                let paths = resolve_init_paths(app_dir.as_ref())?;
+                run_setup(&paths).await?;
+            }
             Command::Init => {
                 let paths = resolve_init_paths(app_dir.as_ref())?;
                 run_init(&paths).await?;
@@ -607,7 +618,7 @@ impl Cli {
                         read_only: args.read_only,
                         dry_run: args.dry_run,
                         confirm: args.confirm,
-                        open_browser: !args.no_open,
+                        open_browser: args.open || !args.no_open,
                     },
                 )
                 .await?;
@@ -1616,7 +1627,7 @@ fn resolve_runtime_app_context(app_dir_override: Option<&PathBuf>) -> Result<Res
     }
 
     bail!(
-        "No app found. Run `appctl init` in this project, or use `appctl app add` / `appctl app use <name>` to select a global app."
+        "No app context found.\nRun this next: appctl setup\nAdvanced: use `appctl app add` / `appctl app use <name>` to select a global app, or pass `--app-dir <path>`."
     )
 }
 
