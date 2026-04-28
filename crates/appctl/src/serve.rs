@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::{
     ai::{Message, run_agent},
-    config::{AppConfig, ConfigPaths},
+    config::{AppConfig, ConfigPaths, load_secret},
     events::AgentEvent,
     executor::ExecutionContext,
     history::HistoryStore,
@@ -401,20 +401,23 @@ async fn get_config_public(
         return Err(auth_err());
     }
     let schema = load_schema(&state.paths).map_err(internal_error)?;
+    let runtime_config =
+        AppConfig::load_or_init(&state.paths).unwrap_or_else(|_| state.config.clone());
     let active_provider = state
         .options
         .provider
         .clone()
-        .unwrap_or_else(|| state.config.default.clone());
-    let banner_label = state.config.banner_label(&state.app_name);
+        .unwrap_or_else(|| runtime_config.default.clone());
+    let banner_label = runtime_config.banner_label(&state.app_name);
     Ok(Json(json!({
         "app_name": state.app_name,
         "banner_label": banner_label,
-        "display_name": state.config.display_name,
-        "description": state.config.description,
-        "default_provider": state.config.default,
+        "display_name": runtime_config.display_name,
+        "description": runtime_config.description,
+        "default_provider": runtime_config.default,
         "active_provider": active_provider,
-        "provider_statuses": state.config.provider_statuses_with_paths(&state.paths),
+        "provider_statuses": runtime_config.provider_statuses_with_paths(&state.paths),
+        "target_auth": public_target_auth_status(&runtime_config),
         "sync_source": schema.source,
         "base_url": schema.base_url,
         "read_only": state.options.read_only,
@@ -422,6 +425,52 @@ async fn get_config_public(
         "strict": state.options.strict,
         "confirm_default": state.options.confirm,
     })))
+}
+
+fn public_target_auth_status(config: &AppConfig) -> Value {
+    let active_oauth_profile = config
+        .target
+        .oauth_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty());
+    let oauth_token_stored = active_oauth_profile
+        .map(|profile| {
+            load_secret(&format!("appctl_oauth::{profile}"))
+                .map(|raw| !raw.is_empty())
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+    let auth_header_configured = config
+        .target
+        .auth_header
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let mode = if active_oauth_profile.is_some() {
+        "oauth_profile"
+    } else if auth_header_configured {
+        "auth_header"
+    } else {
+        "none"
+    };
+    let recovery_hint = match (active_oauth_profile, oauth_token_stored, auth_header_configured) {
+        (Some(profile), false, _) => Some(format!("Run `appctl auth target login {profile}`.")),
+        (None, false, false) => Some(
+            "Run `appctl setup`, set [target].auth_header, or run `appctl auth target login <name>`."
+                .to_string(),
+        ),
+        _ => None,
+    };
+    json!({
+        "mode": mode,
+        "active_oauth_profile": active_oauth_profile,
+        "oauth_token_stored": oauth_token_stored,
+        "auth_header_configured": auth_header_configured,
+        "me_tool": config.target.me_tool.clone(),
+        "me_path": config.target.me_path.clone(),
+        "recovery_hint": recovery_hint,
+    })
 }
 
 async fn get_history(

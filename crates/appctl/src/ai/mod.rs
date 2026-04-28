@@ -3,7 +3,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -112,6 +112,7 @@ pub async fn run_agent(
     let mut messages = build_turn_messages(prior_messages, prompt, &system_content);
 
     let mut final_response = Value::Null;
+    let mut last_tool_outputs = Vec::<Value>::new();
 
     let loop_result: Result<()> = 'agent: {
         for _ in 0..config.behavior.max_iterations {
@@ -125,8 +126,41 @@ pub async fn run_agent(
                 )
                 .await;
             }
-            match provider.chat(&messages, tools).await? {
+            let step = match provider.chat(&messages, tools).await {
+                Ok(step) => step,
+                Err(err) if !last_tool_outputs.is_empty() => {
+                    let fallback = fallback_response_after_provider_error(&last_tool_outputs, &err);
+                    send_agent_event(
+                        &events,
+                        AgentEvent::ContextNotice {
+                            message: format!(
+                                "The model failed while summarizing tool results; appctl is showing a local fallback. Detail: {err:#}"
+                            ),
+                        },
+                    )
+                    .await;
+                    send_agent_event(
+                        &events,
+                        AgentEvent::AssistantMessage {
+                            text: fallback.clone(),
+                        },
+                    )
+                    .await;
+                    messages.push(Message {
+                        role: "assistant".to_string(),
+                        content: fallback.clone(),
+                        tool_calls: Vec::new(),
+                        tool_call_id: None,
+                        tool_name: None,
+                    });
+                    final_response = Value::String(fallback);
+                    break;
+                }
+                Err(err) => return Err(err),
+            };
+            match step {
                 AgentStep::Message { content } => {
+                    let content = guard_secret_collection_response(&content);
                     final_response = Value::String(content.clone());
                     send_agent_event(
                         &events,
@@ -228,6 +262,7 @@ pub async fn run_agent(
                                     tool_call_id: Some(call.id),
                                     tool_name: Some(call.name),
                                 });
+                                last_tool_outputs.push(result.output.clone());
                                 final_response = result.output;
                             }
                             Err(e) => {
@@ -260,9 +295,10 @@ pub async fn run_agent(
     if final_response.is_null() {
         bail!("agent finished without a response")
     } else {
+        let transcript = compact_transcript_for_storage(messages);
         Ok(AgentRunOutcome {
             response: final_response,
-            transcript: messages,
+            transcript,
         })
     }
 }
@@ -300,12 +336,160 @@ fn compose_system_message(
         "- **App directory** (this `.appctl`): {}\n",
         paths.root.display()
     ));
+    if let Some(provider) = config
+        .target
+        .oauth_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|provider| !provider.is_empty())
+    {
+        s.push_str(&format!(
+            "- **Target auth profile**: `{provider}` (stored by appctl; do not ask the user for its token or password)\n"
+        ));
+    }
+    if let Some(hint) = current_user_hint(config, schema) {
+        s.push_str(&format!("- **Current target-user lookup**: {hint}\n"));
+    }
     s.push_str(&format!(
         "- **Tools / schema from**: {}\n",
         session_sync_line(schema)
     ));
     s.push_str(&compose_tool_guide(schema));
     s
+}
+
+fn fallback_response_after_provider_error(tool_outputs: &[Value], err: &anyhow::Error) -> String {
+    let successes = tool_outputs
+        .iter()
+        .filter(|value| value.get("ok").and_then(Value::as_bool) == Some(true))
+        .count();
+    let failures = tool_outputs.len().saturating_sub(successes);
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Tool calls completed, but the model failed while writing the final reply. appctl preserved the results locally. ({successes} succeeded, {failures} failed.)"
+    ));
+    if let Some(last) = tool_outputs.last() {
+        if let Some(summary) = last.get("summary").and_then(Value::as_str) {
+            lines.push(format!("Last tool result: {summary}"));
+        }
+        if let Some(data) = last.get("data") {
+            let compact = compact_json_preview(data, 1200);
+            if !compact.is_empty() {
+                lines.push(format!("Last data: {compact}"));
+            }
+        }
+    }
+    lines.push(format!("Model error: {err:#}"));
+    lines.join("\n")
+}
+
+fn compact_json_preview(value: &Value, max_chars: usize) -> String {
+    let raw = serde_json::to_string(value).unwrap_or_else(|_| json!(value).to_string());
+    if raw.chars().count() <= max_chars {
+        return raw;
+    }
+    let mut out = raw
+        .chars()
+        .take(max_chars.saturating_sub(18))
+        .collect::<String>();
+    out.push_str("… [truncated]");
+    out
+}
+
+fn compact_transcript_for_storage(messages: Vec<Message>) -> Vec<Message> {
+    messages
+        .into_iter()
+        .filter(|message| message.role != "tool" && message.tool_calls.is_empty())
+        .collect()
+}
+
+fn current_user_hint(config: &AppConfig, schema: &Schema) -> Option<String> {
+    if let Some(tool) = config
+        .target
+        .me_tool
+        .as_deref()
+        .map(str::trim)
+        .filter(|tool| !tool.is_empty())
+    {
+        return Some(format!(
+            "call tool `{tool}` when the user asks who appctl is authenticated as"
+        ));
+    }
+    if let Some(path) = config
+        .target
+        .me_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        return Some(format!(
+            "use the configured current-user HTTP path `{path}` when available"
+        ));
+    }
+
+    let likely = schema
+        .resources
+        .iter()
+        .flat_map(|resource| resource.actions.iter())
+        .find(|action| {
+            let name = action.name.to_ascii_lowercase();
+            let name_match = name == "me"
+                || name == "whoami"
+                || name.contains("current_user")
+                || name.contains("get_me")
+                || name.contains("users_me");
+            let path_match = match &action.transport {
+                Transport::Http { path, .. } => {
+                    matches!(path.as_str(), "/me" | "/users/me" | "/user/me" | "/whoami")
+                }
+                _ => false,
+            };
+            name_match || path_match
+        })?;
+    Some(format!(
+        "likely current-user tool `{}` is available; prefer it over guessing from user lists",
+        likely.name
+    ))
+}
+
+fn guard_secret_collection_response(content: &str) -> String {
+    if assistant_asks_for_secret(content) {
+        return "I cannot collect passwords, bearer tokens, cookies, API keys, or OAuth client secrets in chat. Configure target-app auth outside the conversation, for example with `appctl setup` or `appctl auth target login <name>`, then retry the request. If the app needs an OAuth client id, store it in appctl config or an environment variable rather than sending it to the AI."
+            .to_string();
+    }
+    content.to_string()
+}
+
+fn assistant_asks_for_secret(content: &str) -> bool {
+    let lower = content.to_lowercase();
+    let asks = [
+        "provide",
+        "paste",
+        "send",
+        "enter",
+        "share",
+        "give me",
+        "what is",
+        "need your",
+        "please provide",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+    let secret = [
+        "password",
+        "passcode",
+        "client secret",
+        "client_secret",
+        "api key",
+        "apikey",
+        "bearer",
+        "token",
+        "cookie",
+        "authorization header",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+    asks && secret
 }
 
 fn system_prompt() -> String {
@@ -316,13 +500,16 @@ You help users with the tools synced for this app (see the appctl banner for the
 Operating rules:
 - Work step by step like an IDE agent: choose a tool, inspect the result, then decide the next tool call.
 - Use returned IDs, foreign keys, URLs, names, and other values from one tool result as inputs to later calls.
+- For create/update tools, send the smallest payload that satisfies the user request and required schema fields. Omit optional fields when the user did not provide a value; do not send empty strings as placeholders.
+- If a tool returns `validation_error`, inspect the returned detail and retry once with the invalid optional fields removed or corrected. If the fix is not obvious, ask one concise follow-up.
+- If a tool returns `server_error`, do not repeatedly guess payload variants. Retry at most once with a smaller payload only if the previous result clearly shows optional fields may have caused the failure; otherwise report the backend failure.
 - For database `list_*` tools, do not assume the first page is complete. If a target row is missing, retry with `filter`, then use `offset`/`limit` when needed.
 - When the user gives a business identifier instead of a primary key, try likely columns such as `uic`, `old_code`, `code`, `slug`, `name`, `email`, or fields shown in the tool guide.
 - To answer relationship questions, follow join-style fields: for example use `parcel_id`, `party_id`, `user_id`, or any `*_id` returned by one tool in a related list/get tool.
 - Ask the user for more information only after the available read-only tools cannot find or disambiguate the needed data.
 - If a read-only lookup fails, explain the specific tool path tried and the missing key/field; do not simply say the data is unavailable.
 
-For HTTP tools, appctl may add Authorization headers, cookies, sessions, and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; never ask the user to paste API tokens, passwords, OAuth client secrets, cookies, or bearer strings into chat. If a tool result returns 401/403, say that the target app auth configured in appctl was missing, expired, rejected, or lacks permission, and tell the user to fix appctl target auth/config outside chat. Only ask for ordinary non-secret business inputs (project name, task title, record id, date range, etc.).
+For HTTP tools, appctl may add Authorization headers, cookies, sessions, and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; never ask the user to paste API tokens, passwords, OAuth client secrets, cookies, or bearer strings into chat. If the user asks you to log in as a target-app user, do not ask for their password or client secret; tell them to configure target auth outside chat with `appctl setup` or `appctl auth target login <name>`. If a tool result returns 401/403, say that the target app auth configured in appctl was missing, expired, rejected, or lacks permission, and tell the user to fix appctl target auth/config outside chat. Only ask for ordinary non-secret business inputs (project name, task title, record id, date range, etc.).
 
 Response style rules:
 - Do not volunteer unrelated information the user did not ask for.
@@ -552,11 +739,18 @@ fn trim_transcript(messages: &mut Vec<Message>, history_limit: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{Message, build_turn_messages, compose_tool_guide, system_prompt, trim_transcript};
+    use super::{
+        Message, ToolCall, assistant_asks_for_secret, build_turn_messages,
+        compact_transcript_for_storage, compose_tool_guide, current_user_hint,
+        fallback_response_after_provider_error, guard_secret_collection_response, system_prompt,
+        trim_transcript,
+    };
+    use crate::config::AppConfig;
     use crate::schema::{
         Action, AuthStrategy, DatabaseKind, Field, FieldType, ParameterLocation, Provenance,
         Resource, Safety, Schema, SqlOperation, SyncSource, Transport, Verb,
     };
+    use serde_json::json;
 
     fn msg(role: &str, content: &str) -> Message {
         Message {
@@ -604,9 +798,104 @@ mod tests {
         let prompt = system_prompt();
         assert!(prompt.contains("Work step by step like an IDE agent"));
         assert!(prompt.contains("Use returned IDs"));
+        assert!(prompt.contains("send the smallest payload"));
+        assert!(prompt.contains("do not send empty strings as placeholders"));
+        assert!(prompt.contains("Retry at most once"));
         assert!(prompt.contains("retry with `filter`"));
         assert!(prompt.contains("never ask the user to paste API tokens"));
+        assert!(prompt.contains("If the user asks you to log in as a target-app user"));
         assert!(prompt.contains("fix appctl target auth/config outside chat"));
+    }
+
+    #[test]
+    fn secret_collection_guard_blocks_password_and_client_secret_request() {
+        let bad = "Please provide esubalew's password (and the client ID/secret if required).";
+
+        assert!(assistant_asks_for_secret(bad));
+        let safe = guard_secret_collection_response(bad);
+
+        assert!(!safe.contains("Please provide esubalew"));
+        assert!(safe.contains("I cannot collect passwords"));
+        assert!(safe.contains("appctl auth target login"));
+    }
+
+    #[test]
+    fn secret_collection_guard_allows_normal_business_question() {
+        let ok = "Which project name should I use?";
+
+        assert!(!assistant_asks_for_secret(ok));
+        assert_eq!(guard_secret_collection_response(ok), ok);
+    }
+
+    #[test]
+    fn current_user_hint_prefers_explicit_me_tool() {
+        let mut config = AppConfig::default();
+        config.target.me_tool = Some("get_current_user".to_string());
+
+        let schema = Schema {
+            source: SyncSource::Openapi,
+            base_url: None,
+            auth: AuthStrategy::None,
+            resources: vec![],
+            metadata: serde_json::Map::new(),
+        };
+        let hint = current_user_hint(&config, &schema).unwrap();
+
+        assert!(hint.contains("get_current_user"));
+    }
+
+    #[test]
+    fn fallback_response_preserves_completed_tool_result_context() {
+        let outputs = vec![json!({
+            "ok": true,
+            "summary": "created task #42",
+            "data": {
+                "id": 42,
+                "title": "Ship fallback",
+            }
+        })];
+
+        let err = anyhow::anyhow!("Model HTTP API returned status 500 Internal Server Error");
+        let response = fallback_response_after_provider_error(&outputs, &err);
+
+        assert!(response.contains("Tool calls completed"));
+        assert!(response.contains("1 succeeded, 0 failed"));
+        assert!(response.contains("created task #42"));
+        assert!(response.contains("\"id\":42"));
+        assert!(response.contains("Model HTTP API returned status 500"));
+    }
+
+    #[test]
+    fn compact_transcript_for_storage_drops_stale_tool_protocol() {
+        let mut assistant_tool_call = msg("assistant", "");
+        assistant_tool_call.tool_calls = vec![ToolCall {
+            id: "call_1".to_string(),
+            name: "list_projects".to_string(),
+            arguments: json!({}),
+        }];
+
+        let mut tool_message = msg("tool", "{\"ok\":true}");
+        tool_message.tool_call_id = Some("call_1".to_string());
+        tool_message.tool_name = Some("list_projects".to_string());
+
+        let compacted = compact_transcript_for_storage(vec![
+            msg("system", "sys"),
+            msg("user", "how many?"),
+            assistant_tool_call,
+            tool_message,
+            msg("assistant", "There are 3 projects."),
+        ]);
+
+        assert_eq!(compacted.len(), 3);
+        assert_eq!(compacted[0].role, "system");
+        assert_eq!(compacted[1].role, "user");
+        assert_eq!(compacted[2].content, "There are 3 projects.");
+        assert!(compacted.iter().all(|message| message.role != "tool"));
+        assert!(
+            compacted
+                .iter()
+                .all(|message| message.tool_calls.is_empty())
+        );
     }
 
     #[test]

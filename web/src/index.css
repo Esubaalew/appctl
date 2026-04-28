@@ -151,6 +151,10 @@ kbd {
   background: var(--elev);
 }
 
+.safe-composer {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
@@ -249,4 +253,21 @@ textarea:focus-visible {
 }
 .markdown a:hover {
   text-decoration-color: var(--fg);
+}
+
+@media (max-width: 640px) {
+  .rail-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .markdown {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .markdown pre,
+  .markdown code {
+    font-size: 12px;
+  }
 }

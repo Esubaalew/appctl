@@ -27,6 +27,8 @@ appctl auth target login <name> \
     [--redirect-port 8421]
 
 appctl auth target status <name>
+appctl auth target use <name>
+appctl auth target logout <name>
 ```
 
 `login` runs a real OAuth 2.0 Authorization-Code-with-PKCE flow against the
@@ -35,7 +37,9 @@ Missing values fall back to environment variables named `<NAME>_CLIENT_ID`
 and `<NAME>_CLIENT_SECRET`.
 
 The resulting token payload is stored in the OS keychain under
-`appctl_oauth::<name>`.
+`appctl_oauth::<name>`. `login` also sets `[target].oauth_provider = "<name>"`
+so HTTP tools use that bearer token automatically. Use `target use` to switch to
+another stored target profile without logging in again.
 
 ## Provider auth
 

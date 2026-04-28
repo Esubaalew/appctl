@@ -214,6 +214,10 @@ pub enum TargetAuthSubcommand {
     Status {
         provider: String,
     },
+    /// Make stored target OAuth tokens the default auth profile for HTTP tools.
+    Use {
+        provider: String,
+    },
     Logout {
         provider: String,
     },
@@ -679,32 +683,10 @@ impl Cli {
                     install_plugin(&name)?;
                 }
             },
-            Command::Auth(args) => match args.command {
-                AuthSubcommand::Login {
-                    provider,
-                    client_id,
-                    client_secret,
-                    auth_url,
-                    token_url,
-                    scope,
-                    redirect_port,
-                } => {
-                    login_target_auth(
-                        &provider,
-                        client_id,
-                        client_secret,
-                        auth_url,
-                        token_url,
-                        scope,
-                        redirect_port,
-                    )
-                    .await?;
-                }
-                AuthSubcommand::Status { provider } => {
-                    print_target_auth_status(&provider);
-                }
-                AuthSubcommand::Target { command } => match command {
-                    TargetAuthSubcommand::Login {
+            Command::Auth(args) => {
+                let paths = resolve_init_paths(app_dir.as_ref())?;
+                match args.command {
+                    AuthSubcommand::Login {
                         provider,
                         client_id,
                         client_secret,
@@ -714,6 +696,7 @@ impl Cli {
                         redirect_port,
                     } => {
                         login_target_auth(
+                            &paths,
                             &provider,
                             client_id,
                             client_secret,
@@ -724,60 +707,89 @@ impl Cli {
                         )
                         .await?;
                     }
-                    TargetAuthSubcommand::Status { provider } => {
-                        print_target_auth_status(&provider);
+                    AuthSubcommand::Status { provider } => {
+                        print_target_auth_status(&paths, &provider)?;
                     }
-                    TargetAuthSubcommand::Logout { provider } => {
-                        logout_target_auth(&provider)?;
-                    }
-                },
-                AuthSubcommand::Provider { command } => match command {
-                    ProviderAuthSubcommand::Login {
-                        provider,
-                        profile,
-                        value,
-                        client_id,
-                        client_secret,
-                        auth_url,
-                        token_url,
-                        scope,
-                        redirect_port,
-                    } => {
-                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
-                        let config = AppConfig::load_or_init(&app.paths)?;
-                        login_provider_auth(
-                            &config,
-                            &provider,
-                            ProviderLoginRequest {
-                                profile,
-                                value,
+                    AuthSubcommand::Target { command } => match command {
+                        TargetAuthSubcommand::Login {
+                            provider,
+                            client_id,
+                            client_secret,
+                            auth_url,
+                            token_url,
+                            scope,
+                            redirect_port,
+                        } => {
+                            login_target_auth(
+                                &paths,
+                                &provider,
                                 client_id,
                                 client_secret,
                                 auth_url,
                                 token_url,
                                 scope,
                                 redirect_port,
-                            },
-                        )
-                        .await?;
-                    }
-                    ProviderAuthSubcommand::Status { provider } => {
-                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
-                        let config = AppConfig::load_or_init(&app.paths)?;
-                        print_provider_auth_status(&app.paths, &config, provider.as_deref())?;
-                    }
-                    ProviderAuthSubcommand::Logout { provider } => {
-                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
-                        let config = AppConfig::load_or_init(&app.paths)?;
-                        logout_provider_auth(&config, &provider)?;
-                    }
-                    ProviderAuthSubcommand::List => {
-                        let app = resolve_runtime_app_context(app_dir.as_ref())?;
-                        let config = AppConfig::load_or_init(&app.paths)?;
-                        print_provider_auth_status(&app.paths, &config, None)?;
-                    }
-                },
-            },
+                            )
+                            .await?;
+                        }
+                        TargetAuthSubcommand::Status { provider } => {
+                            print_target_auth_status(&paths, &provider)?;
+                        }
+                        TargetAuthSubcommand::Use { provider } => {
+                            use_target_auth(&paths, &provider)?;
+                        }
+                        TargetAuthSubcommand::Logout { provider } => {
+                            logout_target_auth(&paths, &provider)?;
+                        }
+                    },
+                    AuthSubcommand::Provider { command } => match command {
+                        ProviderAuthSubcommand::Login {
+                            provider,
+                            profile,
+                            value,
+                            client_id,
+                            client_secret,
+                            auth_url,
+                            token_url,
+                            scope,
+                            redirect_port,
+                        } => {
+                            let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                            let config = AppConfig::load_or_init(&app.paths)?;
+                            login_provider_auth(
+                                &config,
+                                &provider,
+                                ProviderLoginRequest {
+                                    profile,
+                                    value,
+                                    client_id,
+                                    client_secret,
+                                    auth_url,
+                                    token_url,
+                                    scope,
+                                    redirect_port,
+                                },
+                            )
+                            .await?;
+                        }
+                        ProviderAuthSubcommand::Status { provider } => {
+                            let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                            let config = AppConfig::load_or_init(&app.paths)?;
+                            print_provider_auth_status(&app.paths, &config, provider.as_deref())?;
+                        }
+                        ProviderAuthSubcommand::Logout { provider } => {
+                            let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                            let config = AppConfig::load_or_init(&app.paths)?;
+                            logout_provider_auth(&config, &provider)?;
+                        }
+                        ProviderAuthSubcommand::List => {
+                            let app = resolve_runtime_app_context(app_dir.as_ref())?;
+                            let config = AppConfig::load_or_init(&app.paths)?;
+                            print_provider_auth_status(&app.paths, &config, None)?;
+                        }
+                    },
+                }
+            }
             Command::Mcp(args) => match args.command {
                 McpSubcommand::Serve {
                     read_only,
@@ -915,7 +927,9 @@ fn install_plugin(source: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn login_target_auth(
+    paths: &ConfigPaths,
     provider: &str,
     client_id: Option<String>,
     client_secret: Option<String>,
@@ -947,6 +961,11 @@ async fn login_target_auth(
         "Logged in for target provider '{}'. Access token stored in keychain ({} scopes).",
         provider,
         tokens.scopes.len()
+    );
+    set_target_oauth_provider(paths, provider)?;
+    println!(
+        "Set target OAuth profile '{}' as the default for HTTP tools.",
+        provider
     );
     Ok(())
 }
@@ -1151,31 +1170,69 @@ async fn login_provider_auth(
     }
 }
 
-fn print_target_auth_status(provider: &str) {
+fn print_target_auth_status(paths: &ConfigPaths, provider: &str) -> Result<()> {
+    let config = AppConfig::load_or_init(paths)?;
+    let active = config.target.oauth_provider.as_deref() == Some(provider);
     match load_secret(&format!("appctl_oauth::{provider}")) {
         Ok(raw) if !raw.is_empty() => {
             println!(
-                "target auth '{}' has stored OAuth tokens ({} bytes)",
+                "target auth '{}' has stored OAuth tokens ({} bytes){}",
                 provider,
-                raw.len()
+                raw.len(),
+                if active { " and is active" } else { "" }
             );
         }
-        _ => println!("no target OAuth tokens stored for '{}'", provider),
+        _ => println!(
+            "no target OAuth tokens stored for '{}'{}",
+            provider,
+            if active { " (active profile)" } else { "" }
+        ),
     }
+    if let Some(active_provider) = config.target.oauth_provider.as_deref() {
+        if active_provider != provider {
+            println!("active target OAuth profile: {active_provider}");
+        }
+    }
+    Ok(())
 }
 
-fn logout_target_auth(provider: &str) -> Result<()> {
+fn use_target_auth(paths: &ConfigPaths, provider: &str) -> Result<()> {
+    if load_secret(&format!("appctl_oauth::{provider}"))
+        .map(|raw| raw.is_empty())
+        .unwrap_or(true)
+    {
+        bail!(
+            "no target OAuth tokens stored for '{provider}'; run `appctl auth target login {provider}` first"
+        );
+    }
+    set_target_oauth_provider(paths, provider)?;
+    println!("Set target OAuth profile '{provider}' as the default for HTTP tools.");
+    Ok(())
+}
+
+fn set_target_oauth_provider(paths: &ConfigPaths, provider: &str) -> Result<()> {
+    let mut config = AppConfig::load_or_init(paths)?;
+    config.target.oauth_provider = Some(provider.to_string());
+    config.save(paths)
+}
+
+fn logout_target_auth(paths: &ConfigPaths, provider: &str) -> Result<()> {
     let key = format!("appctl_oauth::{provider}");
     match delete_secret(&key) {
         Ok(()) => {
             println!("cleared target OAuth tokens for '{provider}'");
-            Ok(())
         }
         Err(err) => {
             println!("no target OAuth tokens cleared for '{provider}' ({err:#})");
-            Ok(())
         }
     }
+    let mut config = AppConfig::load_or_init(paths)?;
+    if config.target.oauth_provider.as_deref() == Some(provider) {
+        config.target.oauth_provider = None;
+        config.save(paths)?;
+        println!("cleared active target OAuth profile");
+    }
+    Ok(())
 }
 
 fn print_provider_auth_status(
@@ -1726,4 +1783,34 @@ fn default_app_dir() -> Result<PathBuf> {
     Ok(std::env::current_dir()
         .context("failed to read current working directory")?
         .join(".appctl"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{logout_target_auth, set_target_oauth_provider};
+    use crate::config::{AppConfig, ConfigPaths};
+    use tempfile::tempdir;
+
+    #[test]
+    fn target_oauth_provider_is_saved_to_config() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+
+        set_target_oauth_provider(&paths, "esubalew").unwrap();
+
+        let config = AppConfig::load_or_init(&paths).unwrap();
+        assert_eq!(config.target.oauth_provider.as_deref(), Some("esubalew"));
+    }
+
+    #[test]
+    fn logout_clears_active_target_oauth_provider_even_without_keychain_token() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+        set_target_oauth_provider(&paths, "esubalew").unwrap();
+
+        logout_target_auth(&paths, "esubalew").unwrap();
+
+        let config = AppConfig::load_or_init(&paths).unwrap();
+        assert_eq!(config.target.oauth_provider, None);
+    }
 }

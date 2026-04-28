@@ -101,7 +101,7 @@ Polish release focused on demos and documentation accuracy.
 ### Changed
 
 - **Django / Rails / Laravel / ASP.NET** sync is more honest about missing API surfaces (warnings, fewer phantom tools).
-- **`build_headers`**: inline **`auth_header`** from sync metadata overrides schema bearer/env requirements (fixes `--auth-header` with Django’s default bearer hint).
+- **Target auth precedence**: active **`[target].oauth_provider`** tokens are tried first, then **`[target].auth_header`**, then sync metadata/schema auth.
 
 ### Fixed
 

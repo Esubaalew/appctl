@@ -444,11 +444,17 @@ impl Executor {
         let mut query = Vec::<(String, String)>::new();
         for name in query_fields {
             if let Some(value) = body_map.remove(name) {
+                if optional_empty_query_value(parameters, name, &value) {
+                    continue;
+                }
                 query.push((name.clone(), value_to_string(&value)));
             } else if let Some(raw) = self.config.target.default_query.get(name) {
                 let resolved = resolve_target_default_query_value(raw).with_context(|| {
                     format!("resolving [target].default_query[{name}] (use env:VAR for env vars)")
                 })?;
+                if resolved.trim().is_empty() {
+                    continue;
+                }
                 query.push((name.clone(), resolved));
             }
         }
@@ -464,12 +470,16 @@ impl Executor {
                 continue;
             }
             if let Some(value) = body_map.remove(&field.name) {
+                if optional_empty_field_value(field, &value) {
+                    continue;
+                }
                 headers.insert(
                     HeaderName::from_bytes(field.name.as_bytes())?,
                     HeaderValue::from_str(&value_to_string(&value))?,
                 );
             }
         }
+        drop_optional_empty_fields(&mut body_map, parameters);
         append_query_auth(&schema.auth, &mut query)?;
         request = request.headers(headers);
         if !query.is_empty() {
@@ -640,19 +650,77 @@ fn resolve_target_default_query_value(raw: &str) -> Result<String> {
     Ok(raw.to_string())
 }
 
+fn optional_empty_query_value(parameters: &[Field], name: &str, value: &Value) -> bool {
+    parameters
+        .iter()
+        .find(|field| {
+            field.name == name && matches!(field.location, Some(ParameterLocation::Query))
+        })
+        .is_some_and(|field| optional_empty_field_value(field, value))
+}
+
+fn optional_empty_field_value(field: &Field, value: &Value) -> bool {
+    !field.required && value.as_str().is_some_and(|s| s.trim().is_empty())
+}
+
+fn drop_optional_empty_fields(body_map: &mut Map<String, Value>, parameters: &[Field]) {
+    for field in parameters {
+        if matches!(
+            field.location,
+            Some(ParameterLocation::Query | ParameterLocation::Header)
+        ) {
+            continue;
+        }
+        if body_map
+            .get(&field.name)
+            .is_some_and(|value| optional_empty_field_value(field, value))
+        {
+            body_map.remove(&field.name);
+        }
+    }
+}
+
 pub(crate) fn build_headers(
     auth: &AuthStrategy,
     config: &AppConfig,
     inline_auth_header: Option<&Value>,
 ) -> Result<HeaderMap> {
+    build_headers_with_target_oauth(auth, config, inline_auth_header, |provider| {
+        crate::auth::oauth::load_access_token(provider)
+    })
+}
+
+fn build_headers_with_target_oauth(
+    auth: &AuthStrategy,
+    config: &AppConfig,
+    inline_auth_header: Option<&Value>,
+    load_target_token: impl Fn(&str) -> Option<String>,
+) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
-    if let Some(header_value) = inline_auth_header.and_then(Value::as_str) {
-        insert_runtime_auth_header(&mut headers, header_value)?;
-        return Ok(headers);
+    if let Some(provider) = config
+        .target
+        .oauth_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|provider| !provider.is_empty())
+    {
+        if let Some(token) = load_target_token(provider) {
+            headers.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {token}"))
+                    .context("invalid OAuth bearer token")?,
+            );
+            return Ok(headers);
+        }
     }
 
     if let Some(auth_header) = &config.target.auth_header {
         insert_runtime_auth_header(&mut headers, auth_header)?;
+        return Ok(headers);
+    }
+
+    if let Some(header_value) = inline_auth_header.and_then(Value::as_str) {
+        insert_runtime_auth_header(&mut headers, header_value)?;
         return Ok(headers);
     }
 
@@ -2007,11 +2075,17 @@ fn dynamo_attr_to_json(value: &AttributeValue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        DatabaseKind, HttpMethod, dynamo_attr_to_json, firestore_fields_from_json,
-        firestore_fields_to_json, parse_sql_list_arguments, resolve_target_default_query_value,
-        sql_ident_ansi, sql_qualified_table_ansi, summarize_http_status, tool_result_is_error,
+        DatabaseKind, Field, HttpMethod, ParameterLocation, build_headers_with_target_oauth,
+        drop_optional_empty_fields, dynamo_attr_to_json, firestore_fields_from_json,
+        firestore_fields_to_json, optional_empty_query_value, parse_sql_list_arguments,
+        resolve_target_default_query_value, sql_ident_ansi, sql_qualified_table_ansi,
+        summarize_http_status, tool_result_is_error,
     };
+    use crate::config::AppConfig;
+    use crate::schema::AuthStrategy;
+    use crate::schema::FieldType;
     use aws_sdk_dynamodb::types::AttributeValue;
+    use reqwest::header::AUTHORIZATION;
     use serde_json::json;
 
     #[test]
@@ -2056,6 +2130,71 @@ mod tests {
     }
 
     #[test]
+    fn optional_empty_query_params_are_omitted() {
+        let params = vec![Field {
+            name: "status".to_string(),
+            description: None,
+            field_type: FieldType::String,
+            required: false,
+            location: Some(ParameterLocation::Query),
+            default: None,
+            enum_values: Vec::new(),
+        }];
+        assert!(optional_empty_query_value(&params, "status", &json!("")));
+        assert!(optional_empty_query_value(&params, "status", &json!("   ")));
+        assert!(!optional_empty_query_value(
+            &params,
+            "status",
+            &json!("active")
+        ));
+    }
+
+    #[test]
+    fn required_empty_query_params_are_kept() {
+        let params = vec![Field {
+            name: "status".to_string(),
+            description: None,
+            field_type: FieldType::String,
+            required: true,
+            location: Some(ParameterLocation::Query),
+            default: None,
+            enum_values: Vec::new(),
+        }];
+        assert!(!optional_empty_query_value(&params, "status", &json!("")));
+    }
+
+    #[test]
+    fn optional_empty_body_fields_are_omitted() {
+        let params = vec![
+            Field {
+                name: "title".to_string(),
+                description: None,
+                field_type: FieldType::String,
+                required: true,
+                location: None,
+                default: None,
+                enum_values: Vec::new(),
+            },
+            Field {
+                name: "assignee_id".to_string(),
+                description: None,
+                field_type: FieldType::String,
+                required: false,
+                location: None,
+                default: None,
+                enum_values: Vec::new(),
+            },
+        ];
+        let mut body = serde_json::Map::from_iter([
+            ("title".to_string(), json!("Sample Task")),
+            ("assignee_id".to_string(), json!("")),
+        ]);
+        drop_optional_empty_fields(&mut body, &params);
+        assert_eq!(body.get("title"), Some(&json!("Sample Task")));
+        assert!(!body.contains_key("assignee_id"));
+    }
+
+    #[test]
     fn http_405_summary_stays_ambiguous() {
         let summary = summarize_http_status(405, &HttpMethod::DELETE, "/admin/product/10/delete");
         assert!(summary.contains("405 Method Not Allowed"));
@@ -2073,6 +2212,39 @@ mod tests {
             "ok": true,
             "status": 200
         })));
+    }
+
+    #[test]
+    fn target_oauth_profile_beats_stale_auth_header() {
+        let mut config = AppConfig::default();
+        config.target.oauth_provider = Some("esubalew".to_string());
+        config.target.auth_header = Some("Authorization: Bearer old-token".to_string());
+
+        let headers =
+            build_headers_with_target_oauth(&AuthStrategy::None, &config, None, |provider| {
+                (provider == "esubalew").then(|| "fresh-token".to_string())
+            })
+            .unwrap();
+
+        assert_eq!(
+            headers.get(AUTHORIZATION).unwrap().to_str().unwrap(),
+            "Bearer fresh-token"
+        );
+    }
+
+    #[test]
+    fn missing_target_oauth_token_falls_back_to_auth_header() {
+        let mut config = AppConfig::default();
+        config.target.oauth_provider = Some("esubalew".to_string());
+        config.target.auth_header = Some("Authorization: Bearer fallback-token".to_string());
+
+        let headers =
+            build_headers_with_target_oauth(&AuthStrategy::None, &config, None, |_| None).unwrap();
+
+        assert_eq!(
+            headers.get(AUTHORIZATION).unwrap().to_str().unwrap(),
+            "Bearer fallback-token"
+        );
     }
 
     #[test]

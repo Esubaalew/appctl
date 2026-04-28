@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Select};
 
 use crate::{
+    auth::oauth::{OAuthLoginConfig, OAuthTokenNamespace, login as oauth_login},
     config::{AppConfig, ConfigPaths},
     doctor::{DoctorRunArgs, run_doctor},
     init::{prompt_register_app, refine_app_label_and_description, run_init},
@@ -130,6 +131,7 @@ pub async fn run_setup(paths: &ConfigPaths) -> Result<()> {
     ensure_app_identity(paths)?;
     let source = choose_source()?;
     let outcome = maybe_run_sync(paths, source).await?;
+    ensure_target_auth(paths, &outcome).await?;
     let checks_ok = maybe_run_doctor(paths, outcome).await;
     print_next_steps(paths, checks_ok);
     Ok(())
@@ -469,6 +471,145 @@ fn fill_detected_missing_values(
         _ => {}
     }
     Ok(())
+}
+
+async fn ensure_target_auth(paths: &ConfigPaths, outcome: &SetupSyncOutcome) -> Result<()> {
+    if !outcome
+        .doctor_source
+        .is_some_and(SetupSourceChoice::is_http_like)
+    {
+        return Ok(());
+    }
+
+    print_section_title("2b. Target app auth");
+    println!(
+        "  This controls how appctl calls your app/API. The AI never sees passwords, tokens, cookies, or client secrets."
+    );
+
+    let items = [
+        "Public API / no auth",
+        "Bearer token from an environment variable",
+        "Cookie/session value from an environment variable",
+        "OAuth browser login now",
+        "Use an existing OAuth target profile",
+        "Skip for now",
+    ];
+    let selected = Select::new()
+        .with_prompt("How should appctl authenticate to the target app?")
+        .items(items)
+        .default(5)
+        .interact()?;
+
+    match selected {
+        0 => {
+            let mut config = AppConfig::load_or_init(paths)?;
+            config.target.auth_header = None;
+            config.target.oauth_provider = None;
+            config.save(paths)?;
+            print_status_success(
+                "target auth cleared; appctl will call the API without extra auth",
+            );
+        }
+        1 => {
+            let env_name = prompt_string_nonempty(
+                "Environment variable that holds the bearer token",
+                "API_TOKEN",
+            )?;
+            set_target_auth_header(paths, format!("Authorization: Bearer env:{env_name}"))?;
+            print_status_success(&format!(
+                "target auth will use Authorization: Bearer env:{env_name}"
+            ));
+        }
+        2 => {
+            let env_name = prompt_string_nonempty(
+                "Environment variable that holds the Cookie header value",
+                "APP_SESSION_COOKIE",
+            )?;
+            set_target_auth_header(paths, format!("Cookie: env:{env_name}"))?;
+            print_status_success(&format!("target auth will use Cookie: env:{env_name}"));
+        }
+        3 => {
+            login_target_oauth_from_setup(paths).await?;
+        }
+        4 => {
+            let profile = prompt_string_nonempty("Existing target OAuth profile name", "default")?;
+            set_target_oauth_provider(paths, &profile)?;
+            print_status_success(&format!(
+                "target OAuth profile `{profile}` will be used for HTTP tools"
+            ));
+            print_tip(&format!(
+                "If it has no stored token yet, run `appctl auth target login {profile}`."
+            ));
+        }
+        _ => {
+            print_tip(
+                "Skipped target auth. You can add it later with `appctl setup` or `appctl auth target login <name>`.",
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn login_target_oauth_from_setup(paths: &ConfigPaths) -> Result<()> {
+    let profile = prompt_string_nonempty("Target OAuth profile name", "default")?;
+    let client_id = prompt_string("OAuth client id (public value)", None)?;
+    let auth_url = prompt_string("OAuth authorization URL", None)?;
+    let token_url = prompt_string("OAuth token URL", None)?;
+    let secret_env = prompt_optional(
+        "Client secret environment variable (optional; leave blank for public PKCE clients)",
+    )?;
+    let client_secret = match secret_env {
+        Some(name) => match std::env::var(&name) {
+            Ok(value) => Some(value),
+            Err(_) => {
+                print_status_warn(&format!(
+                    "environment variable `{name}` is not set; continuing without a client secret"
+                ));
+                None
+            }
+        },
+        None => None,
+    };
+    let scope_line = prompt_optional("OAuth scopes (space-separated, optional)")?;
+    let scopes = scope_line
+        .as_deref()
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    let tokens = oauth_login(OAuthLoginConfig {
+        provider: profile.clone(),
+        storage_key: profile.clone(),
+        namespace: OAuthTokenNamespace::Target,
+        client_id,
+        client_secret,
+        auth_url,
+        token_url,
+        scopes,
+        redirect_port: 8421,
+    })
+    .await?;
+
+    set_target_oauth_provider(paths, &profile)?;
+    print_status_success(&format!(
+        "logged in target profile `{profile}` and stored {} scope entries",
+        tokens.scopes.len()
+    ));
+    Ok(())
+}
+
+fn set_target_auth_header(paths: &ConfigPaths, auth_header: String) -> Result<()> {
+    let mut config = AppConfig::load_or_init(paths)?;
+    config.target.auth_header = Some(auth_header);
+    config.target.oauth_provider = None;
+    config.save(paths)
+}
+
+fn set_target_oauth_provider(paths: &ConfigPaths, profile: &str) -> Result<()> {
+    let mut config = AppConfig::load_or_init(paths)?;
+    config.target.oauth_provider = Some(profile.to_string());
+    config.save(paths)
 }
 
 /// Folder to scan for OpenAPI files, framework markers, and SQLite databases during setup.

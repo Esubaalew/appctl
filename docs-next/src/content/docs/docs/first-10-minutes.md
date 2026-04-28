@@ -30,8 +30,8 @@ home directory or with `--app-dir`.
 2. Choose or keep an AI provider.
 3. Let appctl inspect the project and recommend a source, or choose OpenAPI /
    database / advanced manually.
-4. Give target app access if needed, for example
-   `Authorization: Bearer env:API_TOKEN`.
+4. Give target app access if needed: public API, bearer env var, cookie/session
+   env var, OAuth browser login, or an existing target profile.
 5. Sync tools, run checks, then print terminal and web next steps.
 
 App access and model access are separate:
@@ -39,6 +39,16 @@ App access and model access are separate:
 - **AI provider access** lets appctl talk to the language model.
 - **Target app access** lets appctl call your API as a user or service account.
 - **Serve token** protects the appctl web console when you share it.
+
+For OAuth-backed target apps, login happens outside chat:
+
+```bash
+appctl auth target login esubalew --client-id <id> --auth-url <url> --token-url <url>
+appctl auth target use esubalew
+```
+
+After that, tools use the stored token automatically. The AI only sees the
+target profile name/status.
 
 ## 3. Chat in the terminal
 
@@ -73,8 +83,8 @@ mean one of these:
 - Existing tools would be replaced: rerun sync with `--force` only when you
   really want to regenerate `.appctl/schema.json`.
 - Wrong project: pass `--app-dir /path/to/.appctl`.
-- Auth rejected: fix `[target] auth_header`, its env var, or the target API
-  permissions, then rerun `appctl doctor --write`.
+- Auth rejected: fix `[target] oauth_provider`, `[target] auth_header`, its env
+  var, or the target API permissions, then rerun `appctl doctor --write`.
 
 ## Advanced manual path
 

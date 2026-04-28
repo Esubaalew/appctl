@@ -140,6 +140,18 @@ target app. Target app/API credentials live in `.appctl/config.toml` under
 `[target]` (for example `auth_header = "Authorization: Bearer env:API_TOKEN"`)
 or in a target auth/session flow.
 
+For user/session auth, configure a target profile outside chat:
+
+```bash
+appctl auth target login esubalew --client-id <id> --auth-url <url> --token-url <url>
+appctl auth target use esubalew
+appctl serve --open
+```
+
+The web Settings page shows the active target profile or auth header state. The
+browser token for `serve` and the token appctl sends to your target API are
+separate credentials.
+
 ## Security notes
 
 - The bind address defaults to `127.0.0.1`. Changing it to `0.0.0.0` without

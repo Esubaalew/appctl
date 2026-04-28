@@ -171,6 +171,16 @@ pub struct TargetConfig {
     pub base_url_env: Option<String>,
     #[serde(default)]
     pub auth_header: Option<String>,
+    /// Active target OAuth profile. Tokens are stored in the OS keychain under
+    /// `appctl_oauth::<name>` and are applied to HTTP tools as bearer auth.
+    #[serde(default)]
+    pub oauth_provider: Option<String>,
+    /// Optional tool name the agent should call to identify the current target-app user.
+    #[serde(default)]
+    pub me_tool: Option<String>,
+    /// Optional HTTP path that represents the current target-app user (for example `/me`).
+    #[serde(default)]
+    pub me_path: Option<String>,
     /// Default query parameters for HTTP tools. Keys that appear in a tool’s OpenAPI query
     /// list are filled from here when the model does not pass them; tool arguments still win.
     /// Use `env:VAR` as the value to read from the process environment.

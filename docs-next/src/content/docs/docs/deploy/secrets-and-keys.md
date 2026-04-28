@@ -73,6 +73,25 @@ code flows store their token blob under `appctl_llm_oauth::<profile>`. Refresh
 happens automatically when a refresh token is present; otherwise rerun the
 login flow.
 
+Target profiles are selected in `.appctl/config.toml`:
+
+```toml
+[target]
+oauth_provider = "esubalew"
+```
+
+At runtime, HTTP tools prefer the active target OAuth profile first. If that
+profile has no stored token, appctl falls back to `[target].auth_header`, then to
+the auth scheme declared by the synced schema. This lets a fresh user login
+override an older sync-time bearer header without exposing the token to the AI.
+
+To switch or clear profiles:
+
+```bash
+appctl auth target use esubalew
+appctl auth target logout esubalew
+```
+
 ## Do not commit
 
 `.appctl/config.toml` can be committed (no secrets). `.appctl/history.db` should not. Recommended `.gitignore`:

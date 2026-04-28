@@ -66,6 +66,7 @@ type PublicConfig = {
   default_provider?: string;
   active_provider?: string;
   provider_statuses?: ProviderRuntimeStatus[];
+  target_auth?: TargetAuthStatus;
   sync_source?: string;
   base_url?: string | null;
   read_only?: boolean;
@@ -73,6 +74,16 @@ type PublicConfig = {
   strict?: boolean;
   confirm_default?: boolean;
   description?: string | null;
+};
+
+type TargetAuthStatus = {
+  mode: "none" | "oauth_profile" | "auth_header";
+  active_oauth_profile?: string | null;
+  oauth_token_stored?: boolean;
+  auth_header_configured?: boolean;
+  me_tool?: string | null;
+  me_path?: string | null;
+  recovery_hint?: string | null;
 };
 
 type ProviderRuntimeStatus = {
@@ -274,6 +285,17 @@ function authKindLabel(kind?: ProviderRuntimeStatus["auth_status"]["kind"]): str
     default:
       return "None";
   }
+}
+
+function targetAuthLabel(status?: TargetAuthStatus): string {
+  if (!status || status.mode === "none") return "not configured";
+  if (status.mode === "oauth_profile") {
+    return status.active_oauth_profile
+      ? `profile ${status.active_oauth_profile}`
+      : "OAuth profile";
+  }
+  if (status.mode === "auth_header") return "auth header";
+  return "not configured";
 }
 
 function formatExpiry(expiresAt?: number | null): string {
@@ -504,6 +526,35 @@ function IconSettings() {
   );
 }
 
+function AppMark({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 32 32"
+      className={className}
+      fill="none"
+    >
+      <rect width="32" height="32" rx="6" fill="#ffffff" />
+      <path
+        d="M8 22 L14 16 L8 10"
+        stroke="#000000"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line
+        x1="16"
+        y1="22"
+        x2="24"
+        y2="22"
+        stroke="#000000"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /* ---------- chat cards ---------- */
 
 function Markdown({ source }: { source: string }) {
@@ -603,8 +654,8 @@ function Markdown({ source }: { source: string }) {
 function UserMessage({ body }: { body: string }) {
   return (
     <div className="flex justify-end mb-2">
-      <div className="max-w-[82%] rounded-lg bg-panel px-4 py-2.5 msg-user">
-        <div className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-fg">
+      <div className="max-w-[92%] rounded-lg bg-panel px-4 py-2.5 msg-user sm:max-w-[82%]">
+        <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-fg sm:text-[14px]">
           {body}
         </div>
       </div>
@@ -615,9 +666,9 @@ function UserMessage({ body }: { body: string }) {
 function AssistantMessage({ body, streaming }: { body: string; streaming?: boolean }) {
   const trimmed = body ?? "";
   return (
-    <div className="flex items-start gap-4 mb-4">
-      <div className="mt-1 flex h-6 w-6 flex-none items-center justify-center rounded bg-fg text-[10px] font-bold text-bg">
-        ap
+    <div className="mb-4 flex items-start gap-3 sm:gap-4">
+      <div className="mt-1 flex h-7 w-7 flex-none items-center justify-center sm:h-6 sm:w-6">
+        <AppMark className="h-5 w-5 sm:h-4 sm:w-4" />
       </div>
       <div className="min-w-0 flex-1 pt-0.5 msg-assistant">
         {trimmed ? (
@@ -656,18 +707,22 @@ function ToolCard({
     );
 
   return (
-    <div className="mb-4 ml-10 flex items-start gap-3">
+    <div className="mb-3 flex items-start gap-3 sm:mb-4 sm:ml-10">
       <div className="min-w-0 flex-1 rounded-md border border-border bg-surface">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-panel transition"
+          className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-panel sm:gap-3"
         >
-          <span className="font-mono text-[12px] text-fg-dim">{name}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-fg-dim">
+            {name}
+          </span>
           {summary && (
-            <span className="min-w-0 truncate text-[11px] text-muted">{summary}</span>
+            <span className="hidden min-w-0 truncate text-[11px] text-muted sm:block">
+              {summary}
+            </span>
           )}
-          <span className="ml-auto flex items-center gap-2 text-[11px]">
+          <span className="flex flex-none items-center gap-2 text-[11px]">
             {typeof duration_ms === "number" && (
               <span className="text-muted">{duration_ms}ms</span>
             )}
@@ -675,7 +730,7 @@ function ToolCard({
           </span>
         </button>
         {open && (
-          <div className="border-t border-border p-3 font-mono text-[11px] text-muted overflow-x-auto">
+          <div className="overflow-x-auto border-t border-border p-3 font-mono text-[11px] text-muted">
             <div className="mb-2 text-fg-dim">Arguments:</div>
             <pre>{formatJson(args)}</pre>
             {result !== undefined && (
@@ -711,7 +766,7 @@ function ErrorMessage({ body }: { body: string }) {
 
 function NoticeMessage({ body }: { body: string }) {
   return (
-    <div className="ml-10 rounded-md border border-border bg-panel px-3 py-2 text-[12px] text-muted">
+    <div className="rounded-md border border-border bg-panel px-3 py-2 text-[12px] text-muted sm:ml-10">
       {body}
     </div>
   );
@@ -763,7 +818,7 @@ function Toggle({
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
       title={hint}
-      className={`group flex items-center gap-2 rounded-md border px-2 py-1 text-[12px] transition ${
+      className={`group flex min-h-10 items-center gap-2 rounded-md border px-2.5 py-1.5 text-[12px] transition ${
         checked
           ? "border-border-strong bg-panel text-fg"
           : "border-border bg-surface text-muted hover:border-border-strong hover:text-fg-dim"
@@ -1168,13 +1223,13 @@ export default function App() {
   }, [fetchCfg, fetchSchema, fetchTools, fetchHistory, connectWs]);
 
   return (
-    <div className="app-bg flex h-full min-h-0 text-fg">
+    <div className="app-bg flex h-full min-h-0 text-fg max-sm:flex-col-reverse">
       {/* left rail */}
-      <aside className="flex w-[60px] flex-none flex-col items-center border-r border-border bg-surface py-3">
-        <div className="mb-4 flex h-8 w-8 items-center justify-center rounded-md bg-fg text-[11px] font-bold text-bg">
-          ap
+      <aside className="flex w-[60px] flex-none flex-col items-center border-r border-border bg-surface py-3 max-sm:h-[58px] max-sm:w-full max-sm:flex-row max-sm:border-r-0 max-sm:border-t max-sm:px-3 max-sm:py-2">
+        <div className="mb-4 flex h-8 w-8 items-center justify-center max-sm:mb-0">
+          <AppMark className="h-5 w-5" />
         </div>
-        <div className="flex flex-1 flex-col gap-2">
+        <div className="flex flex-1 flex-col gap-2 max-sm:flex-row max-sm:items-center max-sm:justify-center">
           <RailButton active={tab === "chat"} onClick={() => setTab("chat")} label="Chat">
             <IconChat />
           </RailButton>
@@ -1196,7 +1251,7 @@ export default function App() {
             <IconSettings />
           </RailButton>
         </div>
-        <div className="pb-1" title={`socket ${wsStatus}`}>
+        <div className="pb-1 max-sm:pb-0" title={`socket ${wsStatus}`}>
           <span className={`dot dot-${wsStatus === "open" ? "live" : wsStatus === "err" ? "err" : "idle"}`} />
         </div>
       </aside>
@@ -1204,8 +1259,8 @@ export default function App() {
       {/* main workspace */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* top bar: slim, real */}
-        <header className="flex flex-none items-center gap-3 border-b border-border bg-surface px-4 py-2">
-          <h1 className="text-[13px] font-semibold text-fg">
+        <header className="flex min-w-0 flex-none items-center gap-3 border-b border-border bg-surface px-3 py-2 sm:px-4">
+          <h1 className="min-w-0 truncate text-[13px] font-semibold text-fg">
             appctl <span className="text-muted font-normal ml-1">/ {appBannerTitle ?? "app"}</span>
           </h1>
           <span className="hidden text-[12px] text-muted sm:inline">
@@ -1219,12 +1274,14 @@ export default function App() {
               </>
             )}
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex min-w-0 items-center gap-2">
             {activeProvider ? (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-muted">
+              <span className="inline-flex min-w-0 max-w-[46vw] items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-muted sm:max-w-none">
                 <span className="font-medium text-fg">{activeProviderName}</span>
-                <span>·</span>
-                <span className="font-mono text-[11px]">{activeProvider.model}</span>
+                <span className="hidden sm:inline">·</span>
+                <span className="hidden truncate font-mono text-[11px] sm:inline">
+                  {activeProvider.model}
+                </span>
                 {!activeProvider.verified && (
                   <span className="rounded bg-amber-500/10 px-1 text-[10px] text-amber-400">
                     unconfirmed
@@ -1236,12 +1293,25 @@ export default function App() {
                 no provider
               </span>
             )}
+            <span
+              title={publicCfg?.target_auth?.recovery_hint ?? undefined}
+              className={`hidden items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] sm:inline-flex ${
+                publicCfg?.target_auth?.mode === "none"
+                  ? "border-border bg-surface text-muted"
+                  : publicCfg?.target_auth?.mode === "oauth_profile" &&
+                      !publicCfg?.target_auth?.oauth_token_stored
+                    ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                    : "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+              }`}
+            >
+              target: {targetAuthLabel(publicCfg?.target_auth)}
+            </span>
             <button
               type="button"
               onClick={refreshAll}
               title="Refresh"
               aria-label="Refresh"
-              className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-border-strong hover:text-fg"
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-border bg-surface text-muted transition hover:border-border-strong hover:text-fg sm:h-7 sm:w-7"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 12a9 9 0 1 1-3-6.7" />
@@ -1362,7 +1432,7 @@ function ChatWorkspace({
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[860px] space-y-5 px-6 py-6">
+        <div className="mx-auto w-full max-w-[860px] space-y-4 px-3 py-4 sm:space-y-5 sm:px-6 sm:py-6">
           {isEmpty ? (
             <>
               {!onboarding.ready && (
@@ -1412,16 +1482,16 @@ function ChatWorkspace({
       </div>
 
       {/* composer pinned to viewport bottom */}
-      <div className="flex-none bg-bg px-4 pb-6 pt-4">
+      <div className="safe-composer flex-none border-t border-border bg-bg/95 px-3 pt-3 backdrop-blur sm:border-t-0 sm:px-4 sm:pt-4">
         <div className="mx-auto w-full max-w-[860px]">
           {isEmpty && suggestions.length > 0 && (
-            <div className="mb-3 flex flex-wrap gap-2">
+            <div className="mb-3 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
               {suggestions.map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setInput(p)}
-                  className="rounded-md border border-border bg-surface px-3 py-1.5 text-left text-[12px] text-muted transition hover:border-border-strong hover:text-fg"
+                  className="min-h-10 flex-none rounded-md border border-border bg-surface px-3 py-1.5 text-left text-[12px] text-muted transition hover:border-border-strong hover:text-fg"
                 >
                   {p}
                 </button>
@@ -1432,7 +1502,7 @@ function ChatWorkspace({
           <div className="rounded-lg border border-border bg-surface shadow-sm transition focus-within:border-border-strong focus-within:ring-1 focus-within:ring-border-strong">
             <textarea
               aria-label="Chat message"
-              className="block w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14px] leading-relaxed text-fg outline-none placeholder:text-muted"
+              className="block max-h-36 min-h-20 w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[16px] leading-relaxed text-fg outline-none placeholder:text-muted sm:text-[14px]"
               rows={2}
               placeholder="Message appctl…"
               value={input}
@@ -1444,7 +1514,7 @@ function ChatWorkspace({
                 }
               }}
             />
-            <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2 px-2 pb-2 pt-1">
               <Toggle
                 label="Read-only"
                 hint={
@@ -1478,12 +1548,12 @@ function ChatWorkspace({
                 disabled={strictLocked}
                 onChange={setStrictMode}
               />
-              <div className="ml-auto flex items-center gap-3 text-[12px] text-muted">
+              <div className="ml-auto flex items-center gap-2 text-[12px] text-muted">
                 {wsStatus !== "open" && (
                   <button
                     type="button"
                     onClick={connectWs}
-                    className="hover:text-fg underline decoration-dotted underline-offset-2"
+                    className="min-h-10 rounded-md px-2 underline decoration-dotted underline-offset-2 hover:text-fg"
                   >
                     reconnect
                   </button>
@@ -1492,7 +1562,7 @@ function ChatWorkspace({
                   type="button"
                   onClick={sendChat}
                   disabled={sending || !input.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-fg px-3 py-1.5 font-medium text-bg transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-border-strong disabled:text-muted"
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-md bg-fg px-4 py-1.5 font-medium text-bg transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-border-strong disabled:text-muted"
                 >
                   {sending ? "..." : "Send"}
                 </button>
@@ -1893,12 +1963,63 @@ function SettingsPanel({
             <div>
               <h3 className="text-[14px] font-semibold text-fg">Authentication</h3>
               <p className="mt-1 text-[13px] text-muted">
-                Secure access to the local daemon API.
+                Target app auth is used by tools. Serve token only protects this local web console.
               </p>
             </div>
-            <div className="max-w-md">
+            <div className="grid gap-4">
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-[13px] font-semibold text-fg">Target app auth</h4>
+                    <p className="mt-1 text-[12px] text-muted">
+                      appctl applies this to API tool calls. The AI sees only the profile/status, never the secret.
+                    </p>
+                  </div>
+                  <Pill
+                    tone={
+                      publicCfg?.target_auth?.mode === "none"
+                        ? "muted"
+                        : publicCfg?.target_auth?.mode === "oauth_profile" &&
+                            !publicCfg?.target_auth?.oauth_token_stored
+                          ? "warn"
+                          : "success"
+                    }
+                  >
+                    {targetAuthLabel(publicCfg?.target_auth)}
+                  </Pill>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <KV
+                    k="OAuth token"
+                    v={
+                      publicCfg?.target_auth?.active_oauth_profile
+                        ? publicCfg.target_auth.oauth_token_stored
+                          ? "stored"
+                          : "missing"
+                        : "not selected"
+                    }
+                  />
+                  <KV
+                    k="Auth header"
+                    v={publicCfg?.target_auth?.auth_header_configured ? "configured" : "not set"}
+                  />
+                  <KV k="Current user tool" v={publicCfg?.target_auth?.me_tool ?? "not set"} />
+                  <KV k="Current user path" v={publicCfg?.target_auth?.me_path ?? "not set"} />
+                </div>
+                <pre className="mt-4 whitespace-pre-wrap rounded-md border border-border bg-panel p-3 font-mono text-[11.5px] leading-relaxed text-fg-dim">
+                  {publicCfg?.target_auth?.active_oauth_profile
+                    ? `appctl auth target status ${publicCfg.target_auth.active_oauth_profile}\nappctl auth target logout ${publicCfg.target_auth.active_oauth_profile}`
+                    : "appctl setup\nappctl auth target login <name> --client-id <id> --auth-url <url> --token-url <url>"}
+                </pre>
+                {publicCfg?.target_auth?.recovery_hint && (
+                  <p className="mt-3 text-[12px] text-amber-300">
+                    {publicCfg.target_auth.recovery_hint}
+                  </p>
+                )}
+              </div>
+              <div className="max-w-md">
               <label className="block">
-                <span className="text-[12px] font-medium text-muted">Bearer token</span>
+                <span className="text-[12px] font-medium text-muted">Serve bearer token</span>
                 <input
                   type="password"
                   className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-[13px] text-fg outline-none focus:border-border-strong"
@@ -1922,6 +2043,7 @@ function SettingsPanel({
                 >
                   Clear token
                 </button>
+              </div>
               </div>
             </div>
           </section>
