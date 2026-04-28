@@ -537,11 +537,32 @@ pub fn find_registered_app_name(registry: &AppRegistry, app_dir: &Path) -> Optio
     })
 }
 
+/// Walk upward from `start` looking for a `.appctl` directory.
+///
+/// **Important:** `$HOME/.appctl` is only returned when `start` is the home directory (or you are
+/// explicitly using that path). Otherwise a project under home would incorrectly bind to the
+/// user's global `~/.appctl` instead of `some/project/.appctl`.
 pub fn find_app_dir_from(start: &Path) -> Option<PathBuf> {
+    find_app_dir_from_with_home(start, dirs::home_dir())
+}
+
+pub(crate) fn find_app_dir_from_with_home(start: &Path, home: Option<PathBuf>) -> Option<PathBuf> {
+    let home = home.map(|h| normalize_app_dir(&h));
+    let start_norm = normalize_app_dir(start);
     let mut current = start.to_path_buf();
     loop {
         let candidate = current.join(".appctl");
         if candidate.exists() {
+            if let Some(ref h) = home {
+                let home_ctl = normalize_app_dir(&h.join(".appctl"));
+                let cand_norm = normalize_app_dir(&candidate);
+                if cand_norm == home_ctl && start_norm != *h {
+                    if !current.pop() {
+                        return None;
+                    }
+                    continue;
+                }
+            }
             return Some(normalize_app_dir(&candidate));
         }
         if !current.pop() {
@@ -560,8 +581,8 @@ pub fn active_app_path(registry: &AppRegistry) -> Option<(String, PathBuf)> {
 mod tests {
     use super::{
         AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, find_app_dir_from,
-        find_registered_app_name, normalize_app_dir, registry_default_looks_like_os_username,
-        write_json,
+        find_app_dir_from_with_home, find_registered_app_name, normalize_app_dir,
+        registry_default_looks_like_os_username, write_json,
     };
     use serde_json::json;
     use std::path::{Path, PathBuf};
@@ -638,6 +659,47 @@ mod tests {
 
         let found = find_app_dir_from(&nested).unwrap();
         assert_eq!(normalize_app_dir(&found), normalize_app_dir(&app_dir));
+    }
+
+    #[test]
+    fn find_app_dir_skips_home_appctl_for_nested_cwd() {
+        let tmp = tempdir().unwrap();
+        let fake_home = tmp.path().join("userhome");
+        let nested = fake_home.join("code").join("myapp");
+        let home_appctl = fake_home.join(".appctl");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::create_dir_all(&home_appctl).unwrap();
+
+        let found = find_app_dir_from_with_home(&nested, Some(fake_home.clone()));
+        assert!(
+            found.is_none(),
+            "nested project should not bind to fake ~/.appctl"
+        );
+
+        let found = find_app_dir_from_with_home(&fake_home, Some(fake_home.clone()));
+        assert_eq!(
+            found.map(|p| normalize_app_dir(&p)),
+            Some(normalize_app_dir(&home_appctl))
+        );
+    }
+
+    #[test]
+    fn find_app_dir_prefers_project_appctl_over_skipping_home() {
+        let tmp = tempdir().unwrap();
+        let fake_home = tmp.path().join("userhome");
+        let proj = fake_home.join("proj");
+        let proj_appctl = proj.join(".appctl");
+        let leaf = proj.join("deep").join("leaf");
+        std::fs::create_dir_all(home_dot_appctl(&fake_home)).unwrap();
+        std::fs::create_dir_all(&proj_appctl).unwrap();
+        std::fs::create_dir_all(&leaf).unwrap();
+
+        let found = find_app_dir_from_with_home(&leaf, Some(fake_home.clone())).unwrap();
+        assert_eq!(normalize_app_dir(&found), normalize_app_dir(&proj_appctl));
+    }
+
+    fn home_dot_appctl(fake_home: &std::path::Path) -> PathBuf {
+        fake_home.join(".appctl")
     }
 
     #[test]

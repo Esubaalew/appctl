@@ -778,9 +778,18 @@ fn expand_runtime_header_value(raw: &str) -> Result<String> {
 }
 
 fn secret_or_env(name: &str) -> Result<String> {
-    std::env::var(name)
-        .with_context(|| format!("missing secret or env var '{name}'"))
-        .or_else(|_| load_secret(name))
+    if let Ok(value) = std::env::var(name) {
+        if !value.trim().is_empty() {
+            return Ok(value);
+        }
+    }
+    load_secret(name).with_context(|| {
+        format!(
+            "missing credentials for OpenAPI security ref '{name}' (e.g. HTTP Basic). \
+Set environment variable {name}, store the secret in the keychain (appctl service), \
+or bypass per-scheme auth with [target].auth_header in .appctl/config.toml (e.g. Authorization: Bearer env:TOKEN)"
+        )
+    })
 }
 
 fn reqwest_method(method: &HttpMethod) -> reqwest::Method {
