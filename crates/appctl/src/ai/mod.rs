@@ -457,6 +457,18 @@ fn guard_secret_collection_response(content: &str) -> String {
         return "I cannot collect passwords, bearer tokens, cookies, API keys, or OAuth client secrets in chat. Configure target-app auth outside the conversation, for example with `appctl setup` or `appctl auth target login <name>`, then retry the request. If the app needs an OAuth client id, store it in appctl config or an environment variable rather than sending it to the AI."
             .to_string();
     }
+    guard_invalid_auth_command_response(content)
+}
+
+fn guard_invalid_auth_command_response(content: &str) -> String {
+    let lower = content.to_lowercase();
+    if lower.contains("appctl auth task login")
+        || lower.contains("appctl auth <app> login")
+        || lower.contains("appctl auth <username> login")
+    {
+        return "Target-app auth must be configured outside chat. Use `appctl setup`, `appctl auth login` for the current app profile, or `appctl auth target login <profile> --client-id <id> --auth-url <url> --token-url <url>`. Then retry the request."
+            .to_string();
+    }
     content.to_string()
 }
 
@@ -509,7 +521,7 @@ Operating rules:
 - Ask the user for more information only after the available read-only tools cannot find or disambiguate the needed data.
 - If a read-only lookup fails, explain the specific tool path tried and the missing key/field; do not simply say the data is unavailable.
 
-For HTTP tools, appctl may add Authorization headers, cookies, sessions, and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; never ask the user to paste API tokens, passwords, OAuth client secrets, cookies, or bearer strings into chat. If the user asks you to log in as a target-app user, do not ask for their password or client secret; tell them to configure target auth outside chat with `appctl setup` or `appctl auth target login <name>`. If a tool result returns 401/403, say that the target app auth configured in appctl was missing, expired, rejected, or lacks permission, and tell the user to fix appctl target auth/config outside chat. Only ask for ordinary non-secret business inputs (project name, task title, record id, date range, etc.).
+For HTTP tools, appctl may add Authorization headers, cookies, sessions, and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; never ask the user to paste API tokens, passwords, OAuth client secrets, cookies, or bearer strings into chat. If the user asks you to log in as a target-app user, do not ask for their password or client secret; tell them to configure target auth outside chat with `appctl setup`, `appctl auth login` (current app profile), or `appctl auth target login <profile> --client-id <id> --auth-url <url> --token-url <url>`. Never invent commands like `appctl auth task login`. If a tool result returns 401/403, say that the target app auth configured in appctl was missing, expired, rejected, or lacks permission, and tell the user to fix appctl target auth/config outside chat using one of those valid commands. Only ask for ordinary non-secret business inputs (project name, task title, record id, date range, etc.).
 
 Response style rules:
 - Do not volunteer unrelated information the user did not ask for.
@@ -816,6 +828,17 @@ mod tests {
 
         assert!(!safe.contains("Please provide esubalew"));
         assert!(safe.contains("I cannot collect passwords"));
+        assert!(safe.contains("appctl auth target login"));
+    }
+
+    #[test]
+    fn auth_command_guard_blocks_invented_app_command() {
+        let bad = "Configure a valid login with `appctl auth task login <username>`.";
+
+        let safe = guard_secret_collection_response(bad);
+
+        assert!(!safe.contains("appctl auth task login"));
+        assert!(safe.contains("appctl auth login"));
         assert!(safe.contains("appctl auth target login"));
     }
 

@@ -218,8 +218,7 @@ fn serialize_message(message: &Message) -> Value {
             "parts": [{ "text": message.content }]
         }),
         "tool" => {
-            let response = serde_json::from_str::<Value>(&message.content)
-                .unwrap_or_else(|_| Value::String(message.content.clone()));
+            let response = function_response_payload(&message.content);
             json!({
                 "role": "user",
                 "parts": [{
@@ -237,10 +236,46 @@ fn serialize_message(message: &Message) -> Value {
     }
 }
 
+fn function_response_payload(content: &str) -> Value {
+    match serde_json::from_str::<Value>(content) {
+        Ok(Value::Object(map)) => Value::Object(map),
+        Ok(other) => json!({ "value": other }),
+        Err(_) => json!({ "content": content }),
+    }
+}
+
 fn serialize_tool(tool: &ToolDef) -> Value {
     json!({
         "name": tool.name,
         "description": tool.description,
         "parameters": tool.input_schema,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::function_response_payload;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn wraps_non_json_tool_content_as_struct_object() {
+        let payload = function_response_payload(
+            "appctl tool summary: HTTP 200\n tool result JSON: {\"ok\":true}",
+        );
+
+        assert_eq!(
+            payload,
+            json!({
+                "content": "appctl tool summary: HTTP 200\n tool result JSON: {\"ok\":true}"
+            })
+        );
+        assert!(matches!(payload, Value::Object(_)));
+    }
+
+    #[test]
+    fn keeps_json_object_tool_content_as_struct_object() {
+        let payload = function_response_payload("{\"ok\":true,\"status\":200}");
+
+        assert_eq!(payload, json!({"ok": true, "status": 200}));
+    }
 }

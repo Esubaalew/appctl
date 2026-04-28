@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
@@ -166,9 +167,9 @@ struct ProviderLoginRequest {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthSubcommand {
-    /// Deprecated alias for `appctl auth target login`.
+    /// Alias for `appctl auth target login [PROFILE]`. Defaults to the current app/profile.
     Login {
-        provider: String,
+        provider: Option<String>,
         #[arg(long)]
         client_id: Option<String>,
         #[arg(long)]
@@ -182,8 +183,8 @@ pub enum AuthSubcommand {
         #[arg(long, default_value_t = 8421)]
         redirect_port: u16,
     },
-    /// Deprecated alias for `appctl auth target status`.
-    Status { provider: String },
+    /// Alias for `appctl auth target status [PROFILE]`. Defaults to the current app/profile.
+    Status { provider: Option<String> },
     Target {
         #[command(subcommand)]
         command: TargetAuthSubcommand,
@@ -192,12 +193,15 @@ pub enum AuthSubcommand {
         #[command(subcommand)]
         command: ProviderAuthSubcommand,
     },
+    /// Compatibility: `appctl auth <profile> login/status/use/logout`.
+    #[command(external_subcommand)]
+    App(Vec<OsString>),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum TargetAuthSubcommand {
     Login {
-        provider: String,
+        provider: Option<String>,
         #[arg(long)]
         client_id: Option<String>,
         #[arg(long)]
@@ -212,14 +216,14 @@ pub enum TargetAuthSubcommand {
         redirect_port: u16,
     },
     Status {
-        provider: String,
+        provider: Option<String>,
     },
     /// Make stored target OAuth tokens the default auth profile for HTTP tools.
     Use {
-        provider: String,
+        provider: Option<String>,
     },
     Logout {
-        provider: String,
+        provider: Option<String>,
     },
 }
 
@@ -695,6 +699,7 @@ impl Cli {
                         scope,
                         redirect_port,
                     } => {
+                        let provider = target_auth_profile_or_default(&paths, provider)?;
                         login_target_auth(
                             &paths,
                             &provider,
@@ -708,6 +713,7 @@ impl Cli {
                         .await?;
                     }
                     AuthSubcommand::Status { provider } => {
+                        let provider = target_auth_profile_or_default(&paths, provider)?;
                         print_target_auth_status(&paths, &provider)?;
                     }
                     AuthSubcommand::Target { command } => match command {
@@ -720,6 +726,7 @@ impl Cli {
                             scope,
                             redirect_port,
                         } => {
+                            let provider = target_auth_profile_or_default(&paths, provider)?;
                             login_target_auth(
                                 &paths,
                                 &provider,
@@ -733,12 +740,15 @@ impl Cli {
                             .await?;
                         }
                         TargetAuthSubcommand::Status { provider } => {
+                            let provider = target_auth_profile_or_default(&paths, provider)?;
                             print_target_auth_status(&paths, &provider)?;
                         }
                         TargetAuthSubcommand::Use { provider } => {
+                            let provider = target_auth_profile_or_default(&paths, provider)?;
                             use_target_auth(&paths, &provider)?;
                         }
                         TargetAuthSubcommand::Logout { provider } => {
+                            let provider = target_auth_profile_or_default(&paths, provider)?;
                             logout_target_auth(&paths, &provider)?;
                         }
                     },
@@ -788,6 +798,9 @@ impl Cli {
                             print_provider_auth_status(&app.paths, &config, None)?;
                         }
                     },
+                    AuthSubcommand::App(args) => {
+                        run_app_style_target_auth(&paths, args).await?;
+                    }
                 }
             }
             Command::Mcp(args) => match args.command {
@@ -938,19 +951,31 @@ async fn login_target_auth(
     scope: Vec<String>,
     redirect_port: u16,
 ) -> Result<()> {
+    let client_id_env = format!("{provider}_CLIENT_ID");
+    let client_secret_env = format!("{provider}_CLIENT_SECRET");
     let client_id = client_id
-        .or_else(|| std::env::var(format!("{provider}_CLIENT_ID")).ok())
-        .context("--client-id is required (or set <provider>_CLIENT_ID)")?;
-    let auth_url =
-        auth_url.context("--auth-url is required (the provider's authorization endpoint)")?;
-    let token_url = token_url.context("--token-url is required (the provider's token endpoint)")?;
+        .or_else(|| std::env::var(&client_id_env).ok())
+        .with_context(|| {
+            format!(
+                "--client-id is required for target auth profile '{provider}' (or set {client_id_env}). You can also run `appctl setup` and choose target auth."
+            )
+        })?;
+    let auth_url = auth_url.with_context(|| {
+        format!(
+            "--auth-url is required for target auth profile '{provider}' (the app's authorization endpoint). You can also run `appctl setup` and choose target auth."
+        )
+    })?;
+    let token_url = token_url.with_context(|| {
+        format!(
+            "--token-url is required for target auth profile '{provider}' (the app's token endpoint). You can also run `appctl setup` and choose target auth."
+        )
+    })?;
     let config = OAuthLoginConfig {
         provider: provider.to_string(),
         storage_key: provider.to_string(),
         namespace: OAuthTokenNamespace::Target,
         client_id,
-        client_secret: client_secret
-            .or_else(|| std::env::var(format!("{provider}_CLIENT_SECRET")).ok()),
+        client_secret: client_secret.or_else(|| std::env::var(client_secret_env).ok()),
         auth_url,
         token_url,
         scopes: scope,
@@ -1233,6 +1258,48 @@ fn logout_target_auth(paths: &ConfigPaths, provider: &str) -> Result<()> {
         println!("cleared active target OAuth profile");
     }
     Ok(())
+}
+
+fn target_auth_profile_or_default(paths: &ConfigPaths, provider: Option<String>) -> Result<String> {
+    if let Some(provider) = provider
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(provider);
+    }
+    let config = AppConfig::load_or_init(paths)?;
+    if let Some(provider) = config
+        .target
+        .oauth_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(provider.to_string());
+    }
+    Ok(app_name_from_dir(&paths.root))
+}
+
+async fn run_app_style_target_auth(paths: &ConfigPaths, args: Vec<OsString>) -> Result<()> {
+    let args = args
+        .into_iter()
+        .map(|value| value.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let Some(profile) = args.first().map(String::as_str) else {
+        bail!("usage: appctl auth <profile> login|status|use|logout");
+    };
+    let action = args.get(1).map(String::as_str).unwrap_or("status");
+    match action {
+        "login" => {
+            login_target_auth(paths, profile, None, None, None, None, Vec::new(), 8421).await
+        }
+        "status" => print_target_auth_status(paths, profile),
+        "use" => use_target_auth(paths, profile),
+        "logout" => logout_target_auth(paths, profile),
+        other => bail!(
+            "unknown target auth action '{other}'. Use: appctl auth {profile} login|status|use|logout"
+        ),
+    }
 }
 
 fn print_provider_auth_status(
@@ -1787,7 +1854,7 @@ fn default_app_dir() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{logout_target_auth, set_target_oauth_provider};
+    use super::{logout_target_auth, set_target_oauth_provider, target_auth_profile_or_default};
     use crate::config::{AppConfig, ConfigPaths};
     use tempfile::tempdir;
 
@@ -1812,5 +1879,27 @@ mod tests {
 
         let config = AppConfig::load_or_init(&paths).unwrap();
         assert_eq!(config.target.oauth_provider, None);
+    }
+
+    #[test]
+    fn target_auth_profile_defaults_to_active_oauth_profile() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+        set_target_oauth_provider(&paths, "esubalew").unwrap();
+
+        let provider = target_auth_profile_or_default(&paths, None).unwrap();
+
+        assert_eq!(provider, "esubalew");
+    }
+
+    #[test]
+    fn target_auth_profile_defaults_to_app_folder_name() {
+        let dir = tempdir().unwrap();
+        let app_dir = dir.path().join("task").join(".appctl");
+        let paths = ConfigPaths::new(app_dir);
+
+        let provider = target_auth_profile_or_default(&paths, None).unwrap();
+
+        assert_eq!(provider, "task");
     }
 }
