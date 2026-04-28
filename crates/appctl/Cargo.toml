@@ -34,7 +34,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
-appctl-plugin-sdk = { version = "0.13.0", path = "../appctl-plugin-sdk" }
+appctl-plugin-sdk = { version = "0.14.0", path = "../appctl-plugin-sdk" }
 async-trait = { workspace = true }
 axum = { version = "0.8.9", features = ["ws"] }
 base64 = "0.22.1"
