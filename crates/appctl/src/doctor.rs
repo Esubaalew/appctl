@@ -14,7 +14,7 @@ use crate::{
     },
     tools::schema_to_tools,
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use owo_colors::OwoColorize;
 use reqwest::Method;
 use serde_json::Value;
@@ -47,7 +47,8 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
         })
         .context("schema has no base_url; pass --base-url on sync or set target.base_url")?;
 
-    let headers = build_headers(&schema.auth, &config, None)?;
+    let headers = build_headers(&schema.auth, &config, schema.metadata.get("auth_header"))?;
+    let auth_configured = !headers.is_empty();
 
     print_flow_header(
         "doctor",
@@ -67,6 +68,7 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
     println!("  {}", "─".repeat(88).dimmed());
 
     let mut any_http = false;
+    let mut auth_rejected = 0usize;
     let mut updates: Vec<(String, u16, bool)> = Vec::new();
 
     for resource in &schema.resources {
@@ -93,8 +95,13 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
                         let ok = verifies_route(code);
                         let v = if ok {
                             "reachable"
+                        } else if auth_rejected_status(code, auth_configured) {
+                            auth_rejected += 1;
+                            "auth rejected"
                         } else if code == 404 {
                             "missing (404)"
+                        } else if matches!(code, 401 | 403) {
+                            "auth required"
                         } else {
                             "check"
                         };
@@ -103,7 +110,7 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
                     Err(e) => (0, format!("error: {e:#}")),
                 };
 
-            let verified = status != 0 && status != 404;
+            let verified = status != 0 && status != 404 && !matches!(status, 401 | 403);
             updates.push((action.name.clone(), status, verified));
 
             println!(
@@ -128,6 +135,17 @@ pub async fn run_doctor(paths: &ConfigPaths, args: DoctorRunArgs) -> Result<()> 
             "(no HTTP tools in this schema — nothing to probe)".dimmed()
         );
         return Ok(());
+    }
+
+    if auth_rejected > 0 {
+        print_section_title("Auth");
+        print_status_warn(&format!(
+            "{auth_rejected} protected route probe(s) rejected the configured credentials"
+        ));
+        print_tip(
+            "Check [target] auth_header, env vars, token expiry, or the API's expected auth scheme.",
+        );
+        bail!("target API auth was rejected by protected routes");
     }
 
     if args.write {
@@ -203,6 +221,10 @@ pub async fn run_doctor_models(
 
 fn verifies_route(status: u16) -> bool {
     status != 404 && status != 0
+}
+
+fn auth_rejected_status(status: u16, auth_configured: bool) -> bool {
+    auth_configured && matches!(status, 401 | 403)
 }
 
 fn http_method_label(m: &HttpMethod) -> &'static str {
@@ -517,4 +539,17 @@ async fn list_models_vertex(provider: &ResolvedProvider) -> Result<Vec<String>> 
     ids.sort();
     ids.dedup();
     Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_rejection_requires_configured_auth() {
+        assert!(auth_rejected_status(401, true));
+        assert!(auth_rejected_status(403, true));
+        assert!(!auth_rejected_status(401, false));
+        assert!(!auth_rejected_status(404, true));
+    }
 }

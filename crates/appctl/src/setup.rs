@@ -17,7 +17,7 @@ use dialoguer::{Confirm, Input, Select};
 use crate::{
     config::{AppConfig, ConfigPaths},
     doctor::{DoctorRunArgs, run_doctor},
-    init::run_init,
+    init::{prompt_register_app, refine_app_label_and_description, run_init},
     sync::{SyncRequest, run_sync},
     term::{
         print_flow_header, print_path_row, print_section_title, print_status_success,
@@ -119,13 +119,7 @@ pub async fn run_setup(paths: &ConfigPaths) -> Result<()> {
         "setup",
         Some("A guided path from install to a working terminal or web chat"),
     );
-    print_path_row("app directory", &paths.root);
-    if dirs::home_dir()
-        .map(|h| h.join(".appctl") == paths.root)
-        .unwrap_or(false)
-    {
-        print_tip("~/.appctl: `cd` to your project before sync, or use `--app-dir other/.appctl`.");
-    }
+    print_app_context(paths)?;
 
     if !io::stdin().is_terminal() {
         print_non_interactive_setup(paths);
@@ -133,10 +127,34 @@ pub async fn run_setup(paths: &ConfigPaths) -> Result<()> {
     }
 
     ensure_provider(paths).await?;
+    ensure_app_identity(paths)?;
     let source = choose_source()?;
     let outcome = maybe_run_sync(paths, source).await?;
-    maybe_run_doctor(paths, outcome).await;
-    print_next_steps(paths);
+    let checks_ok = maybe_run_doctor(paths, outcome).await;
+    print_next_steps(paths, checks_ok);
+    Ok(())
+}
+
+fn print_app_context(paths: &ConfigPaths) -> Result<()> {
+    print_section_title("0. App context");
+    let cwd = std::env::current_dir().context("failed to read current working directory")?;
+    print_path_row("current directory", &cwd);
+    print_path_row("app directory", &paths.root);
+    print_path_row("config", &paths.config);
+    print_path_row("tools", &paths.tools);
+
+    if dirs::home_dir()
+        .map(|h| h.join(".appctl") == paths.root)
+        .unwrap_or(false)
+    {
+        print_tip(
+            "Global home app: use this only on purpose. For a project, run setup from the project folder or pass `--app-dir project/.appctl`.",
+        );
+    } else {
+        print_tip(
+            "Project app: setup will write config and synced tools under this project’s `.appctl`.",
+        );
+    }
     Ok(())
 }
 
@@ -164,15 +182,35 @@ async fn ensure_provider(paths: &ConfigPaths) -> Result<()> {
     Ok(())
 }
 
+fn ensure_app_identity(paths: &ConfigPaths) -> Result<()> {
+    print_section_title("App identity");
+    refine_app_label_and_description(paths)?;
+    prompt_register_app(paths)?;
+    Ok(())
+}
+
 fn choose_source() -> Result<SetupSourceChoice> {
     print_section_title("2. App tools");
     println!("  appctl needs synced tools so the agent knows what it can do.");
+    let items = [
+        "Inspect this project and recommend a source",
+        "OpenAPI spec URL or file",
+        "Database connection",
+        "Manual / advanced source list",
+        "Skip sync for now",
+    ];
     let index = Select::new()
-        .with_prompt("What are you connecting appctl to?")
-        .items(SetupSourceChoice::items())
+        .with_prompt("What should appctl connect to?")
+        .items(items)
         .default(0)
         .interact()?;
-    Ok(SetupSourceChoice::from_index(index))
+    Ok(match index {
+        0 => SetupSourceChoice::AutoDetect,
+        1 => SetupSourceChoice::OpenApi,
+        2 => SetupSourceChoice::Database,
+        3 => SetupSourceChoice::NotSure,
+        _ => SetupSourceChoice::SkipSync,
+    })
 }
 
 async fn maybe_run_sync(
@@ -250,8 +288,9 @@ async fn run_manual_source_sync(
                 default_line.as_deref(),
             )?);
             request.base_url = prompt_optional("Base URL (optional, for calling the API)")?;
-            request.auth_header =
-                prompt_optional("Auth header (optional, e.g. Authorization: Bearer env:TOKEN)")?;
+            request.auth_header = prompt_auth_header_optional(
+                "Auth header (optional, e.g. Authorization: Bearer env:TOKEN)",
+            )?;
         }
         SetupSourceChoice::Database => {
             request.db = Some(prompt_string(
@@ -416,7 +455,7 @@ fn fill_detected_missing_values(
     match source {
         SetupSourceChoice::OpenApi => {
             request.base_url = prompt_optional("Base URL for the running API (optional)")?;
-            request.auth_header = prompt_optional(
+            request.auth_header = prompt_auth_header_optional(
                 "Auth header for protected routes, e.g. Authorization: Bearer env:API_TOKEN (optional)",
             )?;
         }
@@ -786,12 +825,12 @@ fn short_path(root: &Path, path: &Path) -> String {
         .to_string()
 }
 
-async fn maybe_run_doctor(paths: &ConfigPaths, outcome: SetupSyncOutcome) {
+async fn maybe_run_doctor(paths: &ConfigPaths, outcome: SetupSyncOutcome) -> bool {
     let Some(source) = outcome.doctor_source else {
-        return;
+        return true;
     };
     if !outcome.did_sync || !source.is_http_like() {
-        return;
+        return true;
     }
 
     print_section_title("3. Checks");
@@ -804,20 +843,32 @@ async fn maybe_run_doctor(paths: &ConfigPaths, outcome: SetupSyncOutcome) {
     )
     .await
     {
-        Ok(()) => print_status_success("doctor checks completed"),
+        Ok(()) => {
+            print_status_success("doctor checks completed");
+            true
+        }
         Err(err) => {
             print_status_warn("doctor could not finish");
             print_tip(&format!(
-                "You can still continue. Later, run `appctl doctor --write` after the app is reachable. Detail: {err:#}"
+                "Fix this before expecting protected tools to work. Later, run `appctl doctor --write` again. Detail: {err:#}"
             ));
+            false
         }
     }
 }
 
-fn print_next_steps(paths: &ConfigPaths) {
-    print_section_title("Ready");
+fn print_next_steps(paths: &ConfigPaths, checks_ok: bool) {
+    if checks_ok {
+        print_section_title("Ready");
+    } else {
+        print_section_title("Setup finished — checks need attention");
+    }
     print_path_row("app directory", &paths.root);
-    print_status_success("setup flow finished");
+    if checks_ok {
+        print_status_success("setup flow finished");
+    } else {
+        print_status_warn("setup saved config/tools, but target API checks did not pass");
+    }
     print_tip("Terminal: appctl chat");
     print_tip("Web:      appctl serve --open");
 }
@@ -857,6 +908,25 @@ fn prompt_optional(prompt: &str) -> Result<Option<String>> {
     }
 }
 
+fn prompt_auth_header_optional(prompt: &str) -> Result<Option<String>> {
+    loop {
+        let Some(value) = prompt_optional(prompt)? else {
+            return Ok(None);
+        };
+        if auth_header_looks_truncated(&value) {
+            print_status_warn(
+                "that auth header looks truncated (`...`). Paste the full header or use env:, e.g. Authorization: Bearer env:TOKEN.",
+            );
+            continue;
+        }
+        return Ok(Some(value));
+    }
+}
+
+fn auth_header_looks_truncated(value: &str) -> bool {
+    value.contains("...") || value.contains('…')
+}
+
 fn prompt_string_nonempty(prompt: &str, default: &str) -> Result<String> {
     let value = Input::<String>::new()
         .with_prompt(prompt.to_string())
@@ -878,8 +948,8 @@ fn prompt_path(prompt: &str, default: Option<&str>) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConfigPaths, SetupSourceChoice, detect_sync_sources, find_openapi_spec_files,
-        inspection_project_root_inner,
+        ConfigPaths, SetupSourceChoice, auth_header_looks_truncated, detect_sync_sources,
+        find_openapi_spec_files, inspection_project_root_inner,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -978,5 +1048,14 @@ mod tests {
         fs::write(dir.path().join("openapi.json"), "{}").unwrap();
         let found = find_openapi_spec_files(dir.path());
         assert_eq!(found[0], dir.path().join("openapi.json"));
+    }
+
+    #[test]
+    fn truncated_auth_headers_are_rejected() {
+        assert!(auth_header_looks_truncated("Authorization: Bearer abc..."));
+        assert!(auth_header_looks_truncated("Authorization: Bearer abc…"));
+        assert!(!auth_header_looks_truncated(
+            "Authorization: Bearer env:TASK_API_TOKEN"
+        ));
     }
 }

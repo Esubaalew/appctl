@@ -7,12 +7,17 @@ For most users, start with [`appctl setup`](/docs/cli/setup/). It calls the same
 provider setup and then continues through sync, doctor, and first chat/web
 guidance.
 
-`appctl init` is the lower-level interactive way to configure only a provider. It writes
-`.appctl/config.toml`, stores secrets in the OS keychain, runs the real auth
-flow, and ends with a live verify call before printing `done`. If the verify
-call fails, the config is still written but the provider is marked
+`appctl init` is the lower-level interactive way to configure only the **AI
+provider**. It writes provider settings to `.appctl/config.toml`, stores model
+provider secrets in the OS keychain, runs the real auth flow, and ends with a
+live verify call before printing `done`. If the verify call fails, the config is
+still written but the provider is marked
 `verified = false` so later commands can warn you instead of silently using a
 broken setup.
+
+It does not sync tools, verify your target API, or manage the target app's user
+session. For those, run [`appctl setup`](/docs/cli/setup/) or `appctl sync` /
+`appctl auth target ...`.
 
 ## Usage
 
@@ -60,12 +65,7 @@ directory instead of creating a second nested one.
    quota, etc.), the config is still saved but `verified = false`. You then
    see an actionable error and a hint to rerun the step after fixing the
    underlying problem.
-6. **Offer global registration.** After writing the local config, `init` asks
-   whether to register this app in `~/.appctl/apps.toml` and make it the
-   active global app. Saying yes means `appctl app list`, `appctl chat`,
-   `appctl run`, `appctl serve`, and other runtime commands can find the app
-   later even when you are outside the project tree.
-7. **Print the next command.** For direct-API providers this is
+6. **Print the next command.** For direct-API providers this is
    `appctl chat` in the same directory. For MCP bridge providers it is the
    external client's launch command (`codex`, `claude`, `qwen`, `gemini`).
 

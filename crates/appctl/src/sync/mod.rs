@@ -158,6 +158,9 @@ Tip: `appctl setup` can walk you through the safe path.",
     if let Some(conn) = &request.db {
         merge_target_database_url_from_sync(&paths, conn)?;
     }
+    if let Some(header) = &request.auth_header {
+        merge_target_auth_header_from_sync(&paths, header)?;
+    }
 
     print_section_title("Sync complete");
     print_path_row("app directory", &paths.root);
@@ -337,6 +340,32 @@ fn merge_target_database_url_from_sync(paths: &ConfigPaths, connection_string: &
     print_tip(
         "Set [target] database_url from this `sync --db` connection (required for DB tool calls in chat/run).",
     );
+    Ok(())
+}
+
+/// Keep target API auth in one predictable place for runtime commands.
+///
+/// The schema metadata keeps the original sync header for backwards compatibility, but chat/run
+/// users should be able to open `.appctl/config.toml` and see the target auth source there.
+fn merge_target_auth_header_from_sync(paths: &ConfigPaths, auth_header: &str) -> Result<()> {
+    let mut config = AppConfig::load_or_init(paths)?;
+    let missing = config
+        .target
+        .auth_header
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|s| s.is_empty());
+    if !missing {
+        if config.target.auth_header.as_deref() != Some(auth_header) {
+            print_tip(
+                "This sync used a different auth header than [target] auth_header; chat/run will use the configured target header.",
+            );
+        }
+        return Ok(());
+    }
+    config.target.auth_header = Some(auth_header.to_string());
+    config.save(paths)?;
+    print_tip("Set [target] auth_header from this sync (used by doctor/chat/run HTTP tools).");
     Ok(())
 }
 

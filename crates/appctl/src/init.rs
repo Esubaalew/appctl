@@ -200,10 +200,6 @@ pub async fn run_init(paths: &ConfigPaths) -> Result<()> {
         println!("{}", next_step);
     }
 
-    print_section_title("App identity");
-    refine_app_label_and_description(paths)?;
-    prompt_register_app(paths)?;
-
     Ok(())
 }
 
@@ -219,7 +215,7 @@ fn apply_default_app_display_name(config: &mut AppConfig, paths: &ConfigPaths) {
 }
 
 /// Persists a sensible default and, in a TTY, offers one place to adjust label + add an optional description.
-fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
+pub(crate) fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
     if !paths.config.exists() {
         return Ok(());
     }
@@ -267,7 +263,7 @@ fn refine_app_label_and_description(paths: &ConfigPaths) -> Result<()> {
     Ok(())
 }
 
-fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
+pub(crate) fn prompt_register_app(paths: &ConfigPaths) -> Result<()> {
     let mut registry = AppRegistry::load_or_default()?;
     let detected_name = find_registered_app_name(&registry, &paths.root)
         .unwrap_or_else(|| app_name_from_dir(&paths.root));

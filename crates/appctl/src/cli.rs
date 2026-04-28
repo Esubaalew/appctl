@@ -214,6 +214,9 @@ pub enum TargetAuthSubcommand {
     Status {
         provider: String,
     },
+    Logout {
+        provider: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -724,6 +727,9 @@ impl Cli {
                     TargetAuthSubcommand::Status { provider } => {
                         print_target_auth_status(&provider);
                     }
+                    TargetAuthSubcommand::Logout { provider } => {
+                        logout_target_auth(&provider)?;
+                    }
                 },
                 AuthSubcommand::Provider { command } => match command {
                     ProviderAuthSubcommand::Login {
@@ -1155,6 +1161,20 @@ fn print_target_auth_status(provider: &str) {
             );
         }
         _ => println!("no target OAuth tokens stored for '{}'", provider),
+    }
+}
+
+fn logout_target_auth(provider: &str) -> Result<()> {
+    let key = format!("appctl_oauth::{provider}");
+    match delete_secret(&key) {
+        Ok(()) => {
+            println!("cleared target OAuth tokens for '{provider}'");
+            Ok(())
+        }
+        Err(err) => {
+            println!("no target OAuth tokens cleared for '{provider}' ({err:#})");
+            Ok(())
+        }
     }
 }
 

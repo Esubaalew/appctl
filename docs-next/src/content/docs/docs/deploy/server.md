@@ -18,6 +18,14 @@ appctl serve \
 
 Put TLS termination in front (Caddy, Nginx, Cloudflare Tunnel). `appctl serve` does not terminate TLS.
 
+`appctl serve` prints the local URL, network URL when applicable, token status,
+and tunnel/production hints on startup. In production, prefer loopback binding
+with a reverse proxy:
+
+```bash
+appctl serve --bind 127.0.0.1 --port 4242 --token "$APPCTL_TOKEN" --strict
+```
+
 ## systemd unit
 
 `/etc/systemd/system/appctl.service`:
@@ -87,6 +95,9 @@ For any network beyond localhost:
 - Default to `--strict`. Only allow `provenance=verified` tools.
 - Consider `--read-only` for the main deployment and a separate write-enabled instance on a different port or host.
 - Run under a dedicated low-privilege user (`appctl` above).
+- Keep target app credentials separate from the serve token. The serve token
+  controls who can open appctl; `[target]` auth controls what appctl can do
+  inside your app.
 
 ## Scaling
 

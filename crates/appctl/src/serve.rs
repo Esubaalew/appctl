@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -40,6 +40,53 @@ fn loopback_http_base_url(listen: SocketAddr) -> String {
         SocketAddr::V4(s) => format!("http://127.0.0.1:{}", s.port()),
         SocketAddr::V6(s) => format!("http://[::1]:{}", s.port()),
     }
+}
+
+fn likely_lan_ip() -> Option<IpAddr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    // No packet is sent; connect only asks the OS which local interface would route out.
+    socket.connect("8.8.8.8:80").ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    if ip.is_loopback() || ip.is_unspecified() {
+        None
+    } else {
+        Some(ip)
+    }
+}
+
+fn serve_network_url(listen: SocketAddr) -> Option<String> {
+    if listen.ip().is_unspecified() {
+        likely_lan_ip().map(|ip| format!("http://{ip}:{}", listen.port()))
+    } else if !listen.ip().is_loopback() {
+        Some(format!("http://{listen}"))
+    } else {
+        None
+    }
+}
+
+fn print_serve_urls(listen: SocketAddr, local_url: &str, options: &ServeOptions) {
+    println!("appctl serve");
+    println!("  Local:      {local_url}");
+    println!("  Listening:  {listen}");
+    if let Some(network) = serve_network_url(listen) {
+        println!("  Network:    {network}");
+    } else if listen.ip().is_unspecified() {
+        println!(
+            "  Network:    http://<this-machine-ip>:{} (LAN)",
+            listen.port()
+        );
+    }
+    if options.token.is_some() {
+        println!("  Token:      required");
+    } else if listen.ip().is_loopback() {
+        println!("  Token:      not set (local-only)");
+    } else {
+        println!("  Token:      MISSING — add `--token <secret>` before sharing this server");
+    }
+    println!("  Share:      appctl serve --bind 0.0.0.0 --token <secret>");
+    println!("  Tunnel:     appctl serve --token <secret> --tunnel");
+    println!("  Production: keep appctl on loopback behind Caddy/Nginx/Cloudflare");
+    println!("  Stop:       Ctrl+C");
 }
 
 fn try_open_in_browser(url: &str) {
@@ -168,13 +215,7 @@ pub async fn run_server(
     // to `http://0.0.0.0/...` — that commonly yields a blank page; use loopback for local UI
     // and for cloudflared's upstream URL.
     let open_base_url = loopback_http_base_url(local);
-    println!("appctl serve — {open_base_url}  (listening on {local}, Ctrl+C to stop)");
-    if local.ip().is_unspecified() {
-        println!(
-            "  (from other devices on the LAN, use this machine’s IP, e.g. http://<ip>:{})",
-            local.port()
-        );
-    }
+    print_serve_urls(local, &open_base_url, &state.options);
     if state.options.open_browser {
         let open_url = open_base_url.clone();
         std::thread::spawn(move || {
@@ -741,6 +782,21 @@ mod tests {
     fn loopback_url_keeps_concrete_bind_address() {
         let a = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 1), 4242));
         assert_eq!(loopback_http_base_url(a), "http://10.0.0.1:4242");
+    }
+
+    #[test]
+    fn network_url_is_none_for_loopback() {
+        let a = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4242));
+        assert_eq!(serve_network_url(a), None);
+    }
+
+    #[test]
+    fn network_url_keeps_concrete_lan_bind() {
+        let a = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 0, 0, 7), 4242));
+        assert_eq!(
+            serve_network_url(a),
+            Some("http://10.0.0.7:4242".to_string())
+        );
     }
 
     #[test]

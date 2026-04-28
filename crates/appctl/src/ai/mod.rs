@@ -322,7 +322,7 @@ Operating rules:
 - Ask the user for more information only after the available read-only tools cannot find or disambiguate the needed data.
 - If a read-only lookup fails, explain the specific tool path tried and the missing key/field; do not simply say the data is unavailable.
 
-For HTTP tools, appctl may add Authorization headers and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; do not ask the user to paste API tokens or secrets if a tool can run with optional parameters that appctl supplies. Only ask for a value when a tool result shows an auth or permission error and the spec requires a parameter the user must supply in chat.
+For HTTP tools, appctl may add Authorization headers, cookies, sessions, and default query parameters from the user’s app configuration (not shown to you in full). Prefer calling the tool; never ask the user to paste API tokens, passwords, OAuth client secrets, cookies, or bearer strings into chat. If a tool result returns 401/403, say that the target app auth configured in appctl was missing, expired, rejected, or lacks permission, and tell the user to fix appctl target auth/config outside chat. Only ask for ordinary non-secret business inputs (project name, task title, record id, date range, etc.).
 
 Response style rules:
 - Do not volunteer unrelated information the user did not ask for.
@@ -605,6 +605,8 @@ mod tests {
         assert!(prompt.contains("Work step by step like an IDE agent"));
         assert!(prompt.contains("Use returned IDs"));
         assert!(prompt.contains("retry with `filter`"));
+        assert!(prompt.contains("never ask the user to paste API tokens"));
+        assert!(prompt.contains("fix appctl target auth/config outside chat"));
     }
 
     #[test]

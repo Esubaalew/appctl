@@ -21,17 +21,24 @@ From the project folder you want appctl to control:
 appctl setup
 ```
 
-The setup flow inspects a folder first, asks simple questions, and then does
-the normal appctl steps for you. If you use `~/.appctl` as a shared app, the
-scan uses your **current directory** (run `cd` to your project first) — or use
-`--app-dir path/to/project/.appctl` for a project-only app.
+The setup flow starts by showing the exact `.appctl` directory it will write to.
+For most users this should be a project-local folder such as `my-app/.appctl`.
+`~/.appctl` is treated as a global app only when you explicitly use it from your
+home directory or with `--app-dir`.
 
-1. Choose an AI provider and store credentials safely.
-2. Let appctl suggest likely sources from the folder, such as OpenAPI files,
-   local SQLite databases, Django, Flask, Rails, Laravel, ASP.NET, or Strapi.
-3. Sync tools into `.appctl/schema.json` and `.appctl/tools.json`.
-4. Run `doctor` checks when the source has a live HTTP base URL.
-5. Print the two next commands: terminal chat or web mode.
+1. Confirm the app directory.
+2. Choose or keep an AI provider.
+3. Let appctl inspect the project and recommend a source, or choose OpenAPI /
+   database / advanced manually.
+4. Give target app access if needed, for example
+   `Authorization: Bearer env:API_TOKEN`.
+5. Sync tools, run checks, then print terminal and web next steps.
+
+App access and model access are separate:
+
+- **AI provider access** lets appctl talk to the language model.
+- **Target app access** lets appctl call your API as a user or service account.
+- **Serve token** protects the appctl web console when you share it.
 
 ## 3. Chat in the terminal
 
@@ -66,6 +73,8 @@ mean one of these:
 - Existing tools would be replaced: rerun sync with `--force` only when you
   really want to regenerate `.appctl/schema.json`.
 - Wrong project: pass `--app-dir /path/to/.appctl`.
+- Auth rejected: fix `[target] auth_header`, its env var, or the target API
+  permissions, then rerun `appctl doctor --write`.
 
 ## Advanced manual path
 

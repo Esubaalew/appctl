@@ -33,6 +33,19 @@ appctl setup
 appctl chat
 ```
 
+Run `setup` from the app/project folder you want to control. It creates or reuses
+that folder's `.appctl/`, guides provider setup, syncs tools, verifies the target
+API, and tells you exactly how to open the terminal or web console.
+
+For protected APIs, prefer environment-backed target auth:
+
+```bash
+export API_TOKEN="..."
+appctl setup
+# Auth header prompt:
+# Authorization: Bearer env:API_TOKEN
+```
+
 Advanced manual setup is still available:
 
 ```bash

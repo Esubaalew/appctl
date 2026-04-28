@@ -23,6 +23,22 @@ If the web console shows “Provider missing” or “Tools not synced,” run
 appctl serve [OPTIONS]
 ```
 
+When the server starts, it prints dev-server style access hints:
+
+```text
+appctl serve
+  Local:      http://127.0.0.1:4242
+  Listening:  127.0.0.1:4242
+  Token:      not set (local-only)
+  Share:      appctl serve --bind 0.0.0.0 --token <secret>
+  Tunnel:     appctl serve --token <secret> --tunnel
+  Production: keep appctl on loopback behind Caddy/Nginx/Cloudflare
+```
+
+Use the **Local** URL on the machine running appctl. Use the **Network** URL
+only when you intentionally bind beyond loopback and protect the server with a
+token.
+
 ## Options
 
 | Flag | Default | What it does |
@@ -107,6 +123,22 @@ appctl serve --read-only --dry-run
 # Force a specific provider for a server that runs inside a CI job
 appctl serve --provider openai --model gpt-4o-mini --confirm=false
 ```
+
+## What URL do I open?
+
+- Same machine: open the printed **Local** URL.
+- Phone or another computer on the same network: run with `--bind 0.0.0.0
+  --token ...`, then open the printed **Network** URL.
+- Outside your network: use `--tunnel` or run behind a reverse proxy.
+- Never open `http://0.0.0.0:...`; `0.0.0.0` is a bind address, not a browser
+  destination.
+
+## Serve token vs target app auth
+
+`--token` protects the **appctl web console**. It does not log appctl into your
+target app. Target app/API credentials live in `.appctl/config.toml` under
+`[target]` (for example `auth_header = "Authorization: Bearer env:API_TOKEN"`)
+or in a target auth/session flow.
 
 ## Security notes
 
