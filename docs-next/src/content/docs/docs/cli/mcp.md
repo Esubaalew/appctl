@@ -33,8 +33,8 @@ Each synced `appctl` tool is exposed as one MCP tool with its JSON Schema input.
 ## Example
 
 ```bash
-appctl sync --openapi http://127.0.0.1:8000/openapi.json \
-  --base-url http://127.0.0.1:8000 --force
+appctl sync --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com --force
 
 appctl mcp serve --read-only
 ```

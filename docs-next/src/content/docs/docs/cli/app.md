@@ -106,8 +106,8 @@ Register and sync in one step:
 ```bash
 appctl app add storefront \
   --path /Users/you/projects/storefront/.appctl \
-  --openapi http://127.0.0.1:8000/openapi.json \
-  --base-url http://127.0.0.1:8000 \
+  --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com \
   --force
 ```
 

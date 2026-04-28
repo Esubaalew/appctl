@@ -833,12 +833,26 @@ fn expand_runtime_header_value(raw: &str) -> Result<String> {
             format!("environment variable '{name}' (from auth header) is not set")
         });
     }
+    if let Some(name) = raw.strip_prefix("keychain:") {
+        let name = name.trim();
+        return load_secret(name)
+            .with_context(|| format!("keychain secret '{name}' (from auth header) is not set"));
+    }
     if let Some(rest) = raw.strip_prefix("Bearer ")
         && let Some(name) = rest.trim().strip_prefix("env:")
     {
         let name = name.trim();
         let token = std::env::var(name).with_context(|| {
             format!("environment variable '{name}' (from Bearer auth header) is not set")
+        })?;
+        return Ok(format!("Bearer {token}"));
+    }
+    if let Some(rest) = raw.strip_prefix("Bearer ")
+        && let Some(name) = rest.trim().strip_prefix("keychain:")
+    {
+        let name = name.trim();
+        let token = load_secret(name).with_context(|| {
+            format!("keychain secret '{name}' (from Bearer auth header) is not set")
         })?;
         return Ok(format!("Bearer {token}"));
     }

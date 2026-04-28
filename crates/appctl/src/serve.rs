@@ -447,6 +447,21 @@ fn public_target_auth_status(config: &AppConfig) -> Value {
         .as_deref()
         .map(str::trim)
         .is_some_and(|value| !value.is_empty());
+    let auth_header_kind = config
+        .target
+        .auth_header
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if value.contains(" keychain:") || value.starts_with("keychain:") {
+                "keychain"
+            } else if value.contains(" env:") || value.starts_with("env:") {
+                "env"
+            } else {
+                "literal"
+            }
+        });
     let mode = if active_oauth_profile.is_some() {
         "oauth_profile"
     } else if auth_header_configured {
@@ -457,16 +472,29 @@ fn public_target_auth_status(config: &AppConfig) -> Value {
     let recovery_hint = match (active_oauth_profile, oauth_token_stored, auth_header_configured) {
         (Some(profile), false, _) => Some(format!("Run `appctl auth target login {profile}`.")),
         (None, false, false) => Some(
-            "Run `appctl setup`, set [target].auth_header, or run `appctl auth target login <name>`."
+            "Run `appctl auth target set-bearer --env API_TOKEN`, `appctl auth target token-login <profile> --url <token-url>`, or `appctl setup`."
                 .to_string(),
         ),
         _ => None,
+    };
+    let reauth_command = match (active_oauth_profile, auth_header_kind) {
+        (Some(profile), _) => format!("appctl auth target login {profile}"),
+        (None, Some("env")) => "export API_TOKEN=... && appctl doctor --write".to_string(),
+        (None, Some("keychain")) => {
+            "appctl auth target token-login <profile> --url <token-url>".to_string()
+        }
+        (None, Some(_)) => {
+            "appctl auth target set-header 'Authorization: Bearer env:API_TOKEN'".to_string()
+        }
+        (None, None) => "appctl auth target set-bearer --env API_TOKEN".to_string(),
     };
     json!({
         "mode": mode,
         "active_oauth_profile": active_oauth_profile,
         "oauth_token_stored": oauth_token_stored,
         "auth_header_configured": auth_header_configured,
+        "auth_header_kind": auth_header_kind,
+        "reauth_command": reauth_command,
         "me_tool": config.target.me_tool.clone(),
         "me_path": config.target.me_path.clone(),
         "recovery_hint": recovery_hint,

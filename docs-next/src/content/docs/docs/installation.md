@@ -75,7 +75,7 @@ appctl setup
 
 It guides you through provider setup, source selection, sync, checks, and the
 next command for terminal or web chat. See [First 10 minutes](/docs/first-10-minutes/)
-for the full happy path.
+for the complete first-run flow.
 
 ## Configure a provider manually
 

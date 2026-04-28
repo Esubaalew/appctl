@@ -3,8 +3,8 @@ title: First 10 minutes
 description: The simplest path from install to a working appctl chat or web console.
 ---
 
-This is the happy path. You do not need to understand every config file before
-you start.
+Start here if you want a working terminal chat or web console without editing
+`.appctl/config.toml` by hand.
 
 ## 1. Install
 
@@ -97,6 +97,47 @@ appctl sync --openapi <url-or-file> --base-url <running-api-url>
 appctl doctor --write
 appctl chat
 ```
+
+If your HTTP API needs credentials, configure target auth outside chat. Pick the
+shape your API actually uses:
+
+```bash
+# Header API key
+appctl auth target set-header 'X-Api-Key: env:API_KEY'
+
+# Bearer token
+appctl auth target set-bearer --env API_TOKEN
+
+# Cookie/session
+appctl auth target set-header 'Cookie: env:APP_SESSION_COOKIE'
+
+# OAuth/OIDC browser login
+appctl auth target login api --client-id <id> --auth-url <url> --token-url <url>
+```
+
+You can also set a header while syncing:
+
+```bash
+export API_TOKEN='...'
+
+appctl sync \
+  --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com \
+  --auth-header 'Authorization: Bearer env:API_TOKEN' \
+  --force
+```
+
+Changing credentials later does not require sync:
+
+```bash
+export API_TOKEN='new-token'
+appctl auth target set-bearer --env API_TOKEN
+appctl doctor --write
+```
+
+Use `--force` only when `.appctl/schema.json` already exists and you intend to
+regenerate the tools. See [`appctl sync`](/docs/cli/sync/) and
+[OpenAPI](/docs/sources/openapi/) for details.
 
 For databases:
 

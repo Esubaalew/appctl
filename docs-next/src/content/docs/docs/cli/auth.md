@@ -5,36 +5,118 @@ description: OAuth and credential management for target apps and LLM providers.
 
 `appctl auth` splits into two independent namespaces:
 
-- `appctl auth target ...` — OAuth flows for the application you are *managing*
-  (e.g. a GitHub or Stripe account behind your OpenAPI spec). Tokens are stored
-  under the `appctl_oauth::<name>` keychain entry.
+- `appctl auth target ...` — credentials for the application described by your
+  OpenAPI schema or synced tools. This includes header auth, bearer tokens,
+  token endpoints, and OAuth/OIDC profiles.
 - `appctl auth provider ...` — credentials for the LLM provider that powers
   `chat`, `run`, and `serve`. Handles API keys, OAuth2, Google ADC, Azure AD
   device code, and MCP bridge clients.
 
-Top-level shortcuts (`appctl auth login <provider>`, `appctl auth status
-<provider>`) are kept as aliases for `appctl auth target login / status`.
+Top-level shortcuts (`appctl auth login [profile]`, `appctl auth status
+[profile]`) are kept as aliases for `appctl auth target login / status`.
 
 ## Target auth
 
+Target auth is the credential appctl attaches when it calls **your app** through
+HTTP tools. It is independent from sync: changing target auth does **not**
+regenerate `.appctl/schema.json` or `.appctl/tools.json`.
+
+Target auth covers the credential patterns appctl can add to requests:
+
+| App auth shape | appctl command |
+| --- | --- |
+| Public API | `appctl auth target clear` |
+| Bearer token | `appctl auth target set-bearer --env API_TOKEN` |
+| API key or custom header | `appctl auth target set-header 'X-Api-Key: env:API_KEY'` |
+| Cookie/session header | `appctl auth target set-header 'Cookie: env:APP_SESSION_COOKIE'` |
+| Basic auth or another header scheme | `appctl auth target set-header 'Authorization: Basic env:BASIC_AUTH'` |
+| Query parameter token | configure `[target.default_query]` in `.appctl/config.toml` |
+| Username/password token endpoint | `appctl auth target token-login <profile> --url <token-endpoint>` |
+| OAuth/OIDC browser login | `appctl auth target login <profile> --client-id ... --auth-url ... --token-url ...` |
+| Credentials declared in OpenAPI `securitySchemes` | set the referenced env var or keychain secret |
+
+The commands do not change synced tools. They only change how appctl
+authenticates when it executes those tools.
+
+### Header auth
+
+Use `set-header` for any API that expects credentials in an HTTP header:
+
 ```bash
-appctl auth target login <name> \
+appctl auth target set-header 'X-Api-Key: env:API_KEY'
+appctl auth target set-header 'Authorization: Bearer env:API_TOKEN'
+appctl auth target set-header 'Cookie: env:APP_SESSION_COOKIE'
+```
+
+Use `set-bearer` when the header is specifically `Authorization: Bearer ...`:
+
+```bash
+appctl auth target set-bearer --env API_TOKEN
+appctl auth target set-bearer --keychain appctl_target_bearer::production
+```
+
+`set-bearer` and `set-header` update `[target].auth_header` in
+`.appctl/config.toml`. appctl expands `env:` or `keychain:` at request time.
+The model does not receive the secret value.
+
+### Query parameter auth
+
+Some APIs use a query parameter such as `?api_key=...` or `?access_token=...`.
+Put those defaults in `.appctl/config.toml`:
+
+```toml
+[target.default_query]
+api_key = "env:API_KEY"
+```
+
+If the OpenAPI document declares a query `apiKey` security scheme, appctl can
+also read the referenced secret from the environment or keychain at runtime.
+
+### Token endpoints
+
+Use `token-login` for APIs that issue a token from a username/password or
+password-grant style endpoint:
+
+```bash
+appctl auth target token-login api \
+    --url https://api.example.com/oauth/token \
+    --username-env APP_USER \
+    --password-env APP_PASSWORD \
+    --token-field access_token
+```
+
+`token-login` posts `username` and `password`, reads the JSON field named by
+`--token-field`, stores the token in the OS keychain, and sets
+`[target].auth_header` to a keychain-backed bearer header. Do not paste
+passwords into chat.
+
+### OAuth/OIDC browser login
+
+Use `login` when the target application has OAuth/OIDC authorization and token
+endpoints:
+
+```bash
+appctl auth target login api \
     --client-id <id> \
     --auth-url <URL> \
     --token-url <URL> \
     [--client-secret <secret>] \
     [--scope <scope>]... \
     [--redirect-port 8421]
-
-appctl auth target status <name>
-appctl auth target use <name>
-appctl auth target logout <name>
 ```
 
-`login` runs a real OAuth 2.0 Authorization-Code-with-PKCE flow against the
-URLs you pass. A local listener on `--redirect-port` catches the callback.
-Missing values fall back to environment variables named `<NAME>_CLIENT_ID`
-and `<NAME>_CLIENT_SECRET`.
+`login` runs an Authorization Code + PKCE flow. A local listener on
+`--redirect-port` catches the callback. Missing values fall back to environment
+variables named `<NAME>_CLIENT_ID` and `<NAME>_CLIENT_SECRET`.
+
+### Inspect and clear
+
+```bash
+appctl auth target status [name]
+appctl auth target use <name>
+appctl auth target logout <name>
+appctl auth target clear
+```
 
 The resulting token payload is stored in the OS keychain under
 `appctl_oauth::<name>`. `login` also sets `[target].oauth_provider = "<name>"`
@@ -77,6 +159,25 @@ openai kind=open_ai_compatible model=gpt-5 auth=api_key configured=true
 named provider. For Google ADC and MCP bridges, it prints the external cleanup
 step instead.
 `provider list` is an alias for `provider status` without a filter.
+
+## Changing users without resyncing
+
+Resync only when the app contract changes. To switch the user appctl calls your
+API as, change target auth and restart any long-running `appctl chat` or
+`appctl serve` process that needs a new environment.
+
+```bash
+# env-backed bearer: rotate the env var value
+export API_TOKEN='new-token'
+appctl auth target status
+appctl doctor --write
+
+# token endpoint: log in again outside chat
+appctl auth target token-login api \
+  --url https://api.example.com/oauth/token \
+  --username-env APP_USER \
+  --password-env APP_PASSWORD
+```
 
 ## Presets for unconfigured providers
 

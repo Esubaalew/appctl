@@ -17,7 +17,7 @@ description: Use appctl as an MCP client or expose synced tools through appctl m
 ## Using a remote MCP server
 
 ```bash
-appctl sync --mcp http://localhost:5555/mcp --force
+appctl sync --mcp https://mcp.example.com/mcp --force
 ```
 
 Current behavior is intentionally small: the sync writes one `call_remote_mcp_tool` action and stores the server URL. At runtime, `appctl` forwards `tools/call` to that server.
@@ -25,8 +25,8 @@ Current behavior is intentionally small: the sync writes one `call_remote_mcp_to
 ## Expose synced tools as an MCP server
 
 ```bash
-appctl sync --openapi http://127.0.0.1:8000/openapi.json \
-  --base-url http://127.0.0.1:8000 --force
+appctl sync --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com --force
 
 appctl mcp serve --read-only
 ```

@@ -13,7 +13,7 @@ Every project has a `.appctl/schema.json` after a successful sync. It looks like
 {
   "version": 1,
   "source": "openapi",
-  "base_url": "http://127.0.0.1:8000",
+  "base_url": "https://api.example.com",
   "auth": { "kind": "none" },
   "resources": [
     {
@@ -69,7 +69,7 @@ directory, or a job overwrote a committed file. Hence `--force` for any
 second write.
 
 ```bash
-appctl sync --openapi http://127.0.0.1:8000/openapi.json --base-url http://127.0.0.1:8000
+appctl sync --openapi https://api.example.com/openapi.json --base-url https://api.example.com
 # after the spec changes, same line plus --force
 ```
 

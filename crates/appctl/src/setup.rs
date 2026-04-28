@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use dialoguer::{Confirm, Input, Select};
+use serde_json::Value;
 
 use crate::{
     auth::oauth::{OAuthLoginConfig, OAuthTokenNamespace, login as oauth_login},
@@ -114,6 +115,14 @@ struct DetectedSyncSource {
     request: SyncRequest,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SetupMode {
+    Full,
+    TargetAuthOnly,
+    ToolsOnly,
+    ProviderOnly,
+}
+
 pub async fn run_setup(paths: &ConfigPaths) -> Result<()> {
     paths.ensure()?;
     print_flow_header(
@@ -127,14 +136,61 @@ pub async fn run_setup(paths: &ConfigPaths) -> Result<()> {
         return Ok(());
     }
 
-    ensure_provider(paths).await?;
-    ensure_app_identity(paths)?;
-    let source = choose_source()?;
-    let outcome = maybe_run_sync(paths, source).await?;
-    ensure_target_auth(paths, &outcome).await?;
-    let checks_ok = maybe_run_doctor(paths, outcome).await;
-    print_next_steps(paths, checks_ok);
+    match choose_setup_mode(paths)? {
+        SetupMode::Full => {
+            ensure_provider(paths).await?;
+            ensure_app_identity(paths)?;
+            let source = choose_source()?;
+            let outcome = maybe_run_sync(paths, source).await?;
+            ensure_target_auth(paths, &outcome, false).await?;
+            let checks_ok = maybe_run_doctor(paths, outcome).await;
+            print_next_steps(paths, checks_ok);
+        }
+        SetupMode::TargetAuthOnly => {
+            print_tip("Auth-only setup does not resync tools or reconfigure the AI provider.");
+            ensure_target_auth(paths, &SetupSyncOutcome::skipped(), true).await?;
+            let checks_ok = maybe_run_doctor(paths, SetupSyncOutcome::skipped()).await;
+            print_next_steps(paths, checks_ok);
+        }
+        SetupMode::ToolsOnly => {
+            let source = choose_source()?;
+            let outcome = maybe_run_sync(paths, source).await?;
+            let checks_ok = maybe_run_doctor(paths, outcome).await;
+            print_next_steps(paths, checks_ok);
+        }
+        SetupMode::ProviderOnly => {
+            ensure_provider(paths).await?;
+            print_next_steps(paths, true);
+        }
+    }
     Ok(())
+}
+
+fn choose_setup_mode(paths: &ConfigPaths) -> Result<SetupMode> {
+    let config_exists = paths.config.exists();
+    let tools_exist = paths.has_synced_artifacts();
+    if !config_exists && !tools_exist {
+        return Ok(SetupMode::Full);
+    }
+    print_section_title("Setup scope");
+    println!("  Choose the smallest thing you want to change right now.");
+    let items = [
+        "Full setup (provider, app identity, tools, target auth, checks)",
+        "Target app auth only (Bearer, cookie, OAuth profile; no resync)",
+        "Tools/sync only (refresh OpenAPI/DB/framework tools)",
+        "AI provider only",
+    ];
+    let index = Select::new()
+        .with_prompt("What should setup configure?")
+        .items(items)
+        .default(1)
+        .interact()?;
+    Ok(match index {
+        1 => SetupMode::TargetAuthOnly,
+        2 => SetupMode::ToolsOnly,
+        3 => SetupMode::ProviderOnly,
+        _ => SetupMode::Full,
+    })
 }
 
 fn print_app_context(paths: &ConfigPaths) -> Result<()> {
@@ -279,20 +335,55 @@ async fn run_manual_source_sync(
         SetupSourceChoice::OpenApi => {
             let scan_root = inspection_project_root(paths)?;
             let spec_files = find_openapi_spec_files(&scan_root);
-            let default_line = spec_files.first().map(|p| openapi_prompt_default_path(p));
+            let default_line = spec_files
+                .first()
+                .map(|p| openapi_prompt_default_path(p))
+                .or_else(|| stored_openapi_url_default(paths));
             if default_line.is_none() {
                 print_tip(
                     "No openapi/swagger file found under this project. Use a file path, a live URL (server running), or go back and pick \"Inspect project\".",
                 );
+            } else if spec_files.is_empty() {
+                if let Some(url) = stored_openapi_url_default(paths) {
+                    print_tip(&format!(
+                        "You already have a synced OpenAPI schema under `.appctl/`. A common live URL is {url} (start the API, then sync)."
+                    ));
+                }
             }
             request.openapi = Some(prompt_string(
                 "OpenAPI: URL or spec file path",
                 default_line.as_deref(),
             )?);
-            request.base_url = prompt_optional("Base URL (optional, for calling the API)")?;
-            request.auth_header = prompt_auth_header_optional(
-                "Auth header (optional, e.g. Authorization: Bearer env:TOKEN)",
-            )?;
+
+            let config = AppConfig::load_or_init(paths)?;
+            let target_base_url = config
+                .target
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            let target_auth_header = config
+                .target
+                .auth_header
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+
+            request.base_url = target_base_url.or_else(|| stored_sync_base_url(paths));
+
+            if request.base_url.is_none() {
+                request.base_url = prompt_optional("Base URL (optional, for calling the API)")?;
+            }
+
+            request.auth_header = if let Some(header) = target_auth_header {
+                Some(header)
+            } else {
+                prompt_auth_header_optional(
+                    "Auth header (optional, e.g. Authorization: Bearer env:TOKEN)",
+                )?
+            };
         }
         SetupSourceChoice::Database => {
             request.db = Some(prompt_string(
@@ -473,10 +564,15 @@ fn fill_detected_missing_values(
     Ok(())
 }
 
-async fn ensure_target_auth(paths: &ConfigPaths, outcome: &SetupSyncOutcome) -> Result<()> {
-    if !outcome
-        .doctor_source
-        .is_some_and(SetupSourceChoice::is_http_like)
+async fn ensure_target_auth(
+    paths: &ConfigPaths,
+    outcome: &SetupSyncOutcome,
+    force_prompt: bool,
+) -> Result<()> {
+    if !force_prompt
+        && !outcome
+            .doctor_source
+            .is_some_and(SetupSourceChoice::is_http_like)
     {
         return Ok(());
     }
@@ -489,6 +585,7 @@ async fn ensure_target_auth(paths: &ConfigPaths, outcome: &SetupSyncOutcome) -> 
     let items = [
         "Public API / no auth",
         "Bearer token from an environment variable",
+        "Bearer token stored in appctl keychain",
         "Cookie/session value from an environment variable",
         "OAuth browser login now",
         "Use an existing OAuth target profile",
@@ -521,6 +618,22 @@ async fn ensure_target_auth(paths: &ConfigPaths, outcome: &SetupSyncOutcome) -> 
             ));
         }
         2 => {
+            let secret_name = prompt_string_nonempty(
+                "Keychain secret name that holds the bearer token",
+                "API_TOKEN",
+            )?;
+            set_target_auth_header(
+                paths,
+                format!("Authorization: Bearer keychain:{secret_name}"),
+            )?;
+            print_status_success(&format!(
+                "target auth will use Authorization: Bearer keychain:{secret_name}"
+            ));
+            print_tip(&format!(
+                "Store/refresh it with: appctl config set-secret {secret_name}"
+            ));
+        }
+        3 => {
             let env_name = prompt_string_nonempty(
                 "Environment variable that holds the Cookie header value",
                 "APP_SESSION_COOKIE",
@@ -528,10 +641,10 @@ async fn ensure_target_auth(paths: &ConfigPaths, outcome: &SetupSyncOutcome) -> 
             set_target_auth_header(paths, format!("Cookie: env:{env_name}"))?;
             print_status_success(&format!("target auth will use Cookie: env:{env_name}"));
         }
-        3 => {
+        4 => {
             login_target_oauth_from_setup(paths).await?;
         }
-        4 => {
+        5 => {
             let profile = prompt_string_nonempty("Existing target OAuth profile name", "default")?;
             set_target_oauth_provider(paths, &profile)?;
             print_status_success(&format!(
@@ -543,7 +656,7 @@ async fn ensure_target_auth(paths: &ConfigPaths, outcome: &SetupSyncOutcome) -> 
         }
         _ => {
             print_tip(
-                "Skipped target auth. You can add it later with `appctl setup` or `appctl auth target login <name>`.",
+                "Skipped target auth. You can add it later with `appctl auth target set-bearer --env API_TOKEN` or `appctl auth target login <name>`.",
             );
         }
     }
@@ -680,6 +793,39 @@ fn openapi_prompt_default_path(file: &Path) -> String {
         }
     }
     file.display().to_string()
+}
+
+fn stored_schema_json(paths: &ConfigPaths) -> Option<Value> {
+    let path = paths.root.join("schema.json");
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn stored_sync_base_url(paths: &ConfigPaths) -> Option<String> {
+    let schema = stored_schema_json(paths)?;
+    let source = schema.get("source")?.as_str()?;
+    if source != "openapi" {
+        return None;
+    }
+    let base_url = schema.get("base_url")?.as_str()?.trim();
+    if base_url.is_empty() {
+        return None;
+    }
+    Some(normalize_base_url(base_url))
+}
+
+fn stored_openapi_url_default(paths: &ConfigPaths) -> Option<String> {
+    let base = stored_sync_base_url(paths)?;
+    Some(join_url_path(&base, "openapi.json"))
+}
+
+fn normalize_base_url(base_url: &str) -> String {
+    base_url.trim_end_matches('/').to_string()
+}
+
+fn join_url_path(base_url: &str, suffix: &str) -> String {
+    let base = normalize_base_url(base_url);
+    format!("{base}/{suffix}")
 }
 
 fn detect_sync_sources(project_root: &Path) -> Vec<DetectedSyncSource> {
@@ -1090,7 +1236,8 @@ fn prompt_path(prompt: &str, default: Option<&str>) -> Result<PathBuf> {
 mod tests {
     use super::{
         ConfigPaths, SetupSourceChoice, auth_header_looks_truncated, detect_sync_sources,
-        find_openapi_spec_files, inspection_project_root_inner,
+        find_openapi_spec_files, inspection_project_root_inner, stored_openapi_url_default,
+        stored_sync_base_url,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -1198,5 +1345,26 @@ mod tests {
         assert!(!auth_header_looks_truncated(
             "Authorization: Bearer env:TASK_API_TOKEN"
         ));
+    }
+
+    #[test]
+    fn stored_schema_suggests_live_openapi_url_from_prior_sync() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+        fs::create_dir_all(&paths.root).unwrap();
+        fs::write(
+            paths.root.join("schema.json"),
+            r#"{"source":"openapi","base_url":"http://localhost:8000/"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            stored_sync_base_url(&paths).as_deref(),
+            Some("http://localhost:8000")
+        );
+        assert_eq!(
+            stored_openapi_url_default(&paths).as_deref(),
+            Some("http://localhost:8000/openapi.json")
+        );
     }
 }

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
+use serde_json::Value;
 use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
     config::{
         AppConfig, AppRegistry, ConfigPaths, active_app_path, app_name_from_dir, delete_secret,
         find_app_dir_from, find_registered_app_name, load_secret, normalize_app_dir,
-        registry_default_looks_like_os_username,
+        registry_default_looks_like_os_username, save_secret,
     },
     doctor::{DoctorRunArgs, run_doctor, run_doctor_models},
     history::{HistoryCommand, run_history_command},
@@ -224,6 +225,40 @@ pub enum TargetAuthSubcommand {
     },
     Logout {
         provider: Option<String>,
+    },
+    /// Set target auth to `Authorization: Bearer env:VAR`.
+    SetBearer {
+        /// Environment variable that contains the bearer token.
+        #[arg(long, conflicts_with = "keychain_ref")]
+        env: Option<String>,
+        /// Keychain secret name that contains the bearer token.
+        #[arg(long = "keychain", conflicts_with = "env")]
+        keychain_ref: Option<String>,
+    },
+    /// Set an arbitrary target auth header, e.g. `Authorization: Bearer env:TOKEN`.
+    SetHeader {
+        header: String,
+    },
+    /// Clear target auth from config. Stored keychain secrets are left intact.
+    Clear,
+    /// Run a username/password token endpoint outside chat and store the bearer token.
+    TokenLogin {
+        provider: Option<String>,
+        /// Token endpoint URL, e.g. http://127.0.0.1:8000/auth/token.
+        #[arg(long)]
+        url: String,
+        /// Login username. Prefer --username-env for repeatable scripts.
+        #[arg(long, conflicts_with = "username_env")]
+        username: Option<String>,
+        /// Environment variable that contains the username.
+        #[arg(long)]
+        username_env: Option<String>,
+        /// Environment variable that contains the password. If omitted, appctl prompts securely.
+        #[arg(long)]
+        password_env: Option<String>,
+        /// JSON field containing the returned access token.
+        #[arg(long, default_value = "access_token")]
+        token_field: String,
     },
 }
 
@@ -713,8 +748,7 @@ impl Cli {
                         .await?;
                     }
                     AuthSubcommand::Status { provider } => {
-                        let provider = target_auth_profile_or_default(&paths, provider)?;
-                        print_target_auth_status(&paths, &provider)?;
+                        print_target_auth_status(&paths, provider.as_deref())?;
                     }
                     AuthSubcommand::Target { command } => match command {
                         TargetAuthSubcommand::Login {
@@ -740,8 +774,7 @@ impl Cli {
                             .await?;
                         }
                         TargetAuthSubcommand::Status { provider } => {
-                            let provider = target_auth_profile_or_default(&paths, provider)?;
-                            print_target_auth_status(&paths, &provider)?;
+                            print_target_auth_status(&paths, provider.as_deref())?;
                         }
                         TargetAuthSubcommand::Use { provider } => {
                             let provider = target_auth_profile_or_default(&paths, provider)?;
@@ -750,6 +783,35 @@ impl Cli {
                         TargetAuthSubcommand::Logout { provider } => {
                             let provider = target_auth_profile_or_default(&paths, provider)?;
                             logout_target_auth(&paths, &provider)?;
+                        }
+                        TargetAuthSubcommand::SetBearer { env, keychain_ref } => {
+                            set_target_bearer_auth(&paths, env, keychain_ref)?;
+                        }
+                        TargetAuthSubcommand::SetHeader { header } => {
+                            set_target_header_auth(&paths, &header)?;
+                        }
+                        TargetAuthSubcommand::Clear => {
+                            clear_target_auth(&paths)?;
+                        }
+                        TargetAuthSubcommand::TokenLogin {
+                            provider,
+                            url,
+                            username,
+                            username_env,
+                            password_env,
+                            token_field,
+                        } => {
+                            let provider = target_auth_profile_or_default(&paths, provider)?;
+                            token_login_target_auth(
+                                &paths,
+                                &provider,
+                                &url,
+                                username,
+                                username_env,
+                                password_env,
+                                &token_field,
+                            )
+                            .await?;
                         }
                     },
                     AuthSubcommand::Provider { command } => match command {
@@ -1195,30 +1257,68 @@ async fn login_provider_auth(
     }
 }
 
-fn print_target_auth_status(paths: &ConfigPaths, provider: &str) -> Result<()> {
+fn print_target_auth_status(paths: &ConfigPaths, provider: Option<&str>) -> Result<()> {
     let config = AppConfig::load_or_init(paths)?;
-    let active = config.target.oauth_provider.as_deref() == Some(provider);
-    match load_secret(&format!("appctl_oauth::{provider}")) {
-        Ok(raw) if !raw.is_empty() => {
+    println!("target auth status");
+    if let Some(auth_header) = config.target.auth_header.as_deref() {
+        if auth_header.trim().is_empty() {
+            println!("  header: not configured");
+        } else {
             println!(
-                "target auth '{}' has stored OAuth tokens ({} bytes){}",
-                provider,
-                raw.len(),
-                if active { " and is active" } else { "" }
+                "  header: configured ({})",
+                describe_target_auth_header(auth_header)
             );
         }
-        _ => println!(
-            "no target OAuth tokens stored for '{}'{}",
-            provider,
-            if active { " (active profile)" } else { "" }
-        ),
+    } else {
+        println!("  header: not configured");
     }
+
     if let Some(active_provider) = config.target.oauth_provider.as_deref() {
-        if active_provider != provider {
-            println!("active target OAuth profile: {active_provider}");
+        println!("  active OAuth profile: {active_provider}");
+    }
+    if let Some(provider) = provider {
+        let active = config.target.oauth_provider.as_deref() == Some(provider);
+        match load_secret(&format!("appctl_oauth::{provider}")) {
+            Ok(raw) if !raw.is_empty() => {
+                println!(
+                    "  OAuth profile '{provider}': stored tokens ({} bytes){}",
+                    raw.len(),
+                    if active { ", active" } else { "" }
+                );
+            }
+            _ => println!(
+                "  OAuth profile '{provider}': no stored tokens{}",
+                if active { " (active profile)" } else { "" }
+            ),
         }
     }
+    if config
+        .target
+        .auth_header
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(str::is_empty)
+        && config
+            .target
+            .oauth_provider
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+    {
+        println!("  next: appctl auth target set-bearer --env API_TOKEN");
+    }
     Ok(())
+}
+
+fn describe_target_auth_header(auth_header: &str) -> &'static str {
+    let value = auth_header.trim();
+    if value.contains(" keychain:") || value.starts_with("keychain:") {
+        "keychain-backed"
+    } else if value.contains(" env:") || value.starts_with("env:") {
+        "environment-backed"
+    } else {
+        "literal value"
+    }
 }
 
 fn use_target_auth(paths: &ConfigPaths, provider: &str) -> Result<()> {
@@ -1239,6 +1339,75 @@ fn set_target_oauth_provider(paths: &ConfigPaths, provider: &str) -> Result<()> 
     let mut config = AppConfig::load_or_init(paths)?;
     config.target.oauth_provider = Some(provider.to_string());
     config.save(paths)
+}
+
+fn set_target_bearer_auth(
+    paths: &ConfigPaths,
+    env: Option<String>,
+    keychain_ref: Option<String>,
+) -> Result<()> {
+    let header = match (env, keychain_ref) {
+        (Some(env), None) => {
+            let env = validate_secret_ref("environment variable", &env)?;
+            format!("Authorization: Bearer env:{env}")
+        }
+        (None, Some(keychain_ref)) => {
+            let keychain_ref = validate_secret_ref("keychain secret", &keychain_ref)?;
+            format!("Authorization: Bearer keychain:{keychain_ref}")
+        }
+        (None, None) => {
+            bail!(
+                "choose one: `appctl auth target set-bearer --env TOKEN_VAR` or `--keychain SECRET_NAME`"
+            )
+        }
+        (Some(_), Some(_)) => bail!("choose either --env or --keychain, not both"),
+    };
+    set_target_header_auth(paths, &header)
+}
+
+fn set_target_header_auth(paths: &ConfigPaths, header: &str) -> Result<()> {
+    let header = validate_target_auth_header(header)?;
+    let mut config = AppConfig::load_or_init(paths)?;
+    config.target.auth_header = Some(header);
+    config.target.oauth_provider = None;
+    config.save(paths)?;
+    println!("Set target auth header for HTTP tools.");
+    println!("Run `appctl doctor --write` to verify protected routes.");
+    Ok(())
+}
+
+fn clear_target_auth(paths: &ConfigPaths) -> Result<()> {
+    let mut config = AppConfig::load_or_init(paths)?;
+    config.target.auth_header = None;
+    config.target.oauth_provider = None;
+    config.save(paths)?;
+    println!("Cleared target auth from config. Stored keychain secrets were not deleted.");
+    Ok(())
+}
+
+fn validate_secret_ref(kind: &str, value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        bail!("{kind} name cannot be empty");
+    }
+    if trimmed.contains(char::is_whitespace) {
+        bail!("{kind} name cannot contain whitespace");
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_target_auth_header(header: &str) -> Result<String> {
+    let trimmed = header.trim();
+    if trimmed.is_empty() {
+        bail!("auth header cannot be empty");
+    }
+    if trimmed.contains("env: ") {
+        bail!("invalid auth header: use `env:VAR`, not `env: VAR`");
+    }
+    if trimmed.contains("keychain: ") {
+        bail!("invalid auth header: use `keychain:NAME`, not `keychain: NAME`");
+    }
+    Ok(trimmed.to_string())
 }
 
 fn logout_target_auth(paths: &ConfigPaths, provider: &str) -> Result<()> {
@@ -1293,13 +1462,83 @@ async fn run_app_style_target_auth(paths: &ConfigPaths, args: Vec<OsString>) -> 
         "login" => {
             login_target_auth(paths, profile, None, None, None, None, Vec::new(), 8421).await
         }
-        "status" => print_target_auth_status(paths, profile),
+        "status" => print_target_auth_status(paths, Some(profile)),
         "use" => use_target_auth(paths, profile),
         "logout" => logout_target_auth(paths, profile),
         other => bail!(
             "unknown target auth action '{other}'. Use: appctl auth {profile} login|status|use|logout"
         ),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn token_login_target_auth(
+    paths: &ConfigPaths,
+    provider: &str,
+    url: &str,
+    username: Option<String>,
+    username_env: Option<String>,
+    password_env: Option<String>,
+    token_field: &str,
+) -> Result<()> {
+    let username = match (username, username_env) {
+        (Some(username), None) => username,
+        (None, Some(env)) => std::env::var(env.trim())
+            .with_context(|| format!("environment variable '{}' is not set", env.trim()))?,
+        (None, None) => dialoguer::Input::<String>::new()
+            .with_prompt("Username")
+            .interact_text()?,
+        (Some(_), Some(_)) => bail!("choose either --username or --username-env, not both"),
+    };
+    let password = match password_env {
+        Some(env) => std::env::var(env.trim())
+            .with_context(|| format!("environment variable '{}' is not set", env.trim()))?,
+        None => dialoguer::Password::new()
+            .with_prompt("Password (not shown, not sent to the model)")
+            .interact()?,
+    };
+    if token_field.trim().is_empty() {
+        bail!("--token-field cannot be empty");
+    }
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(url)
+        .form(&[
+            ("username", username.as_str()),
+            ("password", password.as_str()),
+        ])
+        .send()
+        .await
+        .with_context(|| format!("failed to POST token login request to {url}"))?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        bail!("target token login failed with HTTP {status}: {body}");
+    }
+    let payload: Value = serde_json::from_str(&body)
+        .with_context(|| "target token login response was not valid JSON")?;
+    let token = payload
+        .get(token_field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .with_context(|| {
+            format!("token login response did not contain string field `{token_field}`")
+        })?;
+
+    let secret_ref = target_bearer_secret_ref(provider);
+    save_secret(&secret_ref, token)?;
+    set_target_header_auth(
+        paths,
+        &format!("Authorization: Bearer keychain:{secret_ref}"),
+    )?;
+    println!("Stored bearer token for target profile '{provider}' in keychain as `{secret_ref}`.");
+    Ok(())
+}
+
+fn target_bearer_secret_ref(provider: &str) -> String {
+    format!("appctl_target_bearer::{provider}")
 }
 
 fn print_provider_auth_status(
@@ -1854,7 +2093,11 @@ fn default_app_dir() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{logout_target_auth, set_target_oauth_provider, target_auth_profile_or_default};
+    use super::{logout_target_auth, set_target_oauth_provider};
+    use super::{
+        set_target_bearer_auth, set_target_header_auth, target_auth_profile_or_default,
+        validate_target_auth_header,
+    };
     use crate::config::{AppConfig, ConfigPaths};
     use tempfile::tempdir;
 
@@ -1901,5 +2144,45 @@ mod tests {
         let provider = target_auth_profile_or_default(&paths, None).unwrap();
 
         assert_eq!(provider, "task");
+    }
+
+    #[test]
+    fn set_bearer_updates_target_auth_without_oauth_profile() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+        set_target_oauth_provider(&paths, "old").unwrap();
+
+        set_target_bearer_auth(&paths, Some("TASK_TOKEN".to_string()), None).unwrap();
+
+        let config = AppConfig::load_or_init(&paths).unwrap();
+        assert_eq!(
+            config.target.auth_header.as_deref(),
+            Some("Authorization: Bearer env:TASK_TOKEN")
+        );
+        assert_eq!(config.target.oauth_provider, None);
+    }
+
+    #[test]
+    fn set_header_rejects_spaced_env_reference() {
+        let dir = tempdir().unwrap();
+        let paths = ConfigPaths::new(dir.path().join(".appctl"));
+
+        let err = set_target_header_auth(&paths, "Authorization: Bearer env: TASK_TOKEN")
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("env:VAR"));
+    }
+
+    #[test]
+    fn validates_keychain_auth_header() {
+        let header =
+            validate_target_auth_header("Authorization: Bearer keychain:appctl_target_bearer::dev")
+                .unwrap();
+
+        assert_eq!(
+            header,
+            "Authorization: Bearer keychain:appctl_target_bearer::dev"
+        );
     }
 }

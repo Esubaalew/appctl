@@ -15,6 +15,20 @@ If your app serves an OpenAPI document, this is the source to use. It produces t
   - `Header-Name: literal`
   - `Header-Name: env:VAR` (value is read from the environment at sync time)
   - `Authorization: Bearer env:VAR` (expands to `Bearer <value>`)
+
+**Formatting gotcha:** `env:` must be followed immediately by the variable name — **no space**.  
+Wrong: `Authorization: Bearer env: MY_TOKEN` · Right: `Authorization: Bearer env:MY_TOKEN`.
+
+If you prefer not to paste raw tokens on the command line, export the token first and reference it by name:
+
+```bash
+export MY_API_TOKEN='<token>'
+appctl sync --openapi https://api.example.com/openapi.json \
+  --auth-header 'Authorization: Bearer env:MY_API_TOKEN' --force
+```
+
+That header line is saved for HTTP tools (and typically mirrored into `[target].auth_header` in `.appctl/config.toml` when you pass `--auth-header` on sync).
+
 - **Root base URL** — if you pass a **site root** (path `/` or empty) and the first GET returns 404, `appctl` also tries: `/openapi.json`, `/v3/api-docs`, `/v2/api-docs`, `/api-docs`, `/swagger.json`, `/api/openapi.json` (common Spring / gateway layouts).
 
 ## Prerequisites
@@ -111,13 +125,71 @@ Pass `--write` to mark reachable routes as `provenance=verified` in the schema.
 
 `appctl sync` turns operations into **tools** with the parameters your spec advertises. It does **not** “log in as admin” to your app. You wire credentials into **HTTP** requests the executor makes.
 
-### Header-based auth (typical: Bearer, API key)
+### Auth options
 
-- **`[target] auth_header` in [`.appctl/config.toml`](../cli/config/)** — a header sent on **every** HTTP tool call. It can be either a raw `Authorization` value (`Bearer env:API_TOKEN`) or a full `Header-Name: value` line (`X-Api-Key: env:API_KEY`).
-- **`appctl sync ... --auth-header "Authorization: Bearer env:API_TOKEN"`** — stores the same header line in the synced schema’s `metadata.auth_header`; the executor resolves `env:` again at call time. Avoid committing long-lived tokens in the repo; use `auth_header` in config for production.
-- **Security schemes** in the spec set `schema.auth` where possible. `appctl` maps bearer, basic, and API-key auth in `header`, `query`, or `cookie` locations and reads secrets from the env or keychain.
+OpenAPI documents can describe many auth styles. appctl handles these in three
+places:
 
-If your backend accepts **`Authorization: Bearer <token>`**, set **`[target] auth_header`** (or a mapped `schema.auth` bearer) so the **LLM** does not need the secret. It only chooses tools and body/query **arguments the spec still exposes as parameters**.
+- **OpenAPI `securitySchemes`** — bearer, basic, API-key headers, API-key
+  cookies, and API-key query parameters are mapped when the spec declares them.
+- **Target auth config** — `[target].auth_header`, `[target].default_query`,
+  and `[target].oauth_provider` override or fill gaps when the spec is
+  incomplete.
+- **Sync-time headers** — `--auth-header` can be used when the OpenAPI document
+  itself is behind auth. The same value is also saved for runtime HTTP tools.
+
+Common target-auth examples:
+
+```bash
+# Bearer token
+appctl auth target set-bearer --env API_TOKEN
+
+# API key header
+appctl auth target set-header 'X-Api-Key: env:API_KEY'
+
+# Session cookie
+appctl auth target set-header 'Cookie: env:APP_SESSION_COOKIE'
+
+# OAuth/OIDC profile
+appctl auth target login api --client-id <id> --auth-url <url> --token-url <url>
+```
+
+For query-string credentials:
+
+```toml
+[target.default_query]
+api_key = "env:API_KEY"
+```
+
+### Non-interactive sync with auth
+
+If the OpenAPI document is authenticated, or you want to set a runtime header
+while syncing, pass `--auth-header`:
+
+```bash
+export API_TOKEN='...'
+
+appctl sync \
+  --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com \
+  --auth-header 'Authorization: Bearer env:API_TOKEN' \
+  --force
+```
+
+`--force` is required whenever `.appctl/schema.json` already exists and you want to regenerate it. Changing target auth later does **not** require resync. Use `appctl auth target ...` or edit `[target]` in `.appctl/config.toml`.
+
+For APIs that issue tokens from a username/password token endpoint, use
+`token-login` outside chat:
+
+```bash
+appctl auth target token-login api \
+  --url https://api.example.com/oauth/token \
+  --username-env APP_USER \
+  --password-env APP_PASSWORD \
+  --token-field access_token
+```
+
+This stores the returned token in the keychain and configures HTTP tools to send it as a bearer token.
 
 ### Query-based tokens (e.g. `?access_token=`)
 

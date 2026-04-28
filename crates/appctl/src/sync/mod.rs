@@ -349,23 +349,35 @@ fn merge_target_database_url_from_sync(paths: &ConfigPaths, connection_string: &
 /// users should be able to open `.appctl/config.toml` and see the target auth source there.
 fn merge_target_auth_header_from_sync(paths: &ConfigPaths, auth_header: &str) -> Result<()> {
     let mut config = AppConfig::load_or_init(paths)?;
-    let missing = config
+    let trimmed = auth_header.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    let existing = config
         .target
         .auth_header
         .as_deref()
         .map(str::trim)
-        .is_none_or(|s| s.is_empty());
-    if !missing {
-        if config.target.auth_header.as_deref() != Some(auth_header) {
+        .filter(|value| !value.is_empty());
+
+    match existing {
+        None => {
+            config.target.auth_header = Some(trimmed.to_string());
+            config.save(paths)?;
             print_tip(
-                "This sync used a different auth header than [target] auth_header; chat/run will use the configured target header.",
+                "Updated [target].auth_header from this sync (used by doctor/chat/run HTTP tools).",
             );
         }
-        return Ok(());
+        Some(current) if current != trimmed => {
+            config.target.auth_header = Some(trimmed.to_string());
+            config.save(paths)?;
+            print_tip(
+                "Updated [target].auth_header from this sync (previous value replaced for HTTP tools).",
+            );
+        }
+        Some(_) => {}
     }
-    config.target.auth_header = Some(auth_header.to_string());
-    config.save(paths)?;
-    print_tip("Set [target] auth_header from this sync (used by doctor/chat/run HTTP tools).");
     Ok(())
 }
 

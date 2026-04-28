@@ -40,7 +40,7 @@ Returns non-secret parts of the active configuration:
 {
   "default_provider": "ollama",
   "sync_source": "openapi",
-  "base_url": "http://127.0.0.1:8000",
+  "base_url": "https://api.example.com",
   "read_only": false,
   "dry_run": false,
   "strict": false,

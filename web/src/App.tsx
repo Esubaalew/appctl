@@ -81,6 +81,8 @@ type TargetAuthStatus = {
   active_oauth_profile?: string | null;
   oauth_token_stored?: boolean;
   auth_header_configured?: boolean;
+  auth_header_kind?: "env" | "keychain" | "literal" | null;
+  reauth_command?: string | null;
   me_tool?: string | null;
   me_path?: string | null;
   recovery_hint?: string | null;
@@ -294,7 +296,9 @@ function targetAuthLabel(status?: TargetAuthStatus): string {
       ? `profile ${status.active_oauth_profile}`
       : "OAuth profile";
   }
-  if (status.mode === "auth_header") return "auth header";
+  if (status.mode === "auth_header") {
+    return status.auth_header_kind ? `auth header (${status.auth_header_kind})` : "auth header";
+  }
   return "not configured";
 }
 
@@ -2001,7 +2005,11 @@ function SettingsPanel({
                   />
                   <KV
                     k="Auth header"
-                    v={publicCfg?.target_auth?.auth_header_configured ? "configured" : "not set"}
+                    v={
+                      publicCfg?.target_auth?.auth_header_configured
+                        ? `configured (${publicCfg.target_auth.auth_header_kind ?? "unknown"})`
+                        : "not set"
+                    }
                   />
                   <KV k="Current user tool" v={publicCfg?.target_auth?.me_tool ?? "not set"} />
                   <KV k="Current user path" v={publicCfg?.target_auth?.me_path ?? "not set"} />
@@ -2009,7 +2017,8 @@ function SettingsPanel({
                 <pre className="mt-4 whitespace-pre-wrap rounded-md border border-border bg-panel p-3 font-mono text-[11.5px] leading-relaxed text-fg-dim">
                   {publicCfg?.target_auth?.active_oauth_profile
                     ? `appctl auth target status ${publicCfg.target_auth.active_oauth_profile}\nappctl auth target logout ${publicCfg.target_auth.active_oauth_profile}`
-                    : "appctl setup\nappctl auth target login <name> --client-id <id> --auth-url <url> --token-url <url>"}
+                    : (publicCfg?.target_auth?.reauth_command ??
+                      "appctl auth target set-bearer --env API_TOKEN\nappctl auth target token-login <profile> --url <token-url>")}
                 </pre>
                 {publicCfg?.target_auth?.recovery_hint && (
                   <p className="mt-3 text-[12px] text-amber-300">

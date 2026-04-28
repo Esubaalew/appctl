@@ -38,7 +38,7 @@ appctl sync [OPTIONS]
 - `--watch` — keep polling an OpenAPI source and re-sync whenever the document changes. Watch mode treats each detected change as an intentional regeneration.
 - `--watch-interval-secs <N>` — polling interval for `--watch` (default `2`).
 - `--doctor-write` — run `appctl doctor --write` immediately after a successful sync.
-- `--auth-header '<Header>: <Value>'` — for OpenAPI, used when **downloading** the spec over HTTP(S) and stored for HTTP tool calls. Values can use `env:VAR` or `Bearer env:VAR` (see [OpenAPI](/docs/sources/openapi/#fetching-the-document)). For other sources, it mainly sets schema metadata for the executor.
+- `--auth-header '<Header>: <Value>'` — for OpenAPI, used when **downloading** the spec over HTTP(S). The same header line is stored for HTTP tool calls and written to **`[target].auth_header`** in `.appctl/config.toml` (replacing a previous value when it changed). Values can use `env:VAR` or `Bearer env:VAR` (see [OpenAPI](/docs/sources/openapi/#fetching-the-document)); remember **`env:` has no space after it**. For other sources, `--auth-header` mainly sets schema metadata for the executor.
 - `--supabase-anon-ref <NAME>` — name of the secret (keychain or env var) to use as the `apikey` header for Supabase.
 - `--login-url`, `--login-user`, `--login-password`, `--login-form-selector` — URL login credentials and form hints.
 
@@ -68,16 +68,45 @@ empty `.appctl/`.
 
 ## Examples
 
-```bash
-# OpenAPI
-appctl sync --openapi http://127.0.0.1:8000/openapi.json \
-  --base-url http://127.0.0.1:8000 --force
+### OpenAPI APIs
 
-# Django
+```bash
+appctl sync --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com --force
+```
+
+With a bearer token stored in an environment variable:
+
+```bash
+export API_TOKEN='...'
+appctl sync --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com \
+  --auth-header 'Authorization: Bearer env:API_TOKEN' \
+  --force
+```
+
+Watch mode polls the OpenAPI document and regenerates tools when it changes:
+
+```bash
+appctl sync --openapi https://api.example.com/openapi.json \
+  --base-url https://api.example.com --watch --doctor-write
+```
+
+### Framework projects during local development
+
+These examples assume the application server is running on your machine.
+
+```bash
+# Django, with /api as the API mount prefix
 appctl sync --django . --base-url http://127.0.0.1:8001/api --force
 
 # Flask
 appctl sync --flask . --base-url http://127.0.0.1:5000 --force
+```
+
+### Datastores
+
+```bash
 
 # Postgres
 appctl sync --db "postgres://reader:pass@db.acme.com:5432/shop" --force
@@ -90,11 +119,11 @@ appctl sync --db "mongodb://127.0.0.1:27017/shop" --force
 
 # Redis
 appctl sync --db "redis://127.0.0.1:6379" --force
+```
 
-# OpenAPI watch mode
-appctl sync --openapi http://127.0.0.1:8000/openapi.json \
-  --base-url http://127.0.0.1:8000 --watch --doctor-write
+### Supabase
 
+```bash
 # Supabase
 appctl sync --supabase https://YOUR-PROJECT.supabase.co \
   --supabase-anon-ref supabase_anon --force
