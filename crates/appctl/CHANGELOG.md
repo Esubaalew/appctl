@@ -4,6 +4,12 @@ All notable changes to `appctl` are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.1](https://github.com/Esubaalew/appctl/compare/appctl-v0.12.0...appctl-v0.12.1) - 2026-04-28
+
+### Fixed
+
+- fix; some issue
+
 ## [0.12.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.11.0...appctl-v0.12.0) - 2026-04-27
 
 ### Added
