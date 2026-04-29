@@ -139,10 +139,10 @@ pub(crate) async fn parse_openai_stream_response(
         }
     }
 
-    if !buffer.trim().is_empty() {
-        if process_openai_sse_event(&buffer, &mut content, &mut calls, &events, endpoint).await? {
-            saw_sse_event = true;
-        }
+    if !buffer.trim().is_empty()
+        && process_openai_sse_event(&buffer, &mut content, &mut calls, &events, endpoint).await?
+    {
+        saw_sse_event = true;
     }
 
     if !saw_sse_event {

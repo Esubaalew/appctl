@@ -234,28 +234,27 @@ async fn process_anthropic_sse_event(
         .and_then(Value::as_str)
         .unwrap_or_default()
     {
-        "content_block_start" => {
+        "content_block_start"
             if chunk
                 .pointer("/content_block/type")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
-                == "tool_use"
-            {
-                let index = chunk.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
-                if tool_blocks.len() <= index {
-                    tool_blocks.resize_with(index + 1, AnthropicToolBlock::default);
-                }
-                let block = &mut tool_blocks[index];
-                block.id = chunk
-                    .pointer("/content_block/id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                block.name = chunk
-                    .pointer("/content_block/name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                block.input = chunk.pointer("/content_block/input").cloned();
+                == "tool_use" =>
+        {
+            let index = chunk.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            if tool_blocks.len() <= index {
+                tool_blocks.resize_with(index + 1, AnthropicToolBlock::default);
             }
+            let block = &mut tool_blocks[index];
+            block.id = chunk
+                .pointer("/content_block/id")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            block.name = chunk
+                .pointer("/content_block/name")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            block.input = chunk.pointer("/content_block/input").cloned();
         }
         "content_block_delta" => {
             if let Some(delta) = chunk.get("delta") {
