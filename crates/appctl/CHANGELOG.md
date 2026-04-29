@@ -4,6 +4,12 @@ All notable changes to `appctl` are documented in this file.
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/Esubaalew/appctl/compare/appctl-v0.17.0...appctl-v0.17.1) - 2026-04-29
+
+### Added
+
+- smoothing the chat mesg streaming
+
 ## [0.17.0](https://github.com/Esubaalew/appctl/compare/appctl-v0.16.0...appctl-v0.17.0) - 2026-04-29
 
 ### Added
