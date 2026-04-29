@@ -17,6 +17,8 @@ type Tab = "chat" | "tools" | "history" | "settings";
 type AgentEvent =
   | { kind: "user_prompt"; text: string }
   | { kind: "assistant_delta"; text: string }
+  | { kind: "assistant_thought_delta"; text: string }
+  | { kind: "assistant_thought"; text: string }
   | { kind: "assistant_message"; text: string }
   | { kind: "tool_call"; id: string; name: string; arguments: unknown }
   | {
@@ -40,6 +42,12 @@ type ChatEntry =
   | { kind: "user"; id: string; body: string }
   | {
       kind: "assistant";
+      id: string;
+      body: string;
+      streaming?: boolean;
+    }
+  | {
+      kind: "thinking";
       id: string;
       body: string;
       streaming?: boolean;
@@ -685,6 +693,23 @@ function AssistantMessage({ body, streaming }: { body: string; streaming?: boole
   );
 }
 
+function ThinkingMessage({ body, streaming }: { body: string; streaming?: boolean }) {
+  const text = body.trim();
+  return (
+    <div className="mb-3 flex items-start gap-3 sm:gap-4">
+      <div className="mt-1 h-7 w-7 flex-none sm:h-6 sm:w-6" />
+      <details className="min-w-0 flex-1 rounded-lg border border-line bg-panel/60 px-3 py-2 text-[13px] text-muted">
+        <summary className="cursor-pointer select-none font-medium text-fg/80">
+          {streaming ? "Thinking..." : "Thinking"}
+        </summary>
+        <div className="mt-2 whitespace-pre-wrap break-words leading-relaxed">
+          {text || <span className="streaming-dot"> </span>}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function ToolCard({
   name,
   args,
@@ -947,6 +972,40 @@ export default function App() {
         return [
           ...rows,
           { kind: "assistant", id: randId(), body: event.text, streaming: true },
+        ];
+      });
+      return;
+    }
+
+    if (event.kind === "assistant_thought_delta") {
+      setChatLog((rows) => {
+        const last = rows[rows.length - 1];
+        if (last?.kind === "thinking" && last.streaming) {
+          return [
+            ...rows.slice(0, -1),
+            { ...last, body: `${last.body}${event.text}` },
+          ];
+        }
+        return [
+          ...rows,
+          { kind: "thinking", id: randId(), body: event.text, streaming: true },
+        ];
+      });
+      return;
+    }
+
+    if (event.kind === "assistant_thought") {
+      setChatLog((rows) => {
+        const last = rows[rows.length - 1];
+        if (last?.kind === "thinking" && last.streaming) {
+          return [
+            ...rows.slice(0, -1),
+            { ...last, body: event.text, streaming: false },
+          ];
+        }
+        return [
+          ...rows,
+          { kind: "thinking", id: randId(), body: event.text, streaming: false },
         ];
       });
       return;
@@ -1452,6 +1511,15 @@ function ChatWorkspace({
               if (entry.kind === "assistant") {
                 return (
                   <AssistantMessage
+                    key={entry.id}
+                    body={entry.body}
+                    streaming={entry.streaming}
+                  />
+                );
+              }
+              if (entry.kind === "thinking") {
+                return (
+                  <ThinkingMessage
                     key={entry.id}
                     body={entry.body}
                     streaming={entry.streaming}

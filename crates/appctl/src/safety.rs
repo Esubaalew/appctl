@@ -1,3 +1,5 @@
+use std::io::{self, Write};
+
 use anyhow::{Result, bail};
 use dialoguer::{Confirm, Input, theme::ColorfulTheme};
 use serde_json::Value;
@@ -36,12 +38,12 @@ impl SafetyMode {
         match action.safety {
             Safety::ReadOnly => Ok(()),
             Safety::Mutating => {
+                flush_terminal_output();
+                eprintln!();
+                eprintln!("Tool payload:");
+                eprintln!("{}", serde_json::to_string_pretty(arguments)?);
                 let confirmed = Confirm::with_theme(&ColorfulTheme::default())
-                    .with_prompt(format!(
-                        "Execute '{}' with payload {}?",
-                        action.name,
-                        serde_json::to_string_pretty(arguments)?
-                    ))
+                    .with_prompt(format!("Execute '{}' with this payload?", action.name))
                     .default(false)
                     .interact()?;
                 if confirmed {
@@ -51,6 +53,8 @@ impl SafetyMode {
                 }
             }
             Safety::Destructive => {
+                flush_terminal_output();
+                eprintln!();
                 let confirmation: String = Input::with_theme(&ColorfulTheme::default())
                     .with_prompt(format!("Type 'delete' to confirm '{}'", action.name))
                     .interact_text()?;
@@ -62,4 +66,9 @@ impl SafetyMode {
             }
         }
     }
+}
+
+fn flush_terminal_output() {
+    let _ = io::stdout().flush();
+    let _ = io::stderr().flush();
 }

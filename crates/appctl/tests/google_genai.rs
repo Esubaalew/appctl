@@ -6,9 +6,11 @@ use appctl::{
         ProviderAuthKind, ProviderAuthOrigin, ProviderAuthStatus, ResolvedProviderAuth,
     },
     config::{ProviderKind, ResolvedProvider},
+    events::AgentEvent,
     tools::ToolDef,
 };
 use serde_json::json;
+use tokio::sync::mpsc;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{body_string_contains, header, method, path},
@@ -19,24 +21,12 @@ async fn google_genai_provider_sends_api_key_and_parses_function_call() {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/v1beta/models/gemini-2.5-pro:generateContent"))
+        .and(path("/v1beta/models/gemini-2.5-pro:streamGenerateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .and(body_string_contains("\"functionDeclarations\""))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "candidates": [{
-                "content": {
-                    "parts": [{
-                        "functionCall": {
-                            "id": "call-1",
-                            "name": "create_widget",
-                            "args": {
-                                "name": "Demo"
-                            }
-                        }
-                    }]
-                }
-            }]
-        })))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"id\":\"call-1\",\"name\":\"create_widget\",\"args\":{\"name\":\"Demo\"}}}]}}]}\n\n",
+        ))
         .mount(&server)
         .await;
 
@@ -97,7 +87,7 @@ async fn google_genai_provider_sends_api_key_and_parses_function_call() {
     }];
 
     let step = provider
-        .chat(&messages, &tools)
+        .chat(&messages, &tools, None)
         .await
         .expect("gemini request");
     match step {
@@ -107,5 +97,129 @@ async fn google_genai_provider_sends_api_key_and_parses_function_call() {
             assert_eq!(calls[0].arguments["name"], "Demo");
         }
         other => panic!("expected tool call, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn google_genai_provider_emits_text_deltas_from_stream() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-2.5-pro:streamGenerateContent"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(concat!(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hel\"}]}}]}\n\n",
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"lo\"}]}}]}\n\n",
+        )))
+        .mount(&server)
+        .await;
+
+    let provider = GoogleGenaiProvider::new(test_provider(server.uri()));
+    let messages = vec![Message {
+        role: "user".to_string(),
+        content: "Say hello".to_string(),
+        tool_calls: Vec::new(),
+        tool_call_id: None,
+        tool_name: None,
+    }];
+    let (tx, mut rx) = mpsc::channel(8);
+
+    let step = provider
+        .chat(&messages, &[], Some(tx))
+        .await
+        .expect("gemini stream");
+
+    match step {
+        appctl::ai::AgentStep::Message { content } => assert_eq!(content, "Hello"),
+        other => panic!("expected message, got {other:?}"),
+    }
+    let mut deltas = Vec::new();
+    while let Some(event) = rx.recv().await {
+        if let AgentEvent::AssistantDelta { text } = event {
+            deltas.push(text);
+        }
+    }
+    assert_eq!(deltas, vec!["Hel", "lo"]);
+}
+
+#[tokio::test]
+async fn google_genai_provider_separates_thoughts_from_answer() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-2.5-pro:streamGenerateContent"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            concat!(
+                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"I should inspect tools.\",\"thought\":true}]}}]}\n\n",
+                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"I am appctl, your application operations agent.\"}]}}]}\n\n",
+            ),
+        ))
+        .mount(&server)
+        .await;
+
+    let provider = GoogleGenaiProvider::new(test_provider(server.uri()));
+    let messages = vec![Message {
+        role: "user".to_string(),
+        content: "who are you?".to_string(),
+        tool_calls: Vec::new(),
+        tool_call_id: None,
+        tool_name: None,
+    }];
+    let (tx, mut rx) = mpsc::channel(8);
+
+    let step = provider
+        .chat(&messages, &[], Some(tx))
+        .await
+        .expect("gemini thought stream");
+
+    match step {
+        appctl::ai::AgentStep::Message { content } => {
+            assert_eq!(content, "I am appctl, your application operations agent.")
+        }
+        other => panic!("expected message, got {other:?}"),
+    }
+
+    let mut thoughts = Vec::new();
+    let mut deltas = Vec::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            AgentEvent::AssistantThoughtDelta { text } => thoughts.push(text),
+            AgentEvent::AssistantDelta { text } => deltas.push(text),
+            _ => {}
+        }
+    }
+    assert_eq!(thoughts, vec!["I should inspect tools."]);
+    assert_eq!(
+        deltas,
+        vec!["I am appctl, your application operations agent."]
+    );
+}
+
+fn test_provider(base_url: String) -> ResolvedProvider {
+    ResolvedProvider {
+        name: "gemini".to_string(),
+        kind: ProviderKind::GoogleGenai,
+        base_url,
+        model: "gemini-2.5-pro".to_string(),
+        auth: ResolvedProviderAuth::None {
+            status: auth_status(ProviderAuthKind::None, false),
+        },
+        auth_status: auth_status(ProviderAuthKind::None, false),
+        extra_headers: BTreeMap::new(),
+    }
+}
+
+fn auth_status(kind: ProviderAuthKind, configured: bool) -> ProviderAuthStatus {
+    ProviderAuthStatus {
+        kind,
+        origin: ProviderAuthOrigin::Explicit,
+        configured,
+        secret_ref: None,
+        profile: None,
+        expires_at: None,
+        scopes: Vec::new(),
+        project_id: None,
+        recovery_hint: None,
+        help_url: None,
+        bridge_client: None,
     }
 }

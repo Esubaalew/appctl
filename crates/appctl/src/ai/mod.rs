@@ -52,7 +52,12 @@ pub enum AgentStep {
 
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    async fn chat(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentStep>;
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        events: Option<mpsc::Sender<AgentEvent>>,
+    ) -> Result<AgentStep>;
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +131,7 @@ pub async fn run_agent(
                 )
                 .await;
             }
-            let step = match provider.chat(&messages, tools).await {
+            let step = match provider.chat(&messages, tools, events.clone()).await {
                 Ok(step) => step,
                 Err(err) if !last_tool_outputs.is_empty() => {
                     let fallback = fallback_response_after_provider_error(&last_tool_outputs, &err);
@@ -160,7 +165,7 @@ pub async fn run_agent(
             };
             match step {
                 AgentStep::Message { content } => {
-                    let content = guard_secret_collection_response(&content);
+                    let content = guard_assistant_response(prompt, &content);
                     final_response = Value::String(content.clone());
                     send_agent_event(
                         &events,
@@ -452,6 +457,13 @@ fn current_user_hint(config: &AppConfig, schema: &Schema) -> Option<String> {
     ))
 }
 
+fn guard_assistant_response(prompt: &str, content: &str) -> String {
+    if should_force_identity_answer(prompt, content) {
+        return "I am appctl, your application operations agent.".to_string();
+    }
+    guard_secret_collection_response(content)
+}
+
 fn guard_secret_collection_response(content: &str) -> String {
     if assistant_asks_for_secret(content) {
         return "I cannot collect passwords, bearer tokens, cookies, API keys, or OAuth client secrets in chat. Configure target-app auth outside the conversation, for example with `appctl setup` or `appctl auth target login <name>`, then retry the request. If the app needs an OAuth client id, store it in appctl config or an environment variable rather than sending it to the AI."
@@ -470,6 +482,21 @@ fn guard_invalid_auth_command_response(content: &str) -> String {
             .to_string();
     }
     content.to_string()
+}
+
+fn should_force_identity_answer(prompt: &str, content: &str) -> bool {
+    let prompt = prompt.to_lowercase();
+    let asks_identity = prompt.contains("who is this")
+        || prompt.contains("who are you")
+        || prompt.contains("what are you")
+        || prompt.contains("your identity");
+    if !asks_identity {
+        return false;
+    }
+    let content = content.to_lowercase();
+    content.contains("critical identity")
+        || content.contains("system prompt")
+        || content.contains("according to the")
 }
 
 fn assistant_asks_for_secret(content: &str) -> bool {
@@ -754,8 +781,8 @@ mod tests {
     use super::{
         Message, ToolCall, assistant_asks_for_secret, build_turn_messages,
         compact_transcript_for_storage, compose_tool_guide, current_user_hint,
-        fallback_response_after_provider_error, guard_secret_collection_response, system_prompt,
-        trim_transcript,
+        fallback_response_after_provider_error, guard_assistant_response,
+        guard_secret_collection_response, system_prompt, trim_transcript,
     };
     use crate::config::AppConfig;
     use crate::schema::{
@@ -849,6 +876,16 @@ mod tests {
 
         assert!(!assistant_asks_for_secret(ok));
         assert_eq!(guard_secret_collection_response(ok), ok);
+    }
+
+    #[test]
+    fn identity_guard_blocks_system_prompt_leak() {
+        let leaked = "According to the Critical identity section, I should answer exactly: I am appctl, your application operations agent.";
+
+        assert_eq!(
+            guard_assistant_response("who are you?", leaked),
+            "I am appctl, your application operations agent."
+        );
     }
 
     #[test]

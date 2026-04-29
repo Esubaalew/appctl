@@ -39,6 +39,24 @@ A complete assistant message. Always emitted at the end of an assistant turn.
 { "kind": "assistant_message", "text": "Here are your widgets." }
 ```
 
+### `assistant_thought_delta`
+
+Incremental reasoning text from providers that expose a separate thought stream.
+Clients should render this separately from the public answer.
+
+```json
+{ "kind": "assistant_thought_delta", "text": "Inspecting available tools..." }
+```
+
+### `assistant_thought`
+
+Complete reasoning text for the turn. This is separate from `assistant_message`
+and should not be treated as the answer.
+
+```json
+{ "kind": "assistant_thought", "text": "Inspecting available tools..." }
+```
+
 ### `tool_call`
 
 The agent chose a tool and is about to call it.
@@ -111,7 +129,9 @@ Loop finished. No more events will be emitted for this turn.
 ## Ordering guarantees
 
 - Exactly one `user_prompt` starts the stream.
-- Zero or more `session_state`, `context_notice`, and `tool_call` / `tool_result` events interleave with `assistant_delta`/`assistant_message`.
+- Zero or more `session_state`, `context_notice`, `assistant_thought_delta` /
+  `assistant_thought`, and `tool_call` / `tool_result` events interleave with
+  `assistant_delta`/`assistant_message`.
 - Every `tool_call` is followed by a `tool_result` with the same `id` (unless the loop errors first).
 - Exactly one `done` terminates the stream.
 

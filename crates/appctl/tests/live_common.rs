@@ -77,6 +77,6 @@ pub async fn send_smoke_prompt(resolved: ResolvedProvider) -> anyhow::Result<Str
         tool_call_id: None,
         tool_name: None,
     }];
-    let step = provider.chat(&messages, &[]).await?;
+    let step = provider.chat(&messages, &[], None).await?;
     Ok(format!("{step:?}"))
 }

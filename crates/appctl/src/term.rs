@@ -1,6 +1,13 @@
 //! Pretty-print [`AgentEvent`] streams for terminal chat / `appctl run`.
 
-use std::{borrow::Cow, collections::HashMap, path::Path, sync::OnceLock, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    io::{self, Write},
+    path::Path,
+    sync::OnceLock,
+    time::Duration,
+};
 
 use anyhow::Result;
 use crossterm::terminal;
@@ -479,16 +486,36 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
             }
             AgentEvent::AwaitingInput => {
                 printer.stop_spinner();
+                printer.finish_inline_assistant_text();
             }
             AgentEvent::AssistantDelta { text } => {
                 if text.is_empty() {
                     continue;
                 }
                 printer.stop_spinner();
+                printer.finish_inline_thought();
                 print!("{}", text);
+                let _ = io::stdout().flush();
+                printer.assistant_text_inline = !text.ends_with('\n');
+            }
+            AgentEvent::AssistantThoughtDelta { text } => {
+                if text.is_empty() {
+                    continue;
+                }
+                printer.stop_spinner();
+                printer.note_thinking_delta(&text);
+            }
+            AgentEvent::AssistantThought { text } => {
+                if text.is_empty() {
+                    continue;
+                }
+                printer.stop_spinner();
+                printer.finish_inline_thought();
             }
             AgentEvent::AssistantMessage { text } => {
                 printer.stop_spinner();
+                printer.assistant_text_inline = false;
+                printer.finish_inline_thought();
                 printer.print_markdown_response(&text);
             }
             AgentEvent::ToolCall {
@@ -497,6 +524,8 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
                 arguments,
             } => {
                 printer.stop_spinner();
+                printer.finish_inline_thought();
+                printer.assistant_text_inline = false;
                 printer.tool_names.insert(id.clone(), name.clone());
                 printer.print_tool_call(&name, &id, &arguments);
                 printer.start_spinner(&format!("calling {name}…"));
@@ -508,6 +537,8 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
                 duration_ms,
             } => {
                 printer.stop_spinner();
+                printer.finish_inline_thought();
+                printer.assistant_text_inline = false;
                 let tool_name = printer
                     .tool_names
                     .remove(&id)
@@ -517,15 +548,20 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
             }
             AgentEvent::Error { message } => {
                 printer.stop_spinner();
+                printer.finish_inline_thought();
                 print_status_error(&message);
             }
             AgentEvent::SessionState { .. } => {}
             AgentEvent::ContextNotice { message } => {
                 printer.stop_spinner();
+                printer.assistant_text_inline = false;
                 print_tip(&message);
                 printer.start_spinner("thinking…");
             }
-            AgentEvent::Done => break,
+            AgentEvent::Done => {
+                printer.finish_inline_thought();
+                break;
+            }
         }
     }
 
@@ -537,6 +573,8 @@ struct EventPrinter {
     spinner: Option<ProgressBar>,
     skin: termimad::MadSkin,
     tool_names: HashMap<String, String>,
+    assistant_text_inline: bool,
+    thought_inline: bool,
 }
 
 impl EventPrinter {
@@ -549,6 +587,8 @@ impl EventPrinter {
             spinner: None,
             skin,
             tool_names: HashMap::new(),
+            assistant_text_inline: false,
+            thought_inline: false,
         }
     }
 
@@ -569,6 +609,30 @@ impl EventPrinter {
     fn stop_spinner(&mut self) {
         if let Some(pb) = self.spinner.take() {
             pb.finish_and_clear();
+        }
+    }
+
+    fn finish_inline_assistant_text(&mut self) {
+        if self.assistant_text_inline {
+            println!();
+            self.assistant_text_inline = false;
+        }
+    }
+
+    fn note_thinking_delta(&mut self, text: &str) {
+        if !self.thought_inline {
+            println!();
+            print!("{}", "  thinking…".dimmed());
+            self.thought_inline = true;
+        }
+        let _ = text;
+        let _ = io::stdout().flush();
+    }
+
+    fn finish_inline_thought(&mut self) {
+        if self.thought_inline {
+            println!();
+            self.thought_inline = false;
         }
     }
 

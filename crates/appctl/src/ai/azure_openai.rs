@@ -1,10 +1,11 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
+use tokio::sync::mpsc;
 
 use crate::{
-    ai::{AgentStep, LlmProvider, Message, ToolCall},
+    ai::{AgentStep, LlmProvider, Message, openai_compat::parse_openai_stream_response},
     config::ResolvedProvider,
-    term::format_api_error_summary,
+    events::AgentEvent,
     tools::ToolDef,
 };
 
@@ -24,7 +25,12 @@ impl AzureOpenAiProvider {
 
 #[async_trait::async_trait]
 impl LlmProvider for AzureOpenAiProvider {
-    async fn chat(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentStep> {
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        events: Option<mpsc::Sender<AgentEvent>>,
+    ) -> Result<AgentStep> {
         let mut request = self.client.post(format!(
             "{}/openai/deployments/{}/chat/completions?api-version=2024-10-21",
             self.config.base_url.trim_end_matches('/'),
@@ -50,7 +56,8 @@ impl LlmProvider for AzureOpenAiProvider {
                     "parameters": tool.input_schema
                 }
             })).collect::<Vec<_>>(),
-            "tool_choice": "auto"
+            "tool_choice": "auto",
+            "stream": true
         });
 
         let response = request
@@ -58,67 +65,7 @@ impl LlmProvider for AzureOpenAiProvider {
             .send()
             .await
             .context("failed to call Azure OpenAI")?;
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("failed to read Azure OpenAI response body")?;
-        if !status.is_success() {
-            bail!(
-                "Azure OpenAI returned {}: {}",
-                status,
-                format_api_error_summary(&body)
-            );
-        }
-        let response: Value = serde_json::from_str(&body).with_context(|| {
-            format!(
-                "failed to parse Azure OpenAI response as JSON: {}",
-                format_api_error_summary(&body)
-            )
-        })?;
-
-        let message = response
-            .pointer("/choices/0/message")
-            .context("Azure OpenAI response missing choices[0].message")?;
-
-        if let Some(tool_calls) = message
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .filter(|calls| !calls.is_empty())
-        {
-            let calls = tool_calls
-                .iter()
-                .map(|call| ToolCall {
-                    id: call
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("tool")
-                        .to_string(),
-                    name: call
-                        .pointer("/function/name")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    arguments: call
-                        .pointer("/function/arguments")
-                        .and_then(Value::as_str)
-                        .and_then(|raw| serde_json::from_str(raw).ok())
-                        .unwrap_or(Value::Object(serde_json::Map::new())),
-                })
-                .collect();
-            return Ok(AgentStep::ToolCalls { calls });
-        }
-
-        let content = message
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        if content.is_empty() {
-            Ok(AgentStep::Stop)
-        } else {
-            Ok(AgentStep::Message { content })
-        }
+        parse_openai_stream_response(response, "Azure OpenAI", events).await
     }
 }
 

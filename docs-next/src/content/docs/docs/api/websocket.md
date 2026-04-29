@@ -49,6 +49,10 @@ The server writes one JSON text frame per [`AgentEvent`](/docs/api/agent-events/
 {"kind":"session_state","session_id":"...","transcript_len":0,"resumed":false}
 {"kind":"tool_call","id":"call_01","name":"list_parcels","arguments":{"delivered":true}}
 {"kind":"tool_result","id":"call_01","result":{"count":3},"status":"ok","duration_ms":120}
+{"kind":"assistant_thought_delta","text":"Preparing summary..."}
+{"kind":"assistant_delta","text":"Three parcels "}
+{"kind":"assistant_delta","text":"were delivered today."}
+{"kind":"assistant_thought","text":"Preparing summary..."}
 {"kind":"assistant_message","text":"Three parcels were delivered today."}
 {"kind":"done"}
 ```

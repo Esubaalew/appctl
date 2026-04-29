@@ -190,7 +190,10 @@ pub async fn run_init(paths: &ConfigPaths) -> Result<()> {
                 print_status_success("API key stored in keychain");
                 print_status_error("connection not confirmed — provider marked as unverified");
                 eprintln!("\n{err:#}\n");
-                print_tip("Run `appctl auth provider login` after fixing quota/limits to verify.");
+                print_tip(&format!(
+                    "Run `appctl auth provider login {}` after fixing quota/limits to verify.",
+                    candidate.default
+                ));
             }
         }
     } else {

@@ -5,6 +5,8 @@ import WebSocket from "ws";
 type AgentEvent =
   | { kind: "user_prompt"; text: string }
   | { kind: "assistant_delta"; text: string }
+  | { kind: "assistant_thought_delta"; text: string }
+  | { kind: "assistant_thought"; text: string }
   | { kind: "assistant_message"; text: string }
   | { kind: "tool_call"; id: string; name: string; arguments: unknown }
   | {
@@ -394,6 +396,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
           if (ev.kind === 'user_prompt') append('me', ev.text);
           else if (ev.kind === 'assistant_message' || ev.kind === 'assistant_delta')
             append('agent', ev.text || '');
+          else if (ev.kind === 'assistant_thought_delta' || ev.kind === 'assistant_thought')
+            append('tool', 'thinking…');
           else if (ev.kind === 'tool_call')
             append('tool', 'tool ' + ev.name + ' ' + JSON.stringify(ev.arguments, null, 2));
           else if (ev.kind === 'tool_result')

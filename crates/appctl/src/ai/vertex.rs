@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use url::Url;
 
 use crate::{
-    ai::{AgentStep, LlmProvider, Message, ToolCall},
+    ai::{AgentStep, LlmProvider, Message, google_genai::parse_google_stream_response},
     config::ResolvedProvider,
+    events::AgentEvent,
     term::format_api_error_summary,
     tools::ToolDef,
 };
@@ -52,7 +54,7 @@ impl VertexProvider {
         payload: &Value,
     ) -> reqwest::RequestBuilder {
         let mut request = self.client.post(format!(
-            "{}/v1/projects/{}/locations/{}/publishers/google/models/{}:generateContent",
+            "{}/v1/projects/{}/locations/{}/publishers/google/models/{}:streamGenerateContent?alt=sse",
             self.config.base_url.trim_end_matches('/'),
             project_id,
             region,
@@ -70,7 +72,12 @@ impl VertexProvider {
 
 #[async_trait::async_trait]
 impl LlmProvider for VertexProvider {
-    async fn chat(&self, messages: &[Message], tools: &[ToolDef]) -> Result<AgentStep> {
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDef],
+        events: Option<mpsc::Sender<AgentEvent>>,
+    ) -> Result<AgentStep> {
         let access_token = self
             .config
             .auth
@@ -89,52 +96,9 @@ impl LlmProvider for VertexProvider {
             ]
         });
 
-        let body = send_with_backoff(self, access_token, &project_id, &region, &payload).await?;
-        let response: Value = serde_json::from_str(&body).with_context(|| {
-            format!(
-                "failed to parse Vertex AI response as JSON: {}",
-                format_api_error_summary(&body)
-            )
-        })?;
-
-        let candidate = response
-            .pointer("/candidates/0/content/parts")
-            .and_then(Value::as_array)
-            .context("Vertex AI response missing candidates[0].content.parts")?;
-
-        let mut tool_calls = Vec::new();
-        let mut text = String::new();
-        for part in candidate {
-            if let Some(chunk) = part.get("text").and_then(Value::as_str) {
-                text.push_str(chunk);
-            }
-            if let Some(call) = part.get("functionCall").and_then(Value::as_object) {
-                tool_calls.push(ToolCall {
-                    id: call
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or("tool")
-                        .to_string(),
-                    name: call
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    arguments: call
-                        .get("args")
-                        .cloned()
-                        .unwrap_or(Value::Object(Map::new())),
-                });
-            }
-        }
-
-        if !tool_calls.is_empty() {
-            Ok(AgentStep::ToolCalls { calls: tool_calls })
-        } else if text.is_empty() {
-            Ok(AgentStep::Stop)
-        } else {
-            Ok(AgentStep::Message { content: text })
-        }
+        let response =
+            send_stream_with_backoff(self, access_token, &project_id, &region, &payload).await?;
+        parse_google_stream_response(response, "Vertex AI", None, events).await
     }
 }
 
@@ -145,13 +109,13 @@ fn parse_retry_after_seconds(headers: &reqwest::header::HeaderMap) -> Option<u64
         .and_then(|value| value.trim().parse::<u64>().ok())
 }
 
-async fn send_with_backoff(
+async fn send_stream_with_backoff(
     provider: &VertexProvider,
     access_token: &str,
     project_id: &str,
     region: &str,
     payload: &Value,
-) -> Result<String> {
+) -> Result<reqwest::Response> {
     let max_retries = 3usize;
     let mut last_summary = String::new();
 
@@ -163,14 +127,13 @@ async fn send_with_backoff(
             .context("failed to call Vertex AI")?;
         let status = response.status();
         let headers = response.headers().clone();
+        if status.is_success() {
+            return Ok(response);
+        }
         let body = response
             .text()
             .await
             .context("failed to read Vertex AI response body")?;
-
-        if status.is_success() {
-            return Ok(body);
-        }
 
         let summary = format_api_error_summary(&body);
         if status.as_u16() != 429 {

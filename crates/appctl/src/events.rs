@@ -17,8 +17,15 @@ pub enum AgentEvent {
         text: String,
     },
     AwaitingInput,
-    /// Incremental assistant text (unused until LLM streaming is wired).
+    /// Incremental assistant text emitted while a streaming provider is responding.
     AssistantDelta {
+        text: String,
+    },
+    /// Incremental private reasoning/thinking text from providers that expose it.
+    AssistantThoughtDelta {
+        text: String,
+    },
+    AssistantThought {
         text: String,
     },
     AssistantMessage {
