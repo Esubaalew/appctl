@@ -85,6 +85,47 @@ async fn openai_compatible_provider_accumulates_streamed_tool_arguments() {
     }
 }
 
+#[tokio::test]
+async fn openai_compatible_provider_separates_reasoning_deltas() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(concat!(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"I should answer briefly. \"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n",
+            "data: [DONE]\n\n",
+        )))
+        .mount(&server)
+        .await;
+
+    let provider = OpenAiCompatProvider::new(test_provider(server.uri()));
+    let messages = vec![user_message("Hi")];
+    let (tx, mut rx) = mpsc::channel(8);
+
+    let step = provider
+        .chat(&messages, &[], Some(tx))
+        .await
+        .expect("openai reasoning stream");
+
+    match step {
+        AgentStep::Message { content } => assert_eq!(content, "Hello"),
+        other => panic!("expected message, got {other:?}"),
+    }
+
+    let mut thoughts = Vec::new();
+    let mut deltas = Vec::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            AgentEvent::AssistantThoughtDelta { text } => thoughts.push(text),
+            AgentEvent::AssistantDelta { text } => deltas.push(text),
+            _ => {}
+        }
+    }
+    assert_eq!(thoughts, vec!["I should answer briefly. "]);
+    assert_eq!(deltas, vec!["Hello"]);
+}
+
 fn user_message(content: &str) -> Message {
     Message {
         role: "user".to_string(),

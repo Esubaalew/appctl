@@ -493,30 +493,33 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
                     continue;
                 }
                 printer.stop_spinner();
-                printer.finish_inline_thought();
                 print!("{}", text);
                 let _ = io::stdout().flush();
+                printer.streamed_answer.push_str(&text);
                 printer.assistant_text_inline = !text.ends_with('\n');
             }
             AgentEvent::AssistantThoughtDelta { text } => {
                 if text.is_empty() {
                     continue;
                 }
-                printer.stop_spinner();
-                printer.note_thinking_delta(&text);
+                printer.start_spinner("thinking…");
             }
             AgentEvent::AssistantThought { text } => {
                 if text.is_empty() {
                     continue;
                 }
-                printer.stop_spinner();
-                printer.finish_inline_thought();
+                printer.start_spinner("thinking…");
             }
             AgentEvent::AssistantMessage { text } => {
                 printer.stop_spinner();
-                printer.assistant_text_inline = false;
-                printer.finish_inline_thought();
-                printer.print_markdown_response(&text);
+                if printer.final_message_matches_stream(&text) {
+                    printer.finish_inline_assistant_text();
+                    printer.streamed_answer.clear();
+                } else {
+                    printer.assistant_text_inline = false;
+                    printer.streamed_answer.clear();
+                    printer.print_markdown_response(&text);
+                }
             }
             AgentEvent::ToolCall {
                 id,
@@ -524,8 +527,8 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
                 arguments,
             } => {
                 printer.stop_spinner();
-                printer.finish_inline_thought();
                 printer.assistant_text_inline = false;
+                printer.streamed_answer.clear();
                 printer.tool_names.insert(id.clone(), name.clone());
                 printer.print_tool_call(&name, &id, &arguments);
                 printer.start_spinner(&format!("calling {name}…"));
@@ -537,8 +540,8 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
                 duration_ms,
             } => {
                 printer.stop_spinner();
-                printer.finish_inline_thought();
                 printer.assistant_text_inline = false;
+                printer.streamed_answer.clear();
                 let tool_name = printer
                     .tool_names
                     .remove(&id)
@@ -548,18 +551,18 @@ pub async fn run_event_printer(mut rx: Receiver<AgentEvent>) -> Result<()> {
             }
             AgentEvent::Error { message } => {
                 printer.stop_spinner();
-                printer.finish_inline_thought();
+                printer.streamed_answer.clear();
                 print_status_error(&message);
             }
             AgentEvent::SessionState { .. } => {}
             AgentEvent::ContextNotice { message } => {
                 printer.stop_spinner();
                 printer.assistant_text_inline = false;
+                printer.streamed_answer.clear();
                 print_tip(&message);
                 printer.start_spinner("thinking…");
             }
             AgentEvent::Done => {
-                printer.finish_inline_thought();
                 break;
             }
         }
@@ -574,7 +577,7 @@ struct EventPrinter {
     skin: termimad::MadSkin,
     tool_names: HashMap<String, String>,
     assistant_text_inline: bool,
-    thought_inline: bool,
+    streamed_answer: String,
 }
 
 impl EventPrinter {
@@ -588,7 +591,7 @@ impl EventPrinter {
             skin,
             tool_names: HashMap::new(),
             assistant_text_inline: false,
-            thought_inline: false,
+            streamed_answer: String::new(),
         }
     }
 
@@ -619,21 +622,9 @@ impl EventPrinter {
         }
     }
 
-    fn note_thinking_delta(&mut self, text: &str) {
-        if !self.thought_inline {
-            println!();
-            print!("{}", "  thinking…".dimmed());
-            self.thought_inline = true;
-        }
-        let _ = text;
-        let _ = io::stdout().flush();
-    }
-
-    fn finish_inline_thought(&mut self) {
-        if self.thought_inline {
-            println!();
-            self.thought_inline = false;
-        }
+    fn final_message_matches_stream(&self, text: &str) -> bool {
+        !self.streamed_answer.is_empty()
+            && normalize_streamed_text(&self.streamed_answer) == normalize_streamed_text(text)
     }
 
     fn print_markdown_response(&self, text: &str) {
@@ -710,6 +701,10 @@ fn normalize_assistant_text(text: &str) -> String {
         }
     }
     normalize_markdown_tables(&normalized)
+}
+
+fn normalize_streamed_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn sentence_continuation(ch: char) -> bool {

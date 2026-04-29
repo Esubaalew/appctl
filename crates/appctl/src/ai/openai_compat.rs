@@ -119,6 +119,7 @@ pub(crate) async fn parse_openai_stream_response(
     }
 
     let mut content = String::new();
+    let mut thought = String::new();
     let mut calls = Vec::<PendingToolCall>::new();
     let mut buffer = String::new();
     let mut raw_body = String::new();
@@ -132,7 +133,15 @@ pub(crate) async fn parse_openai_stream_response(
         raw_body.push_str(&text);
         while let Some((event, rest)) = take_sse_event(&buffer) {
             buffer = rest;
-            if process_openai_sse_event(&event, &mut content, &mut calls, &events, endpoint).await?
+            if process_openai_sse_event(
+                &event,
+                &mut content,
+                &mut thought,
+                &mut calls,
+                &events,
+                endpoint,
+            )
+            .await?
             {
                 saw_sse_event = true;
             }
@@ -140,9 +149,25 @@ pub(crate) async fn parse_openai_stream_response(
     }
 
     if !buffer.trim().is_empty()
-        && process_openai_sse_event(&buffer, &mut content, &mut calls, &events, endpoint).await?
+        && process_openai_sse_event(
+            &buffer,
+            &mut content,
+            &mut thought,
+            &mut calls,
+            &events,
+            endpoint,
+        )
+        .await?
     {
         saw_sse_event = true;
+    }
+
+    if !thought.is_empty()
+        && let Some(tx) = &events
+    {
+        let _ = tx
+            .send(AgentEvent::AssistantThought { text: thought })
+            .await;
     }
 
     if !saw_sse_event {
@@ -184,6 +209,7 @@ fn take_sse_event(buffer: &str) -> Option<(String, String)> {
 async fn process_openai_sse_event(
     event: &str,
     content: &mut String,
+    thought: &mut String,
     calls: &mut Vec<PendingToolCall>,
     events: &Option<mpsc::Sender<AgentEvent>>,
     endpoint: &str,
@@ -214,6 +240,12 @@ async fn process_openai_sse_event(
         .flatten()
     {
         if let Some(delta) = choice.get("delta").or_else(|| choice.get("message")) {
+            if let Some(text) = openai_reasoning_text(delta)
+                && !text.is_empty()
+            {
+                thought.push_str(text);
+                send_thought_delta(events, text).await;
+            }
             if let Some(text) = delta.get("content").and_then(Value::as_str)
                 && !text.is_empty()
             {
@@ -228,10 +260,28 @@ async fn process_openai_sse_event(
     Ok(true)
 }
 
+fn openai_reasoning_text(delta: &Value) -> Option<&str> {
+    delta
+        .get("reasoning_content")
+        .or_else(|| delta.get("reasoning"))
+        .or_else(|| delta.get("thinking"))
+        .and_then(Value::as_str)
+}
+
 async fn send_delta(events: &Option<mpsc::Sender<AgentEvent>>, text: &str) {
     if let Some(tx) = events {
         let _ = tx
             .send(AgentEvent::AssistantDelta {
+                text: text.to_string(),
+            })
+            .await;
+    }
+}
+
+async fn send_thought_delta(events: &Option<mpsc::Sender<AgentEvent>>, text: &str) {
+    if let Some(tx) = events {
+        let _ = tx
+            .send(AgentEvent::AssistantThoughtDelta {
                 text: text.to_string(),
             })
             .await;
