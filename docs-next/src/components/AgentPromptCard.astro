@@ -1,0 +1,139 @@
+---
+interface Props {
+  docsHref: string;
+  githubHref: string;
+}
+
+const { docsHref, githubHref } = Astro.props;
+
+const promptText = `You're my setup assistant. I want to use appctl — it connects real backends (OpenAPI, databases, frameworks) to LLM agents as callable tools.
+
+Goal: get me from zero to a working flow where I can chat against my synced tools safely.
+
+Do this:
+1. Ask what OS I'm on and whether I prefer \`cargo install\` or a release binary.
+2. Give exact commands to install appctl and verify it (\`appctl --help\`).
+3. Walk me through an app directory with \`.appctl\`, configuring a model provider without pasting secrets into chat, and syncing my schema (I'll describe my stack next).
+4. Explain when to use \`appctl chat\`, \`appctl run\`, and \`appctl serve\`; start read-only and conservative confirmations.
+5. End with one minimal first prompt I can try after sync.
+
+Rules: one question at a time when you need info; short steps; concrete commands; don't invent URLs or credentials — ask me.
+
+Official docs: ${docsHref}
+Repository: ${githubHref}`;
+---
+
+<section class="agent-prompt" aria-labelledby="agent-prompt-heading">
+  <div class="agent-prompt-inner">
+    <div class="agent-prompt-copy">
+      <h2 id="agent-prompt-heading" class="agent-prompt-title">Use your favorite AI to set up appctl</h2>
+      <p class="agent-prompt-lede">
+        Copy the prompt below into ChatGPT, Claude, Gemini, or any agent. It asks them to guide install,
+        sync, and first chat — step by step.
+      </p>
+      <button type="button" class="agent-prompt-btn" id="copy-agent-prompt" aria-controls="agent-setup-prompt">
+        Copy prompt
+      </button>
+      <span class="agent-prompt-feedback" id="copy-agent-prompt-feedback" role="status" aria-live="polite"></span>
+    </div>
+    <div class="agent-prompt-block-wrap">
+      <pre class="agent-prompt-pre" id="agent-setup-prompt" tabindex="0">{promptText}</pre>
+    </div>
+  </div>
+</section>
+
+<style>
+  .agent-prompt {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 24px 56px;
+  }
+  .agent-prompt-inner {
+    border: 1px solid var(--appctl-border);
+    border-radius: 8px;
+    background: var(--appctl-surface);
+    padding: 28px;
+    display: grid;
+    gap: 24px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .agent-prompt-inner {
+      grid-template-columns: 1fr;
+    }
+  }
+  .agent-prompt-title {
+    margin: 0 0 10px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--appctl-fg);
+  }
+  .agent-prompt-lede {
+    margin: 0 0 18px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--appctl-fg-dim);
+    max-width: 48ch;
+  }
+  .agent-prompt-btn {
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 9px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--appctl-border-strong);
+    background: var(--appctl-fg);
+    color: #000000;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .agent-prompt-btn:hover {
+    background: #e4e4e7;
+    border-color: #e4e4e7;
+  }
+  .agent-prompt-feedback {
+    display: inline-block;
+    margin-left: 12px;
+    font-size: 13px;
+    color: var(--appctl-muted);
+    min-height: 1.2em;
+    vertical-align: middle;
+  }
+  .agent-prompt-pre {
+    margin: 0;
+    padding: 18px 20px;
+    border-radius: 6px;
+    border: 1px solid var(--appctl-border);
+    background: var(--appctl-code-bg);
+    color: var(--appctl-fg-dim);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: min(420px, 55vh);
+    overflow-y: auto;
+  }
+</style>
+
+<script>
+  const btn = document.getElementById('copy-agent-prompt');
+  const pre = document.getElementById('agent-setup-prompt');
+  const feedback = document.getElementById('copy-agent-prompt-feedback');
+
+  btn?.addEventListener('click', async () => {
+    const text = pre?.textContent?.trim() ?? '';
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      if (feedback) feedback.textContent = 'Copied.';
+      window.setTimeout(() => {
+        if (feedback?.textContent === 'Copied.') feedback.textContent = '';
+      }, 2200);
+    } catch {
+      if (feedback) feedback.textContent = 'Select and copy manually.';
+    }
+  });
+</script>

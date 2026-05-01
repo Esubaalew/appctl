@@ -2,11 +2,13 @@
 import HeroChat from './HeroChat.astro';
 import ValueCards from './ValueCards.astro';
 import InstallTabs from './InstallTabs.astro';
+import AgentPromptCard from './AgentPromptCard.astro';
 import { APPCTL_VERSION } from '../lib/version.mjs';
 import logo from '../assets/logo.svg';
 
 const base = import.meta.env.BASE_URL;
 const docsHref = `${base}docs/quickstart/`;
+const docsIntroductionHref = `${base}docs/introduction/`;
 const githubHref = 'https://github.com/Esubaalew/appctl';
 const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
 ---
@@ -246,6 +248,8 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
     <HeroChat />
   </div>
 </section>
+
+<AgentPromptCard docsHref={docsIntroductionHref} githubHref={githubHref} />
 
 <section class="values">
   <h2 class="section-title">Why appctl</h2>
