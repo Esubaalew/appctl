@@ -30,6 +30,30 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
     box-sizing: border-box;
   }
 
+  .skip-link {
+    position: fixed;
+    top: -120px;
+    left: 16px;
+    z-index: 100;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    background: var(--appctl-fg);
+    color: #000000;
+    border: 1px solid var(--appctl-fg);
+    transition: top 120ms ease;
+  }
+  .skip-link:focus {
+    top: 16px;
+    outline: none;
+  }
+  .skip-link:focus-visible {
+    outline: 2px solid #ffffff;
+    outline-offset: 2px;
+  }
+
   .nav {
     position: sticky;
     top: 0;
@@ -228,6 +252,9 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
   </div>
 </header>
 
+<a class="skip-link" href="#main-content">Skip to main content</a>
+
+<main id="main-content">
 <section class="hero">
   <div>
     <span class="eyebrow">{eyebrow}</span>
@@ -274,3 +301,4 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
     <a href={`${base}docs/changelog/`}>Changelog</a>
   </div>
 </footer>
+</main>

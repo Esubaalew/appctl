@@ -12,6 +12,17 @@ export default function remarkPrefixBase({ base = '/' } = {}) {
 
   const rewrite = (url) => {
     if (typeof url !== 'string') return url;
+    if (!url.startsWith('/')) return url;
+
+    // Homepage (and anchors) when the site uses a path base (e.g. GitHub Pages).
+    if (normalized !== '/') {
+      if (url === '/') return normalized;
+      if (url.startsWith('/#')) {
+        const baseNoSlash = normalized.replace(/\/$/, '');
+        return `${baseNoSlash}${url}`;
+      }
+    }
+
     if (!url.startsWith('/docs/')) return url;
     // Don't double-prefix if base is already present.
     if (normalized !== '/' && url.startsWith(normalized)) return url;

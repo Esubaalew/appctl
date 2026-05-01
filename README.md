@@ -6,7 +6,7 @@ Command-line tool: introspect an HTTP API, database, or supported application
 codebase, write a tool contract to `.appctl/`, and execute the tools your
 configured language model requests (HTTP, SQL, and related transports).
 
-**Documentation:** <https://esubaalew.github.io/appctl>  
+**Documentation:** <https://esubalew.dev/appctl>  
 **Repository:** <https://github.com/Esubaalew/appctl>
 
 ## Install
@@ -16,7 +16,7 @@ cargo install appctl
 ```
 
 Build from a clone, or install with a custom web UI bundle: see
-[Installation](https://esubaalew.github.io/appctl/docs/installation/).
+[Installation](https://esubalew.dev/appctl/docs/installation/).
 
 ## Commands (overview)
 
@@ -55,7 +55,7 @@ appctl doctor --write
 ```
 
 Full CLI reference, sync sources, providers, `serve`, and plugins are covered
-in the [documentation](https://esubaalew.github.io/appctl/docs/introduction/).
+in the [documentation](https://esubalew.dev/appctl/docs/introduction/).
 
 ## License
 

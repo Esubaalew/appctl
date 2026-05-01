@@ -47,3 +47,4 @@ Not sure which flag to use? Start with [Choosing a sync source](/docs/sources/ch
 - [First 10 minutes](/docs/first-10-minutes/)
 - [Quickstart](/docs/quickstart/)
 - [Mental model](/docs/concepts/mental-model/)
+- [Copy-to-clipboard setup prompt for your AI](/#agent-prompt) (project homepage)

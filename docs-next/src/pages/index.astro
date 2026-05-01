@@ -9,31 +9,50 @@ import '@fontsource/jetbrains-mono/500.css';
 import Landing from '../components/Landing.astro';
 
 const base = import.meta.env.BASE_URL;
-const site = Astro.site ?? new URL('https://esubaalew.github.io');
+const site = Astro.site ?? new URL('https://esubalew.dev');
 const canonicalUrl = new URL(base, site).toString();
 const ogUrl = new URL(`${base.replace(/\/$/, '')}/og.png`, site).toString();
+const pageTitle = 'appctl — Talk to your app in plain English';
+const pageDescription =
+  'Talk to your app in plain English. appctl introspects your app, generates tools, and runs an auditable agent loop.';
+const jsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'appctl',
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Linux, macOS, Windows',
+  description: pageDescription,
+  license: 'https://opensource.org/licenses/MIT',
+  url: canonicalUrl,
+  codeRepository: 'https://github.com/Esubaalew/appctl',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+});
 ---
 <!doctype html>
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>appctl — Talk to your app in plain English</title>
+    <title>{pageTitle}</title>
     <meta
       name="description"
       content="appctl introspects your app, generates tools, and runs an auditable agent loop. Works with Django, Rails, Laravel, ASP.NET, Supabase, SQL, and more."
     />
+    <meta name="theme-color" content="#050505" />
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
     <link rel="canonical" href={canonicalUrl} />
-    <meta property="og:title" content="appctl" />
-    <meta
-      property="og:description"
-      content="Talk to your app in plain English. appctl introspects your app, generates tools, and runs an auditable agent loop."
-    />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:site_name" content="appctl" />
+    <meta property="og:locale" content="en_US" />
     <meta property="og:image" content={ogUrl} />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
     <meta name="twitter:image" content={ogUrl} />
+    <script type="application/ld+json" set:html={jsonLd} />
   </head>
   <body>
     <Landing />

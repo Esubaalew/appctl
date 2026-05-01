@@ -23,7 +23,7 @@ Official docs: ${docsHref}
 Repository: ${githubHref}`;
 ---
 
-<section class="agent-prompt" aria-labelledby="agent-prompt-heading">
+<section id="agent-prompt" class="agent-prompt" aria-labelledby="agent-prompt-heading">
   <div class="agent-prompt-inner">
     <div class="agent-prompt-copy">
       <h2 id="agent-prompt-heading" class="agent-prompt-title">Use your favorite AI to set up appctl</h2>
@@ -92,6 +92,14 @@ Repository: ${githubHref}`;
   .agent-prompt-btn:hover {
     background: #e4e4e7;
     border-color: #e4e4e7;
+  }
+  .agent-prompt-btn:focus-visible {
+    outline: 2px solid var(--appctl-fg);
+    outline-offset: 2px;
+  }
+  .agent-prompt-pre:focus-visible {
+    outline: 2px solid var(--appctl-border-strong);
+    outline-offset: 2px;
   }
   .agent-prompt-feedback {
     display: inline-block;

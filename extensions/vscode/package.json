@@ -14,7 +14,7 @@
     "url": "https://github.com/Esubaalew/appctl.git",
     "directory": "extensions/vscode"
   },
-  "homepage": "https://esubaalew.github.io/appctl/",
+  "homepage": "https://esubalew.dev/appctl/",
   "engines": {
     "vscode": "^1.85.0"
   },

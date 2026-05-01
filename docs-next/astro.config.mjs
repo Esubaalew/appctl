@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import sitemap from '@astrojs/sitemap';
 import remarkPrefixBase from './remark-prefix-base.mjs';
 import remarkAppctlVersion from './remark-appctl-version.mjs';
 import { APPCTL_VERSION } from './src/lib/version.mjs';
@@ -8,7 +9,7 @@ import { APPCTL_VERSION } from './src/lib/version.mjs';
 // GitHub Pages serves this project site under /appctl/.
 // Set APPCTL_DOCS_BASE=/ to build a root-served preview locally.
 const base = process.env.APPCTL_DOCS_BASE ?? '/appctl/';
-const site = process.env.APPCTL_DOCS_SITE ?? 'https://esubaalew.github.io';
+const site = process.env.APPCTL_DOCS_SITE ?? 'https://esubalew.dev';
 
 const ogUrl = new URL(`${base.replace(/\/$/, '')}/og.png`, site).toString();
 
@@ -70,6 +71,14 @@ export default defineConfig({
         './src/styles/starlight-overrides.css',
       ],
       head: [
+        {
+          tag: 'meta',
+          attrs: { property: 'og:site_name', content: 'appctl' },
+        },
+        {
+          tag: 'meta',
+          attrs: { property: 'og:locale', content: 'en_US' },
+        },
         {
           tag: 'meta',
           attrs: { property: 'og:image', content: ogUrl },
@@ -161,5 +170,6 @@ export default defineConfig({
         { label: 'Changelog', slug: 'docs/changelog' },
       ],
     }),
+    sitemap(),
   ],
 });
