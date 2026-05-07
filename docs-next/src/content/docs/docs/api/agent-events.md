@@ -72,6 +72,15 @@ The agent chose a tool and is about to call it.
 
 `id` correlates with the matching `tool_result`.
 
+### `awaiting_input`
+
+Emitted immediately before appctl applies a safety gate that may need terminal
+input, such as confirming a mutating CLI tool call.
+
+```json
+{ "kind": "awaiting_input" }
+```
+
 ### `tool_result`
 
 The tool returned.
@@ -130,8 +139,8 @@ Loop finished. No more events will be emitted for this turn.
 
 - Exactly one `user_prompt` starts the stream.
 - Zero or more `session_state`, `context_notice`, `assistant_thought_delta` /
-  `assistant_thought`, and `tool_call` / `tool_result` events interleave with
-  `assistant_delta`/`assistant_message`.
+  `assistant_thought`, `awaiting_input`, and `tool_call` / `tool_result` events
+  interleave with `assistant_delta`/`assistant_message`.
 - Every `tool_call` is followed by a `tool_result` with the same `id` (unless the loop errors first).
 - Exactly one `done` terminates the stream.
 

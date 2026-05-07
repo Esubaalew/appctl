@@ -23,9 +23,9 @@ The command reads `.appctl/config.toml` from the current `--app-dir` (default
 | `--provider <NAME>` | Override `default` in `.appctl/config.toml` for this session. |
 | `--model <NAME>` | Override the provider's `model` field. |
 | `--session <NAME>` | Attach a human label to this chat session so history and the web UI show a stable name instead of an anonymous id. |
-| `--read-only` | Reject any tool whose `op` is not a safe read. |
+| `--read-only` | Reject any mutating or destructive tool before execution. |
 | `--dry-run` | Plan and stream events, but skip the real HTTP / SQL call. |
-| `--confirm` | Auto-approve mutating calls (default is interactive confirm on TTY). |
+| `--confirm` | Auto-approve mutating and destructive tools. Without it, appctl prompts before executing them. |
 | `--strict` | Block tools with `provenance = "inferred"` until `appctl doctor --write` marks them verified. |
 
 Global flags (`--app-dir`, `--log-level`) work on every subcommand.

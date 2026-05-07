@@ -57,7 +57,6 @@ services:
       - --port=4242
       - --token=${APPCTL_TOKEN}
       - --strict
-      - --confirm
     restart: unless-stopped
 ```
 

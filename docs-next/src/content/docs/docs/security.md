@@ -26,9 +26,9 @@ just because it can reach `127.0.0.1`.
 
 | Flag | Effect |
 | --- | --- |
-| `--read-only` | Every mutating tool is rejected before the HTTP call. |
+| `--read-only` | Every mutating or destructive tool is rejected before execution. |
 | `--dry-run` | The agent plans the call, the executor short-circuits before real I/O. |
-| `--confirm` | Auto-approves mutations (default on `chat` / `run` is to prompt interactively; default on `serve` is **on**). |
+| `--confirm` | Auto-approves mutating and destructive tools. Without it, terminal commands prompt before execution. `serve` defaults to auto-approve because it is non-interactive. |
 | `--strict` | Blocks `provenance = "inferred"` tools until `appctl doctor --write` promotes them to `verified`. |
 
 Pick the tightest combination that still gets the job done.
@@ -54,7 +54,7 @@ API keys and OAuth tokens live in the OS keychain. Environment variables overrid
 ## Recommended posture
 
 - Dev laptop: `appctl chat` with default prompting for mutations (do **not** pass `--confirm`).
-- Team-internal `serve`: `--token`, `--strict`, `--confirm=false` if you want every mutation to wait for an explicit client approval.
+- Team-internal `serve`: `--token`, `--strict`, and `--read-only` for viewers; run a separate write-capable instance only for trusted operators.
 - Production `serve` behind TLS: `--token`, `--strict`; run a separate `--read-only` instance for viewers.
 - Embedding in a customer-facing product: `--token`, `--strict`, `--read-only`; do not expose a write endpoint without a second authorization layer.
 

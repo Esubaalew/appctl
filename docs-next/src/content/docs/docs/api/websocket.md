@@ -36,7 +36,9 @@ Each client message is a JSON text frame:
 
 Only `message` is required. Safety fields can request stricter handling for this
 turn, but they cannot relax a server-enforced mode. Send `session_id` to resume
-the same in-process transcript used by `POST /run`.
+the same in-process transcript used by `POST /run`. For browser or unattended
+clients, omit `confirm` or send `true`; `false` asks the server process to
+confirm in its terminal.
 
 ## Receive
 

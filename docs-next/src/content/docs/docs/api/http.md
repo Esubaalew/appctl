@@ -82,6 +82,9 @@ Optional: `"session_id": "<uuid or opaque id>"` — omit on the first message in
 
 The safety booleans can only **tighten** the server policy for that request.
 They cannot turn off a mode that `appctl serve` already enforced at startup.
+For non-interactive HTTP clients, omit `confirm` or send `true`; `false` asks
+the server process to confirm in its terminal and is only useful when that
+process is attended.
 
 Response:
 

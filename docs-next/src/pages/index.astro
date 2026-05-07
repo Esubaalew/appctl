@@ -12,9 +12,9 @@ const base = import.meta.env.BASE_URL;
 const site = Astro.site ?? new URL('https://esubalew.dev');
 const canonicalUrl = new URL(base, site).toString();
 const ogUrl = new URL(`${base.replace(/\/$/, '')}/og.png`, site).toString();
-const pageTitle = 'appctl — Talk to your app in plain English';
+const pageTitle = 'appctl — LLM tools for your existing app';
 const pageDescription =
-  'Talk to your app in plain English. appctl introspects your app, generates tools, and runs an auditable agent loop.';
+  'appctl turns your existing app, API, or database into typed tools an LLM can call, then executes and logs those calls under your configuration.';
 const jsonLd = JSON.stringify({
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
@@ -36,7 +36,7 @@ const jsonLd = JSON.stringify({
     <title>{pageTitle}</title>
     <meta
       name="description"
-      content="appctl introspects your app, generates tools, and runs an auditable agent loop. Works with Django, Rails, Laravel, ASP.NET, Supabase, SQL, and more."
+      content="appctl turns your existing app, API, or database into typed tools an LLM can call. Works with OpenAPI, Django, Rails, Laravel, ASP.NET, Supabase, SQL, MCP, and more."
     />
     <meta name="theme-color" content="#050505" />
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />

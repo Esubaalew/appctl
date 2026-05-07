@@ -15,7 +15,9 @@ The agent loop runs inside `appctl chat`, `appctl run`, and `appctl serve`. Each
 3. **Branch on response.**
    - If the LLM returns a tool call, the runtime executes it, captures the result, and loops.
    - If the LLM returns a final message, the loop stops.
-4. **Emit AgentEvents.** Every step produces an event (`tool_call_start`, `tool_call_end`, `llm_chunk`, `final`). Consumers (VS Code, web UI, `serve` clients) render them in real time.
+4. **Emit AgentEvents.** Every step produces an event such as `user_prompt`,
+   `tool_call`, `tool_result`, `assistant_message`, `error`, or `done`.
+   Consumers (VS Code, web UI, `serve` clients) render them in real time.
 
 ## Iteration cap
 
@@ -25,9 +27,9 @@ The agent loop runs inside `appctl chat`, `appctl run`, and `appctl serve`. Each
 
 Between steps, the runtime applies:
 
-- `--read-only`: drops mutation tools from the definitions list entirely.
+- `--read-only`: rejects mutating or destructive tools before execution.
 - `--dry-run`: returns a synthetic response describing what would have happened.
-- `--confirm` (CLI): prompts y/n before each mutation.
+- `--confirm`: auto-approves mutating and destructive tools. Without it, terminal commands prompt before execution.
 - `--strict`: blocks tools with `provenance: "inferred"` until doctor has verified them.
 
 ## Where AgentEvents come from
@@ -36,10 +38,10 @@ See [AgentEvent stream](/docs/api/agent-events/) for the full list. Each event i
 
 ```json
 {
-  "type": "tool_call_start",
-  "tool": "create_widget",
-  "args": { "name": "Demo" },
-  "ts": "2026-04-21T12:30:45Z"
+  "kind": "tool_call",
+  "id": "call_01HV...",
+  "name": "create_widget",
+  "arguments": { "name": "Demo" }
 }
 ```
 

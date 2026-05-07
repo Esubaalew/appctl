@@ -52,10 +52,10 @@ token.
 | `--tunnel` | off | Start `cloudflared tunnel --url ...` next to the local server. |
 | `--provider <NAME>` | — | Override the default provider for this server instance. |
 | `--model <NAME>` | — | Override the provider's model. |
-| `--read-only` | off | Block every mutating tool server-wide. |
+| `--read-only` | off | Block every mutating or destructive tool server-wide. |
 | `--dry-run` | off | Skip real I/O; return simulated events. |
 | `--strict` | off | Block `provenance = "inferred"` tools until verified. |
-| `--confirm` | **on** | Auto-approve mutations. Default is on (non-interactive). Pass `--confirm=false` to require per-call approval from the web UI. |
+| `--confirm` | **on** | Auto-approve mutating and destructive tools. `serve` is non-interactive, so use `--read-only` or `--dry-run` when a shared instance must not write. |
 
 Flags set on `appctl serve` are the **minimum** safety level for every request.
 Clients may request stricter modes (for example, turning on `read_only` for one
@@ -120,8 +120,8 @@ appctl serve --token "$(openssl rand -hex 24)" --tunnel
 # Read-only, dry-run demo instance
 appctl serve --read-only --dry-run
 
-# Force a specific provider for a server that runs inside a CI job
-appctl serve --provider openai --model gpt-4o-mini --confirm=false
+# Force a specific provider for a read-only server inside a CI job
+appctl serve --provider openai --model gpt-4o-mini --read-only
 ```
 
 ## What URL do I open?

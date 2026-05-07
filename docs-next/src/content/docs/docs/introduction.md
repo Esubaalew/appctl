@@ -1,15 +1,28 @@
 ---
 title: Introduction
-description: What appctl is and how it relates to your application and LLM.
+description: What appctl does and how it connects your application to an LLM.
 ---
 
-> Talk to your app. In plain English.
+`appctl` gives an LLM a controlled set of tools for your existing application.
+It reads an app surface you already have, writes a local tool contract, executes
+the tool calls the model requests, and records what happened.
 
-`appctl` is a CLI that reads a machine-readable description of an application
-(OpenAPI, ORM, SQL `information_schema`, framework layout, etc.), writes
-`.appctl/schema.json` and `.appctl/tools.json`, and at runtime dispatches
-tool calls from the model to your HTTP endpoints or database according to that
-schema. Call history is stored locally (e.g. `.appctl/history.db`).
+The source can be an OpenAPI document, framework project, SQL
+`information_schema`, Supabase/PostgREST service, MCP server, URL login flow, or
+plugin. The generated files live under `.appctl/`, so the contract can be
+reviewed before the agent uses it.
+
+At runtime, appctl sends your prompt to the configured model provider. If the
+model asks to call a tool, appctl performs the HTTP, SQL, MCP, or plugin-backed
+operation using your configured auth and safety settings. Call history is stored
+locally, for example in `.appctl/history.db`.
+
+## When to use it
+
+Use appctl when you want to operate or inspect a real backend from natural
+language without writing a custom agent bridge first. Typical use cases include
+internal admin workflows, support operations, reporting, QA checks, demo apps,
+and local developer tools.
 
 ## Primary commands
 

@@ -28,7 +28,7 @@ Every project has a `.appctl/schema.json` after a successful sync. It looks like
             "path": "/widgets"
           },
           "params_schema": { "type": "object", "properties": { "name": { "type": "string" } } },
-          "safety": "mutation",
+          "safety": "mutating",
           "provenance": "declared"
         }
       ]
@@ -45,7 +45,7 @@ The schema is deterministic for a given source. Re-running `sync` produces the s
 - `verb` — `list`, `get`, `create`, `update`, `delete`, or `action`.
 - `transport` — how to call it. `http` with `method` + `path`, or `sql` with `table` + `operation`.
 - `params_schema` — JSON Schema for arguments.
-- `safety` — `read_only` or `mutation`.
+- `safety` — `read_only`, `mutating`, or `destructive`.
 - `provenance` — `declared`, `inferred`, or `verified`.
 
 ## Auth strategies
@@ -55,7 +55,8 @@ The `auth` block at the top of the schema tells the runtime how to authenticate:
 - `none` — no auth.
 - `bearer` — `Authorization: Bearer <env_ref>`.
 - `api_key` — custom header (`header: "apikey"` for Supabase).
-- `oauth_flow` — token stored via `appctl auth login`.
+- `basic`, `cookie`, or `oauth2` — credentials/session state configured outside
+  chat and resolved by appctl at runtime.
 
 Override the inferred strategy at sync time with `--auth-header '<header>: <value>'`.
 
@@ -82,7 +83,8 @@ The schema is plain JSON. You can:
 - Rename a tool (update `name`).
 - Narrow a parameter schema (add `required`, restrict `enum`).
 - Remove a tool you do not want exposed.
-- Add an `oauth_flow` after running `appctl auth login`.
+- Point OAuth-backed target auth at a named profile after running
+  `appctl auth target login` and `appctl auth target use`.
 
 Keep a copy in version control alongside your app. CI can re-sync and diff.
 

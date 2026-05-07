@@ -44,17 +44,17 @@ Highest trust. The endpoint definitely exists and is reachable as described.
 
 | Flag | What it does | Use when |
 | --- | --- | --- |
-| `--read-only` | removes every mutation tool from the loop | shared or demo environments |
+| `--read-only` | rejects every mutating or destructive tool before execution | shared or demo environments |
 | `--dry-run` | LLM plans calls; runtime fabricates a response | testing or cost control |
-| `--confirm` | prompts before each mutation (CLI default) | CLI dev work |
+| `--confirm` | auto-approves mutating and destructive tools | trusted automation |
 | `--strict` | blocks `inferred` tools until `verified` | production |
 
 ## Recommended combinations
 
 - **Dev laptop, trusted app**: no flags. `appctl chat`.
-- **Shared serve, internal team**: `--strict --confirm` for ops, `--read-only` for viewers.
+- **Shared serve, internal team**: `--strict` for trusted operators, `--read-only` for viewers.
 - **Customer-facing serve**: `--strict --read-only` by default, open a separate endpoint or token for writes.
-- **CI, regression testing**: `--dry-run --strict` to catch contract drift without side effects.
+- **CI, regression testing**: `--read-only --strict` for real reads, or `--dry-run --strict` to catch contract drift without side effects.
 
 ## Audit trail
 

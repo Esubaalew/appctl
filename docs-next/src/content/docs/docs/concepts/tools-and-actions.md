@@ -19,9 +19,9 @@ Most sources produce the same five actions per resource:
 | --- | --- | --- |
 | `list` | `GET /items` | read_only |
 | `get` | `GET /items/{id}` | read_only |
-| `create` | `POST /items` | mutation |
-| `update` | `PATCH /items/{id}` | mutation |
-| `delete` | `DELETE /items/{id}` | mutation |
+| `create` | `POST /items` | mutating |
+| `update` | `PATCH /items/{id}` | mutating |
+| `delete` | `DELETE /items/{id}` | destructive |
 
 OpenAPI-based sources may produce more (for example, `POST /items/{id}/archive` becomes an action with `verb: action`).
 
@@ -69,9 +69,13 @@ The runtime opens a WebSocket to the MCP server and calls `tools/call`.
 
 `safety: "read_only"` means the tool does not mutate state. It is always allowed.
 
-`safety: "mutation"` means it might. In CLI mode, `appctl` prompts before every mutation unless `--confirm` is set. In `appctl serve`, mutations auto-approve by default.
+`safety: "mutating"` means it might. In terminal commands, `appctl` prompts
+before every mutating or destructive tool unless `--confirm` is set. In
+`appctl serve`, mutations auto-approve by default because the daemon is
+non-interactive.
 
-The global `--read-only` flag blocks every mutation tool regardless of configuration.
+The global `--read-only` flag blocks every mutating or destructive tool
+regardless of configuration.
 
 ## Naming
 

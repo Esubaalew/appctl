@@ -40,15 +40,24 @@ appctl sync --django . --base-url http://127.0.0.1:8001/api --force
 
 ## `appctl doctor` says "invalid port number"
 
-You are on a pre-0.2.0 build. Upgrade. The fix is in [`doctor.rs`](https://github.com/Esubaalew/appctl/blob/main/crates/appctl/src/doctor.rs): non-root paths now get a slash between base URL and path.
+This points to an old appctl binary or a malformed `base_url`. Upgrade to the
+latest release, then inspect `.appctl/schema.json` and `.appctl/config.toml` for
+a base URL that accidentally includes a path fragment, port separator, or
+duplicated host. Re-sync with `--force` after correcting the URL.
 
 ## Supabase sync "document missing paths object"
 
-Your PostgREST serves the OpenAPI document at `/` (bare PostgREST) but older builds only probed `/rest/v1` (hosted Supabase layout). Upgrade to 0.2.0 or newer. The sync now probes both layouts automatically.
+Your PostgREST endpoint did not return an OpenAPI document. Hosted Supabase
+usually serves PostgREST under `/rest/v1`; bare PostgREST often serves the
+document at `/`. Use the exact PostgREST URL, pass `--supabase-anon-ref` when
+the endpoint needs an anon key, then re-run sync with `--force`.
 
 ## Rails tools use singular paths
 
-`/api/v1/post` instead of `/api/v1/posts`. Fixed in 0.2.0. Upgrade and re-sync with `--force`.
+Upgrade to the latest appctl, then re-sync with `--force`. If your app uses
+custom inflections or non-standard route names, prefer an OpenAPI document so
+appctl reads the server-published contract instead of inferring routes from
+static files.
 
 ## `appctl chat` cannot find the provider
 

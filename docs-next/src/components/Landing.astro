@@ -177,6 +177,50 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
     max-width: 560px;
   }
 
+  .definition {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 8px 24px 32px;
+  }
+  .definition-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 20px;
+    align-items: start;
+    border-top: 1px solid var(--appctl-border);
+    padding-top: 28px;
+  }
+  @media (max-width: 900px) {
+    .definition-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .definition h2 {
+    margin: 0 0 10px;
+    font-size: 24px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .definition p {
+    margin: 0;
+    color: var(--appctl-fg-dim);
+    max-width: 66ch;
+  }
+  .definition-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+    color: var(--appctl-fg-dim);
+    font-size: 14px;
+  }
+  .definition-list li {
+    border-left: 1px solid var(--appctl-border-strong);
+    padding-left: 12px;
+  }
+
   section.values {
     max-width: 1120px;
     margin: 0 auto;
@@ -258,10 +302,11 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
 <section class="hero">
   <div>
     <span class="eyebrow">{eyebrow}</span>
-    <h1>Talk to your app. In plain English.</h1>
+    <h1>LLM tools for your existing app.</h1>
     <p class="lede">
-      appctl points at your existing app, reads its routes or schema, and turns them into
-      typed tools an LLM can call. Every action is logged. Your data stays where it lives.
+      appctl reads your API, database, or framework project, generates a local tool
+      contract, and executes the actions your configured model requests. Your app stays
+      the source of truth; appctl handles auth, safety, and audit history.
     </p>
     <div class="cta-row">
       <a class="btn btn-primary" href={docsHref}>Get started</a>
@@ -276,18 +321,37 @@ const eyebrow = `v${APPCTL_VERSION} · Rust · MIT`;
   </div>
 </section>
 
+<section class="definition" aria-labelledby="what-appctl-does">
+  <div class="definition-grid">
+    <div>
+      <h2 id="what-appctl-does">What appctl does</h2>
+      <p>
+        It is a CLI and local control plane that connects an LLM to the operations your
+        app already exposes. Use it to inspect data, run API actions, operate internal
+        tools, or serve a web console without writing a custom agent bridge.
+      </p>
+    </div>
+    <ul class="definition-list" aria-label="appctl workflow">
+      <li>Sync from OpenAPI, SQL, Supabase, MCP, or supported frameworks.</li>
+      <li>Write `.appctl/schema.json` and `.appctl/tools.json` beside your project.</li>
+      <li>Run `appctl chat`, `appctl run`, or `appctl serve` to execute model tool calls.</li>
+      <li>Keep secrets in config or environment variables, not in the chat transcript.</li>
+    </ul>
+  </div>
+</section>
+
 <AgentPromptCard docsHref={docsIntroductionHref} githubHref={githubHref} />
 
 <section class="values">
-  <h2 class="section-title">Why appctl</h2>
+  <h2 class="section-title">Why teams use it</h2>
   <ValueCards />
 </section>
 
 <section>
   <div class="cta-strip">
     <div>
-      <h2>Read the quickstart.</h2>
-      <p>Spin up a demo app, run appctl sync, and chat with it in under five minutes.</p>
+      <h2>Start with one synced app.</h2>
+      <p>Run the guided setup, inspect the generated tools, then try a read-only prompt first.</p>
     </div>
     <a class="btn btn-primary" href={docsHref}>Open quickstart</a>
   </div>

@@ -12,8 +12,7 @@ appctl serve \
   --bind 0.0.0.0 \
   --port 4242 \
   --token "$(openssl rand -hex 32)" \
-  --strict \
-  --confirm
+  --strict
 ```
 
 Put TLS termination in front (Caddy, Nginx, Cloudflare Tunnel). `appctl serve` does not terminate TLS.

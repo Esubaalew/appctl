@@ -28,9 +28,9 @@ whitespace by your shell.
 | `--provider <NAME>` | Override the `default` provider for this invocation. |
 | `--model <NAME>` | Override the provider's model. |
 | `--json` | Emit a single JSON object containing the final answer, `session_id`, event stream, and summarized tool calls. |
-| `--read-only` | Block every mutating tool. |
+| `--read-only` | Block every mutating or destructive tool. |
 | `--dry-run` | Stream events, skip real I/O. |
-| `--confirm` | Auto-approve mutations (on by default in non-TTY mode, off in TTY). |
+| `--confirm` | Auto-approve mutating and destructive tools. Without it, appctl prompts before executing them. |
 | `--strict` | Require `provenance = "verified"` on every tool. |
 
 ## Exit codes
@@ -55,7 +55,7 @@ appctl run --json --read-only "Summarize the last 20 support tickets"
 appctl run --dry-run "Delete all orders from staging"
 
 # Use in a CI step
-appctl run --confirm --read-only "Summarize the last 20 support tickets" \
+appctl run --read-only "Summarize the last 20 support tickets" \
   > summary.md
 ```
 

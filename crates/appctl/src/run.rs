@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -93,12 +93,16 @@ pub async fn run_once(
         },
         Some(tx),
     );
-    let mut events = Vec::new();
     if options.json {
+        let collector = tokio::spawn(async move {
+            let mut events = Vec::new();
+            while let Some(event) = rx.recv().await {
+                events.push(event);
+            }
+            events
+        });
         let response = response.await?;
-        while let Some(event) = rx.recv().await {
-            events.push(event);
-        }
+        let events = collector.await.context("event collector task failed")?;
         let response = response.response;
         let payload = RunJsonOutput {
             tools_called: collect_tool_calls(&events),
